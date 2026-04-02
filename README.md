@@ -5,7 +5,14 @@
 
 A modern, responsive web-based SSH and SFTP terminal client built with Node.js, Express, and xterm.js. Features excellent TUI support, tabbed sessions, bookmarks, and mobile-friendly design.
 
-![SSHIFT Logo](logo.jpg)
+![SSHIFT Logo](media/logo.jpg)
+
+## 📸 Screenshots
+
+<div align="center">
+  <img src="media/screenshot1.png" alt="SSH Terminal" width="45%">
+  <img src="media/screenshot2.png" alt="SFTP Browser" width="45%">
+</div>
 
 ## ✨ Features
 
@@ -218,89 +225,14 @@ For personal use or trusted networks:
 
 **If you need multi-user access or authentication, you MUST use a reverse proxy with authentication.**
 
-#### Recommended Setup: Nginx Reverse Proxy
+Recommended authentication solutions:
+- **Nginx + HTTP Basic Auth** - Simple password protection
+- **Authelia** - Full-featured SSO with 2FA/MFA support
+- **Cloudflare Access** - Zero-trust authentication (no server config needed)
+- **OAuth2 Proxy** - Google, GitHub, or other OAuth providers
+- **Keycloak** - Enterprise SSO solution
 
-```nginx
-# /etc/nginx/sites-available/sshift
-server {
-    listen 443 ssl http2;
-    server_name sshift.example.com;
-
-    # SSL certificates (Let's Encrypt recommended)
-    ssl_certificate /etc/letsencrypt/live/sshift.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/sshift.example.com/privkey.pem;
-
-    # Security headers
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-    add_header X-Frame-Options DENY always;
-    add_header X-Content-Type-Options nosniff always;
-
-    # Authentication (choose one method below)
-    
-    # Option 1: HTTP Basic Auth
-    auth_basic "SSHIFT Access";
-    auth_basic_user_file /etc/nginx/.htpasswd;
-
-    # Option 2: OAuth2/Authelia (recommended for production)
-    # auth_request /auth;
-    # location = /auth {
-    #     internal;
-    #     proxy_pass http://authelia:9091/api/verify;
-    # }
-
-    # Proxy to SSHIFT
-    location / {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
-        
-        # WebSocket support
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        
-        # Timeouts
-        proxy_read_timeout 86400;
-        proxy_send_timeout 86400;
-    }
-}
-
-# Redirect HTTP to HTTPS
-server {
-    listen 80;
-    server_name sshift.example.com;
-    return 301 https://$server_name$request_uri;
-}
-```
-
-#### Authentication Options
-
-1. **HTTP Basic Auth** (Simple, single user)
-   ```bash
-   # Create password file
-   sudo htpasswd -c /etc/nginx/.htpasswd username
-   
-   # Add additional users
-   sudo htpasswd /etc/nginx/.htpasswd anotheruser
-   ```
-
-2. **OAuth2 / Authelia** (Recommended for production)
-   - Supports multiple users
-   - 2FA/MFA support
-   - SSO integration
-   - See [Authelia documentation](https://www.authelia.com/)
-
-3. **Cloudflare Access** (Zero-trust)
-   - No server configuration needed
-   - Email OTP authentication
-   - Works with Cloudflare Tunnel
-
-4. **Other Options**
-   - **OAuth2 Proxy** - Google, GitHub, etc.
-   - **Keycloak** - Enterprise SSO
-   - **Authentik** - Open-source identity provider
+For detailed setup instructions, see the documentation of your chosen authentication solution.
 
 ### Production Checklist
 
@@ -309,7 +241,7 @@ server {
 - [ ] Set up **firewall rules** (limit access by IP)
 - [ ] Use **strong passwords** for SSH connections
 - [ ] Consider **SSH key authentication** instead of passwords
-- [ ] Enable **rate limiting** in nginx
+- [ ] Enable **rate limiting** in your reverse proxy
 - [ ] Set up **logging** and monitoring
 - [ ] Keep **Node.js** and dependencies updated
 
