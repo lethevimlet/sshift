@@ -199,6 +199,40 @@ html, body {
   overflow: hidden;
 }
 
+/* Fix for mobile viewport height issues */
+/* Use svh (small viewport height) with fallbacks for mobile browsers */
+/* svh accounts for browser UI (address bar, navigation bar) and prevents overflow */
+@supports (height: 100svh) {
+  html, body {
+    height: 100svh;
+  }
+  
+  .app-container {
+    height: 100svh;
+  }
+  
+  .modal {
+    height: 100svh;
+    max-height: 100svh;
+  }
+}
+
+/* Fallback for browsers without svh support - uses JS-set --vh variable */
+@supports not (height: 100svh) {
+  html, body {
+    height: calc(var(--vh, 1vh) * 100);
+  }
+  
+  .app-container {
+    height: calc(var(--vh, 1vh) * 100);
+  }
+  
+  .modal {
+    height: calc(var(--vh, 1vh) * 100);
+    max-height: calc(var(--vh, 1vh) * 100);
+  }
+}
+
 body {
   font-family: var(--font-sans);
   background-color: var(--bg-primary);
@@ -264,6 +298,273 @@ body {
 .menu-btn:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+/* Menu icon visibility - hamburger on desktop, bookmark on mobile */
+.mobile-menu-icon {
+  display: none;
+}
+
+/* Desktop-only controls - hidden on mobile */
+.desktop-only {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Mobile overflow menu - hidden on desktop */
+.mobile-overflow-menu {
+  display: none;
+  position: relative;
+}
+
+.overflow-toggle {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.overflow-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.overflow-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  min-width: 200px;
+  padding: 8px 0;
+  display: none;
+  z-index: 1000;
+}
+
+.overflow-dropdown.show {
+  display: block;
+}
+
+.overflow-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 16px;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  text-align: left;
+}
+
+.overflow-option:hover {
+  background: var(--bg-hover);
+}
+
+.overflow-option i {
+  width: 16px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.overflow-option:hover i {
+  color: var(--accent-primary);
+}
+
+/* Style accent-preview in mobile overflow menu */
+.overflow-option .accent-preview {
+  width: 16px;
+  height: 16px;
+  background: var(--accent-primary);
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.overflow-submenu {
+  position: relative;
+}
+
+.submenu-arrow {
+  margin-left: auto;
+  font-size: 12px;
+}
+
+.submenu-content {
+  display: none;
+  padding: 8px 0;
+  background: var(--bg-tertiary);
+}
+
+.submenu-content.show {
+  display: block;
+}
+
+.submenu-content .accent-option,
+.submenu-content .terminal-color-option {
+  padding: 8px 16px 8px 32px;
+}
+
+/* Mobile tabs dropdown */
+.mobile-tabs-dropdown {
+  display: none;
+  flex: 1;
+  position: relative;
+}
+
+.mobile-tabs-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.mobile-tabs-toggle:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-light);
+}
+
+.mobile-tabs-toggle .tab-icon-active {
+  color: var(--accent-primary);
+}
+
+.mobile-tabs-label {
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dropdown-arrow {
+  transition: transform var(--transition-fast);
+}
+
+.mobile-tabs-toggle.active .dropdown-arrow {
+  transform: rotate(180deg);
+}
+
+.mobile-tabs-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  max-height: 300px;
+  overflow-y: auto;
+  display: none;
+  z-index: 1000;
+}
+
+.mobile-tabs-menu.show {
+  display: block;
+}
+
+.mobile-tab-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  width: 100%;
+  text-align: left;
+}
+
+.mobile-tab-option:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.mobile-tab-option.active {
+  background: var(--bg-active);
+  color: var(--text-primary);
+}
+
+.mobile-tab-option .tab-icon {
+  font-size: 12px;
+  width: 16px;
+  text-align: center;
+}
+
+.mobile-tab-option .tab-icon.ssh {
+  color: var(--accent-primary);
+}
+
+.mobile-tab-option .tab-icon.sftp {
+  color: var(--accent-purple);
+}
+
+.mobile-tab-option .tab-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mobile-tab-option .tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  font-size: 12px;
+  padding: 0;
+}
+
+.mobile-tab-option .tab-close:hover {
+  background: var(--accent-danger);
+  color: #fff;
+}
+
+.mobile-tab-option .tab-rename {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  font-size: 10px;
+  padding: 0;
+}
+
+.mobile-tab-option .tab-rename:hover {
+  background: var(--accent-primary);
+  color: #fff;
 }
 
 /* Theme Toggle & Accent Selector */
@@ -553,6 +854,7 @@ body {
 .btn-sm {
   padding: 4px 10px;
   font-size: 12px;
+  min-height: 34px;
 }
 
 .btn-icon {
@@ -1317,6 +1619,11 @@ body {
   gap: 4px;
 }
 
+/* Special keys button should match mobile tabs dropdown height */
+.tabs-actions .btn-sm {
+  min-height: 34px;
+}
+
 /* Terminals Container */
 .terminals-container {
   flex: 1;
@@ -1559,6 +1866,10 @@ body {
   align-items: center;
   justify-content: center;
   padding: 20px;
+  /* Use svh (small viewport height) for better mobile support */
+  /* svh accounts for browser UI and prevents content from being cut off */
+  height: 100svh;
+  max-height: 100svh;
 }
 
 .modal.active {
@@ -1571,7 +1882,7 @@ body {
   border: 1px solid var(--border-color);
   width: 100%;
   max-width: 500px;
-  max-height: 90vh;
+  max-height: 90svh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -2090,12 +2401,52 @@ body {
     padding: 0 8px;
   }
 
+  .logo {
+    font-size: 16px;
+    gap: 6px;
+  }
+
+  .logo i {
+    font-size: 14px;
+  }
+
   .logo-text {
-    display: none;
+    display: inline;
+    font-size: 14px;
   }
 
   .menu-btn {
     display: flex;
+  }
+
+  /* Show bookmark icon on mobile, hamburger on desktop */
+  .desktop-menu-icon {
+    display: none;
+  }
+
+  .mobile-menu-icon {
+    display: inline-block;
+  }
+
+  /* Hide desktop-only controls on mobile */
+  .desktop-only {
+    display: none;
+  }
+
+  /* Show mobile overflow menu on mobile */
+  .mobile-overflow-menu {
+    display: block;
+  }
+
+  /* Hide desktop tabs on mobile */
+  .tabs {
+    display: none;
+  }
+
+  /* Show mobile tabs dropdown on mobile */
+  .mobile-tabs-dropdown {
+    display: flex;
+    margin-left: 8px;
   }
 
   .btn-text {
@@ -2140,23 +2491,37 @@ body {
     pointer-events: auto;
   }
 
-  .tabs-container {
-    flex-wrap: wrap;
-  }
-
-  .tab {
-    padding: 6px 12px;
-    font-size: 12px;
-  }
-
   .modal-content {
     max-width: 100%;
     margin: 10px;
-    max-height: calc(100vh - 20px);
+    max-height: calc(100svh - 20px);
+    width: calc(100% - 20px);
+  }
+
+  .modal-body {
+    max-height: calc(100svh - 140px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Fallback for browsers without svh support */
+  @supports not (height: 100svh) {
+    .modal-content {
+      max-height: calc(calc(var(--vh, 1vh) * 100) - 20px);
+    }
+    
+    .modal-body {
+      max-height: calc(calc(var(--vh, 1vh) * 100) - 140px);
+    }
   }
 
   .form-row {
     flex-direction: column;
+  }
+
+  /* Hide bookmark action buttons (folder and 3-dot) on mobile */
+  .bookmark-actions {
+    display: none !important;
   }
 
   .empty-actions {
@@ -2212,6 +2577,11 @@ body {
   .btn {
     min-height: 44px;
     min-width: 44px;
+  }
+  
+  /* Keep tabs-actions buttons at 34px for consistency */
+  .tabs-actions .btn-sm {
+    min-height: 34px;
   }
 
   .tab {

@@ -16,7 +16,8 @@
     <header class="header">
       <div class="header-left">
         <button class="menu-btn" id="menuBtn" title="Toggle Sidebar">
-          <i class="fas fa-bars"></i>
+          <i class="fas fa-bars desktop-menu-icon"></i>
+          <i class="fas fa-bookmark mobile-menu-icon"></i>
         </button>
         <h1 class="logo">
           <i class="fas fa-terminal"></i>
@@ -24,6 +25,7 @@
         </h1>
       </div>
       <div class="header-right">
+        <!-- Primary action buttons - always visible -->
         <button class="btn btn-icon" id="newSshBtn" title="New SSH Connection">
           <i class="fas fa-plug"></i>
           <span class="btn-text">SSH</span>
@@ -32,82 +34,174 @@
           <i class="fas fa-folder-open"></i>
           <span class="btn-text">SFTP</span>
         </button>
-        <button class="btn btn-icon theme-toggle" id="themeToggle" title="Toggle Theme">
-          <i class="fas fa-lightbulb"></i>
-        </button>
-        <div class="accent-selector" id="accentSelector">
-          <button class="btn btn-icon accent-btn" title="Change Accent Color">
-            <span class="accent-preview"></span>
+        
+        <!-- Desktop-only controls -->
+        <div class="desktop-only">
+          <button class="btn btn-icon theme-toggle" id="themeToggle" title="Toggle Theme">
+            <i class="fas fa-lightbulb"></i>
           </button>
-          <div class="accent-dropdown">
-            <button class="accent-option" data-accent="fuchsia" title="Fuchsia">
-              <span class="accent-color" style="background: #c10059;"></span>
-              <span class="accent-label">Fuchsia</span>
+          <div class="accent-selector" id="accentSelector">
+            <button class="btn btn-icon accent-btn" title="Change Accent Color">
+              <span class="accent-preview"></span>
             </button>
-            <button class="accent-option" data-accent="green" title="Green">
-              <span class="accent-color" style="background: #2ea043;"></span>
-              <span class="accent-label">Green</span>
+            <div class="accent-dropdown">
+              <button class="accent-option" data-accent="fuchsia" title="Fuchsia">
+                <span class="accent-color" style="background: #c10059;"></span>
+                <span class="accent-label">Fuchsia</span>
+              </button>
+              <button class="accent-option" data-accent="green" title="Green">
+                <span class="accent-color" style="background: #2ea043;"></span>
+                <span class="accent-label">Green</span>
+              </button>
+              <button class="accent-option" data-accent="purple" title="Purple">
+                <span class="accent-color" style="background: #a371f2;"></span>
+                <span class="accent-label">Purple</span>
+              </button>
+              <button class="accent-option" data-accent="orange" title="Orange">
+                <span class="accent-color" style="background: #d18616;"></span>
+                <span class="accent-label">Orange</span>
+              </button>
+              <button class="accent-option" data-accent="red" title="Red">
+                <span class="accent-color" style="background: #da3633;"></span>
+                <span class="accent-label">Red</span>
+              </button>
+              <button class="accent-option" data-accent="cyan" title="Cyan">
+                <span class="accent-color" style="background: #1f6feb;"></span>
+                <span class="accent-label">Cyan</span>
+              </button>
+              <button class="accent-option" data-accent="blue" title="Blue">
+                <span class="accent-color" style="background: #58a6ff;"></span>
+                <span class="accent-label">Blue</span>
+              </button>
+              <button class="accent-option" data-accent="yellow" title="Yellow">
+                <span class="accent-color" style="background: #d29922;"></span>
+                <span class="accent-label">Yellow</span>
+              </button>
+            </div>
+          </div>
+          <div class="terminal-color-selector" id="terminalColorSelector">
+            <button class="btn btn-icon terminal-color-btn" title="Terminal Colors">
+              <i class="fas fa-palette"></i>
             </button>
-            <button class="accent-option" data-accent="purple" title="Purple">
-              <span class="accent-color" style="background: #a371f2;"></span>
-              <span class="accent-label">Purple</span>
+            <div class="terminal-color-dropdown">
+              <div class="terminal-color-header">
+                <span>Terminal Colors</span>
+              </div>
+              <div class="terminal-color-option">
+                <label class="toggle-label">
+                  <span>Override Colors</span>
+                  <input type="checkbox" id="terminalColorOverride" class="toggle-checkbox">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="terminal-color-options" id="terminalColorOptions">
+                <div class="terminal-color-option">
+                  <label for="terminalBgColor">Background</label>
+                  <input type="color" id="terminalBgColor" class="color-input" value="#0d1117">
+                </div>
+                <div class="terminal-color-option">
+                  <label for="terminalFgColor">Foreground</label>
+                  <input type="color" id="terminalFgColor" class="color-input" value="#e6edf3">
+                </div>
+                <div class="terminal-color-option">
+                  <label for="terminalSelectionColor">Selection</label>
+                  <input type="color" id="terminalSelectionColor" class="color-input" value="#264f78">
+                </div>
+              </div>
+            </div>
+          </div>
+          <button class="btn btn-icon" id="settingsBtn" title="Settings">
+            <i class="fas fa-cog"></i>
+          </button>
+        </div>
+        
+        <!-- Mobile overflow menu -->
+        <div class="mobile-overflow-menu" id="mobileOverflowMenu">
+          <button class="btn btn-icon overflow-toggle" id="overflowToggle" title="More Options">
+            <i class="fas fa-ellipsis-v"></i>
+          </button>
+          <div class="overflow-dropdown" id="overflowDropdown">
+            <button class="overflow-option" id="mobileThemeToggle">
+              <i class="fas fa-lightbulb"></i>
+              <span id="mobileThemeToggleText">Toggle Dark</span>
             </button>
-            <button class="accent-option" data-accent="orange" title="Orange">
-              <span class="accent-color" style="background: #d18616;"></span>
-              <span class="accent-label">Orange</span>
-            </button>
-            <button class="accent-option" data-accent="red" title="Red">
-              <span class="accent-color" style="background: #da3633;"></span>
-              <span class="accent-label">Red</span>
-            </button>
-            <button class="accent-option" data-accent="cyan" title="Cyan">
-              <span class="accent-color" style="background: #1f6feb;"></span>
-              <span class="accent-label">Cyan</span>
-            </button>
-            <button class="accent-option" data-accent="blue" title="Blue">
-              <span class="accent-color" style="background: #58a6ff;"></span>
-              <span class="accent-label">Blue</span>
-            </button>
-            <button class="accent-option" data-accent="yellow" title="Yellow">
-              <span class="accent-color" style="background: #d29922;"></span>
-              <span class="accent-label">Yellow</span>
+            <div class="overflow-submenu" id="mobileAccentSubmenu">
+              <button class="overflow-option submenu-toggle">
+                <span class="accent-preview"></span>
+                <span>Accent Color</span>
+                <i class="fas fa-chevron-right submenu-arrow"></i>
+              </button>
+              <div class="submenu-content accent-submenu">
+                <button class="accent-option" data-accent="fuchsia">
+                  <span class="accent-color" style="background: #c10059;"></span>
+                  <span class="accent-label">Fuchsia</span>
+                </button>
+                <button class="accent-option" data-accent="green">
+                  <span class="accent-color" style="background: #2ea043;"></span>
+                  <span class="accent-label">Green</span>
+                </button>
+                <button class="accent-option" data-accent="purple">
+                  <span class="accent-color" style="background: #a371f2;"></span>
+                  <span class="accent-label">Purple</span>
+                </button>
+                <button class="accent-option" data-accent="orange">
+                  <span class="accent-color" style="background: #d18616;"></span>
+                  <span class="accent-label">Orange</span>
+                </button>
+                <button class="accent-option" data-accent="red">
+                  <span class="accent-color" style="background: #da3633;"></span>
+                  <span class="accent-label">Red</span>
+                </button>
+                <button class="accent-option" data-accent="cyan">
+                  <span class="accent-color" style="background: #1f6feb;"></span>
+                  <span class="accent-label">Cyan</span>
+                </button>
+                <button class="accent-option" data-accent="blue">
+                  <span class="accent-color" style="background: #58a6ff;"></span>
+                  <span class="accent-label">Blue</span>
+                </button>
+                <button class="accent-option" data-accent="yellow">
+                  <span class="accent-color" style="background: #d29922;"></span>
+                  <span class="accent-label">Yellow</span>
+                </button>
+              </div>
+            </div>
+            <div class="overflow-submenu" id="mobileTerminalColorSubmenu">
+              <button class="overflow-option submenu-toggle">
+                <i class="fas fa-palette"></i>
+                <span>Terminal Colors</span>
+                <i class="fas fa-chevron-right submenu-arrow"></i>
+              </button>
+              <div class="submenu-content terminal-color-submenu">
+                <div class="terminal-color-option">
+                  <label class="toggle-label">
+                    <span>Override Colors</span>
+                    <input type="checkbox" id="mobileTerminalColorOverride" class="toggle-checkbox">
+                    <span class="toggle-slider"></span>
+                  </label>
+                </div>
+                <div class="terminal-color-options" id="mobileTerminalColorOptions">
+                  <div class="terminal-color-option">
+                    <label for="mobileTerminalBgColor">Background</label>
+                    <input type="color" id="mobileTerminalBgColor" class="color-input" value="#0d1117">
+                  </div>
+                  <div class="terminal-color-option">
+                    <label for="mobileTerminalFgColor">Foreground</label>
+                    <input type="color" id="mobileTerminalFgColor" class="color-input" value="#e6edf3">
+                  </div>
+                  <div class="terminal-color-option">
+                    <label for="mobileTerminalSelectionColor">Selection</label>
+                    <input type="color" id="mobileTerminalSelectionColor" class="color-input" value="#264f78">
+                  </div>
+                </div>
+              </div>
+            </div>
+            <button class="overflow-option" id="mobileSettingsBtn">
+              <i class="fas fa-cog"></i>
+              <span>Settings</span>
             </button>
           </div>
         </div>
-        <div class="terminal-color-selector" id="terminalColorSelector">
-          <button class="btn btn-icon terminal-color-btn" title="Terminal Colors">
-            <i class="fas fa-palette"></i>
-          </button>
-          <div class="terminal-color-dropdown">
-            <div class="terminal-color-header">
-              <span>Terminal Colors</span>
-            </div>
-            <div class="terminal-color-option">
-              <label class="toggle-label">
-                <span>Override Colors</span>
-                <input type="checkbox" id="terminalColorOverride" class="toggle-checkbox">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="terminal-color-options" id="terminalColorOptions">
-              <div class="terminal-color-option">
-                <label for="terminalBgColor">Background</label>
-                <input type="color" id="terminalBgColor" class="color-input" value="#0d1117">
-              </div>
-              <div class="terminal-color-option">
-                <label for="terminalFgColor">Foreground</label>
-                <input type="color" id="terminalFgColor" class="color-input" value="#e6edf3">
-              </div>
-              <div class="terminal-color-option">
-                <label for="terminalSelectionColor">Selection</label>
-                <input type="color" id="terminalSelectionColor" class="color-input" value="#264f78">
-              </div>
-            </div>
-          </div>
-        </div>
-        <button class="btn btn-icon" id="settingsBtn" title="Settings">
-          <i class="fas fa-cog"></i>
-        </button>
       </div>
     </header>
 
@@ -124,7 +218,7 @@
             <button class="btn btn-sm" id="addBookmarkBtn" title="Add Bookmark">
               <i class="fas fa-plus"></i>
             </button>
-            <button class="btn btn-sm sidebar-toggle" id="sidebarToggle" title="Collapse Sidebar">
+            <button class="btn btn-sm sidebar-toggle desktop-only" id="sidebarToggle" title="Collapse Sidebar">
               <i class="fas fa-chevron-left"></i>
             </button>
           </div>
@@ -133,13 +227,26 @@
           <!-- Bookmarks will be populated here -->
         </div>
       </aside>
+      <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
       <!-- Terminal Area -->
       <main class="terminal-area">
         <!-- Tabs -->
         <div class="tabs-container">
+          <!-- Desktop tabs -->
           <div class="tabs" id="tabs">
             <!-- Tabs will be added here -->
+          </div>
+          <!-- Mobile tabs dropdown -->
+          <div class="mobile-tabs-dropdown" id="mobileTabsDropdown">
+            <button class="mobile-tabs-toggle" id="mobileTabsToggle">
+              <i class="fas fa-terminal tab-icon-active"></i>
+              <span class="mobile-tabs-label" id="mobileTabsLabel">No Active Tabs</span>
+              <i class="fas fa-chevron-down dropdown-arrow"></i>
+            </button>
+            <div class="mobile-tabs-menu" id="mobileTabsMenu">
+              <!-- Mobile tab options will be added here dynamically -->
+            </div>
           </div>
           <div class="tabs-actions">
             <button class="btn btn-sm" id="specialKeysBtn" title="Special Keys">

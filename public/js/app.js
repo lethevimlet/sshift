@@ -390,16 +390,31 @@ class SSHIFTClient {
   }
 
   updateTerminalColorOverrideUI() {
+    // Desktop elements
     const checkbox = document.getElementById('terminalColorOverride');
     const options = document.getElementById('terminalColorOptions');
     const bgColorInput = document.getElementById('terminalBgColor');
     const fgColorInput = document.getElementById('terminalFgColor');
     const selectionColorInput = document.getElementById('terminalSelectionColor');
     
+    // Mobile elements
+    const mobileCheckbox = document.getElementById('mobileTerminalColorOverride');
+    const mobileOptions = document.getElementById('mobileTerminalColorOptions');
+    const mobileBgColorInput = document.getElementById('mobileTerminalBgColor');
+    const mobileFgColorInput = document.getElementById('mobileTerminalFgColor');
+    const mobileSelectionColorInput = document.getElementById('mobileTerminalSelectionColor');
+    
+    // Update desktop checkbox
     if (checkbox) {
       checkbox.checked = this.terminalColorOverride;
     }
     
+    // Update mobile checkbox
+    if (mobileCheckbox) {
+      mobileCheckbox.checked = this.terminalColorOverride;
+    }
+    
+    // Update desktop options visibility
     if (options) {
       if (this.terminalColorOverride) {
         options.classList.add('show');
@@ -408,7 +423,16 @@ class SSHIFTClient {
       }
     }
     
-    // Update color inputs with current values from instance properties
+    // Update mobile options visibility
+    if (mobileOptions) {
+      if (this.terminalColorOverride) {
+        mobileOptions.classList.add('show');
+      } else {
+        mobileOptions.classList.remove('show');
+      }
+    }
+    
+    // Update desktop color inputs with current values from instance properties
     if (bgColorInput) {
       bgColorInput.value = this.terminalBgColor;
     }
@@ -418,12 +442,35 @@ class SSHIFTClient {
     if (selectionColorInput) {
       selectionColorInput.value = this.terminalSelectionColor;
     }
+    
+    // Update mobile color inputs with current values from instance properties
+    if (mobileBgColorInput) {
+      mobileBgColorInput.value = this.terminalBgColor;
+    }
+    if (mobileFgColorInput) {
+      mobileFgColorInput.value = this.terminalFgColor;
+    }
+    if (mobileSelectionColorInput) {
+      mobileSelectionColorInput.value = this.terminalSelectionColor;
+    }
   }
 
   updateThemeIcon(theme) {
     const icon = document.querySelector('#themeToggle i');
     if (icon) {
       icon.className = theme === 'dark' ? 'fas fa-lightbulb' : 'fas fa-moon';
+    }
+    
+    // Update mobile theme toggle text
+    const mobileThemeToggleText = document.getElementById('mobileThemeToggleText');
+    if (mobileThemeToggleText) {
+      mobileThemeToggleText.textContent = theme === 'dark' ? 'Toggle Light' : 'Toggle Dark';
+    }
+    
+    // Update mobile theme toggle icon
+    const mobileIcon = document.querySelector('#mobileThemeToggle i');
+    if (mobileIcon) {
+      mobileIcon.className = theme === 'dark' ? 'fas fa-lightbulb' : 'fas fa-moon';
     }
   }
 
@@ -510,6 +557,9 @@ class SSHIFTClient {
   async init() {
     console.log('[SSHIFT] Setting up listeners...');
     
+    // Fix mobile viewport height issues
+    this.fixMobileViewport();
+    
     // Load sticky config first
     await this.loadStickyConfig();
     
@@ -527,8 +577,35 @@ class SSHIFTClient {
       await this.restoreTabs();
     }
     
+    // Initialize mobile tabs dropdown
+    this.updateMobileTabsDropdown();
+    
     this.handleResize();
     console.log('[SSHIFT] Client initialized');
+  }
+  
+  // Fix mobile viewport height issues caused by address/navigation bars
+  fixMobileViewport() {
+    // Set CSS custom property for actual viewport height
+    const setViewportHeight = () => {
+      const vh = window.innerHeight * 0.01;
+      document.documentElement.style.setProperty('--vh', `${vh}px`);
+    };
+    
+    // Set on load
+    setViewportHeight();
+    
+    // Update on resize (with debounce)
+    let resizeTimeout;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(setViewportHeight, 100);
+    });
+    
+    // Update when virtual keyboard opens/closes on mobile
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', setViewportHeight);
+    }
   }
 
   async restoreTabs() {
@@ -587,6 +664,9 @@ class SSHIFTClient {
         this.switchTab(activeSessionId);
       }, 500);
     }
+    
+    // Update mobile tabs dropdown after restoration
+    this.updateMobileTabsDropdown();
     
     // Clear restoring flag after restoration is complete
     this.isRestoring = false;
@@ -1012,6 +1092,17 @@ class SSHIFTClient {
       this.toggleSidebar();
     });
 
+    // Sidebar overlay click to close
+    const sidebarOverlay = document.getElementById('sidebarOverlay');
+    if (sidebarOverlay) {
+      sidebarOverlay.addEventListener('click', () => {
+        const sidebar = document.getElementById('sidebar');
+        if (sidebar && sidebar.classList.contains('open')) {
+          this.toggleSidebar();
+        }
+      });
+    }
+
     // New connection buttons
     document.getElementById('newSshBtn').addEventListener('click', () => {
       this.openConnectionModal('ssh');
@@ -1036,6 +1127,12 @@ class SSHIFTClient {
 
     // Initialize settings modal handlers
     this.initSettingsModalHandlers();
+
+    // Mobile overflow menu
+    this.setupMobileOverflowMenu();
+
+    // Mobile tabs dropdown
+    this.setupMobileTabsDropdown();
 
     // Connection modal
     document.getElementById('closeConnectionModal').addEventListener('click', () => {
@@ -1191,31 +1288,50 @@ class SSHIFTClient {
   toggleSidebar() {
     const sidebar = document.getElementById('sidebar');
     const toggleBtn = document.getElementById('sidebarToggle');
-    this.sidebarCollapsed = !this.sidebarCollapsed;
     
-    if (this.sidebarCollapsed) {
-      sidebar.classList.add('collapsed');
-      toggleBtn.title = 'Expand Sidebar';
+    // Check if we're on mobile
+    const isMobile = window.innerWidth <= 768;
+    
+    if (isMobile) {
+      // Mobile: toggle sidebar open/close with overlay
+      const overlay = document.querySelector('.sidebar-overlay');
+      const isOpen = sidebar.classList.contains('open');
+      
+      if (isOpen) {
+        sidebar.classList.remove('open');
+        if (overlay) overlay.classList.remove('active');
+      } else {
+        sidebar.classList.add('open');
+        if (overlay) overlay.classList.add('active');
+      }
     } else {
-      sidebar.classList.remove('collapsed');
-      toggleBtn.title = 'Collapse Sidebar';
-    }
-    
-    // Save state
-    this.saveSidebarState();
-    
-    // Resize terminals after sidebar toggle
-    setTimeout(() => {
-      this.sessions.forEach(session => {
-        if (session.terminal && session.fitAddon) {
-          try {
-            session.fitAddon.fit();
-          } catch (e) {
-            // Ignore resize errors
+      // Desktop: toggle sidebar collapsed state
+      this.sidebarCollapsed = !this.sidebarCollapsed;
+      
+      if (this.sidebarCollapsed) {
+        sidebar.classList.add('collapsed');
+        toggleBtn.title = 'Expand Sidebar';
+      } else {
+        sidebar.classList.remove('collapsed');
+        toggleBtn.title = 'Collapse Sidebar';
+      }
+      
+      // Save state
+      this.saveSidebarState();
+      
+      // Resize terminals after sidebar toggle
+      setTimeout(() => {
+        this.sessions.forEach(session => {
+          if (session.terminal && session.fitAddon) {
+            try {
+              session.fitAddon.fit();
+            } catch (e) {
+              // Ignore resize errors
+            }
           }
-        }
-      });
-    }, 300);
+        });
+      }, 300);
+    }
   }
 
   // Modals
@@ -1349,6 +1465,248 @@ class SSHIFTClient {
         }
       });
     }
+  }
+
+  setupMobileOverflowMenu() {
+    const overflowToggle = document.getElementById('overflowToggle');
+    const overflowDropdown = document.getElementById('overflowDropdown');
+    
+    if (!overflowToggle || !overflowDropdown) return;
+
+    // Toggle dropdown
+    overflowToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      overflowDropdown.classList.toggle('show');
+    });
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+      if (overflowDropdown.classList.contains('show') && !e.target.closest('.mobile-overflow-menu')) {
+        overflowDropdown.classList.remove('show');
+      }
+    });
+
+    // Mobile theme toggle
+    const mobileThemeToggle = document.getElementById('mobileThemeToggle');
+    if (mobileThemeToggle) {
+      mobileThemeToggle.addEventListener('click', () => {
+        this.toggleTheme();
+        overflowDropdown.classList.remove('show');
+      });
+    }
+
+    // Mobile settings button
+    const mobileSettingsBtn = document.getElementById('mobileSettingsBtn');
+    if (mobileSettingsBtn) {
+      mobileSettingsBtn.addEventListener('click', () => {
+        this.openSettingsModal();
+        overflowDropdown.classList.remove('show');
+      });
+    }
+
+    // Mobile bookmark button
+    const mobileBookmarkBtn = document.getElementById('mobileBookmarkBtn');
+    if (mobileBookmarkBtn) {
+      mobileBookmarkBtn.addEventListener('click', () => {
+        this.toggleSidebar();
+        overflowDropdown.classList.remove('show');
+      });
+    }
+
+    // Mobile accent color options
+    const mobileAccentSubmenu = document.getElementById('mobileAccentSubmenu');
+    if (mobileAccentSubmenu) {
+      const submenuToggle = mobileAccentSubmenu.querySelector('.submenu-toggle');
+      const submenuContent = mobileAccentSubmenu.querySelector('.submenu-content');
+      
+      if (submenuToggle && submenuContent) {
+        submenuToggle.addEventListener('click', (e) => {
+          e.stopPropagation();
+          submenuContent.classList.toggle('show');
+        });
+      }
+
+      // Accent color options
+      mobileAccentSubmenu.querySelectorAll('.accent-option').forEach(option => {
+        option.addEventListener('click', () => {
+          const accent = option.dataset.accent;
+          this.setAccent(accent);
+          submenuContent.classList.remove('show');
+          overflowDropdown.classList.remove('show');
+        });
+      });
+    }
+
+    // Mobile terminal color options
+    const mobileTerminalColorSubmenu = document.getElementById('mobileTerminalColorSubmenu');
+    if (mobileTerminalColorSubmenu) {
+      const submenuToggle = mobileTerminalColorSubmenu.querySelector('.submenu-toggle');
+      const submenuContent = mobileTerminalColorSubmenu.querySelector('.submenu-content');
+      
+      if (submenuToggle && submenuContent) {
+        submenuToggle.addEventListener('click', (e) => {
+          e.stopPropagation();
+          submenuContent.classList.toggle('show');
+        });
+      }
+
+      // Terminal color override toggle
+      const mobileTerminalColorOverride = document.getElementById('mobileTerminalColorOverride');
+      if (mobileTerminalColorOverride) {
+        mobileTerminalColorOverride.addEventListener('change', () => {
+          this.toggleTerminalColorOverride();
+          // Sync with desktop toggle
+          const desktopToggle = document.getElementById('terminalColorOverride');
+          if (desktopToggle) {
+            desktopToggle.checked = this.terminalColorOverride;
+          }
+        });
+      }
+
+      // Terminal color inputs
+      const mobileTerminalBgColor = document.getElementById('mobileTerminalBgColor');
+      if (mobileTerminalBgColor) {
+        mobileTerminalBgColor.addEventListener('input', (e) => {
+          this.setTerminalBgColor(e.target.value);
+          // Sync with desktop input
+          const desktopInput = document.getElementById('terminalBgColor');
+          if (desktopInput) {
+            desktopInput.value = e.target.value;
+          }
+        });
+      }
+
+      const mobileTerminalFgColor = document.getElementById('mobileTerminalFgColor');
+      if (mobileTerminalFgColor) {
+        mobileTerminalFgColor.addEventListener('input', (e) => {
+          this.setTerminalFgColor(e.target.value);
+          // Sync with desktop input
+          const desktopInput = document.getElementById('terminalFgColor');
+          if (desktopInput) {
+            desktopInput.value = e.target.value;
+          }
+        });
+      }
+
+      const mobileTerminalSelectionColor = document.getElementById('mobileTerminalSelectionColor');
+      if (mobileTerminalSelectionColor) {
+        mobileTerminalSelectionColor.addEventListener('input', (e) => {
+          this.setTerminalSelectionColor(e.target.value);
+          // Sync with desktop input
+          const desktopInput = document.getElementById('terminalSelectionColor');
+          if (desktopInput) {
+            desktopInput.value = e.target.value;
+          }
+        });
+      }
+    }
+  }
+
+  setupMobileTabsDropdown() {
+    const mobileTabsToggle = document.getElementById('mobileTabsToggle');
+    const mobileTabsMenu = document.getElementById('mobileTabsMenu');
+    
+    if (!mobileTabsToggle || !mobileTabsMenu) return;
+
+    // Toggle dropdown
+    mobileTabsToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      mobileTabsToggle.classList.toggle('active');
+      mobileTabsMenu.classList.toggle('show');
+    });
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+      if (mobileTabsMenu.classList.contains('show') && !e.target.closest('.mobile-tabs-dropdown')) {
+        mobileTabsToggle.classList.remove('active');
+        mobileTabsMenu.classList.remove('show');
+      }
+    });
+  }
+
+  updateMobileTabsDropdown() {
+    const mobileTabsLabel = document.getElementById('mobileTabsLabel');
+    const mobileTabsMenu = document.getElementById('mobileTabsMenu');
+    const mobileTabsToggle = document.getElementById('mobileTabsToggle');
+    
+    if (!mobileTabsLabel || !mobileTabsMenu || !mobileTabsToggle) return;
+
+    // Get all tabs
+    const tabsContainer = document.getElementById('tabs');
+    const tabs = tabsContainer ? Array.from(tabsContainer.children) : [];
+
+    // Clear existing menu
+    mobileTabsMenu.innerHTML = '';
+
+    // Find active tab
+    let activeTabName = 'No Active Tabs';
+    let activeTabIcon = 'fa-terminal';
+
+    // Add menu options for each tab
+    tabs.forEach(tab => {
+      const sessionId = tab.dataset.sessionId;
+      const session = this.sessions.get(sessionId) || this.sftpSessions.get(sessionId);
+      const isActive = tab.classList.contains('active');
+      
+      if (session) {
+        const icon = session.type === 'sftp' ? 'fa-folder-open' : 'fa-terminal';
+        const iconClass = session.type === 'sftp' ? 'sftp' : 'ssh';
+        const name = session.name || sessionId;
+
+        if (isActive) {
+          activeTabName = name;
+          activeTabIcon = icon;
+        }
+
+        const option = document.createElement('div');
+        option.className = `mobile-tab-option${isActive ? ' active' : ''}`;
+        option.dataset.sessionId = sessionId;
+        option.innerHTML = `
+          <i class="fas ${icon} tab-icon ${iconClass}"></i>
+          <span class="tab-name">${name}</span>
+          <button class="tab-rename" data-session-id="${sessionId}" title="Rename">
+            <i class="fas fa-pen"></i>
+          </button>
+          <button class="tab-close" data-session-id="${sessionId}" title="Close">
+            <i class="fas fa-times"></i>
+          </button>
+        `;
+
+        // Click to switch tab (on the option div, not on the rename/close buttons)
+        option.addEventListener('click', (e) => {
+          if (!e.target.closest('.tab-rename') && !e.target.closest('.tab-close')) {
+            this.switchTab(sessionId);
+            mobileTabsMenu.classList.remove('show');
+            mobileTabsToggle.classList.remove('active');
+          }
+        });
+
+        mobileTabsMenu.appendChild(option);
+
+        // Rename button
+        const renameBtn = option.querySelector('.tab-rename');
+        renameBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.startTabRename(sessionId);
+          mobileTabsMenu.classList.remove('show');
+          mobileTabsToggle.classList.remove('active');
+        });
+
+        // Close button
+        const closeBtn = option.querySelector('.tab-close');
+        closeBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.closeTab(sessionId);
+        });
+      }
+    });
+
+    // Update toggle button
+    const iconElement = mobileTabsToggle.querySelector('.tab-icon-active');
+    if (iconElement) {
+      iconElement.className = `fas ${activeTabIcon} tab-icon-active`;
+    }
+    mobileTabsLabel.textContent = activeTabName;
   }
 
   saveStickyConfig() {
@@ -1595,6 +1953,9 @@ class SSHIFTClient {
     
     // Save tabs
     this.saveTabs();
+    
+    // Update mobile tabs dropdown
+    this.updateMobileTabsDropdown();
     
     return sessionId;
   }
@@ -2137,6 +2498,9 @@ class SSHIFTClient {
     // Save tabs
     this.saveTabs();
     
+    // Update mobile tabs dropdown
+    this.updateMobileTabsDropdown();
+    
     return sessionId;
   }
 
@@ -2473,6 +2837,9 @@ class SSHIFTClient {
       }, 100);
     }
     
+    // Update mobile tabs dropdown
+    this.updateMobileTabsDropdown();
+    
     // Save tabs
     this.saveTabs();
   }
@@ -2513,6 +2880,9 @@ class SSHIFTClient {
         this.showEmptyState();
       }
     }
+    
+    // Update mobile tabs dropdown
+    this.updateMobileTabsDropdown();
     
     // Save tabs
     this.saveTabs();
@@ -2939,13 +3309,15 @@ class SSHIFTClient {
     item.addEventListener('dragend', (e) => this.handleBookmarkDragEnd(e));
 
     item.addEventListener('click', (e) => {
-      // If sidebar is collapsed, show context menu
-      if (this.sidebarCollapsed) {
+      const isMobile = window.innerWidth <= 768;
+      
+      // On mobile or collapsed sidebar, show context menu
+      if (isMobile || this.sidebarCollapsed) {
         e.preventDefault();
         e.stopPropagation();
-        this.showBookmarkContextMenu(bookmark, e);
+        this.showBookmarkContextMenu(bookmark, e, isMobile);
       } else {
-        // Normal behavior when sidebar is expanded
+        // Normal behavior when sidebar is expanded on desktop
         if (e.target.closest('.sftp-bookmark')) {
           e.stopPropagation();
           this.openSFTPFromBookmark(bookmark);
@@ -3210,7 +3582,13 @@ class SSHIFTClient {
     `;
 
     // Position the menu
-    if (fromMenuButton || this.sidebarCollapsed) {
+    const isMobile = window.innerWidth <= 768;
+    if (isMobile && fromMenuButton) {
+      // Center on mobile screen when clicking menu button
+      menu.style.left = '50%';
+      menu.style.top = '50%';
+      menu.style.transform = 'translate(-50%, -50%)';
+    } else if (fromMenuButton || this.sidebarCollapsed) {
       // Position at cursor location when from menu button or collapsed sidebar
       menu.style.left = `${event.clientX}px`;
       menu.style.top = `${event.clientY}px`;
@@ -3246,6 +3624,14 @@ class SSHIFTClient {
         }
         
         menu.remove();
+        
+        // Close sidebar on mobile after context menu action
+        if (isMobile) {
+          const sidebar = document.getElementById('sidebar');
+          const sidebarOverlay = document.getElementById('sidebarOverlay');
+          if (sidebar) sidebar.classList.remove('show');
+          if (sidebarOverlay) sidebarOverlay.classList.remove('show');
+        }
       });
     });
 
@@ -3524,16 +3910,59 @@ class SSHIFTClient {
   }
 
   startTabRename(sessionId) {
+    // Try to find desktop tab first, then mobile tab option
     const tab = document.querySelector(`.tab[data-session-id="${sessionId}"]`);
-    if (!tab) return;
+    const mobileOption = document.querySelector(`.mobile-tab-option[data-session-id="${sessionId}"]`);
+    
+    if (!tab && !mobileOption) return;
 
     const session = this.sessions.get(sessionId) || this.sftpSessions.get(sessionId);
     if (!session) return;
 
+    const currentName = session.name;
+    
+    // On mobile, use a prompt dialog for better UX
+    if (window.innerWidth <= 768) {
+      const newName = prompt('Enter new tab name:', currentName);
+      if (newName && newName.trim() && newName.trim() !== currentName) {
+        const trimmedName = newName.trim();
+        
+        // Update session name
+        session.name = trimmedName;
+        
+        // Update mobile tab option display
+        if (mobileOption) {
+          const nameSpan = mobileOption.querySelector('.tab-name');
+          if (nameSpan) {
+            nameSpan.textContent = this.escapeHtml(trimmedName);
+          }
+        }
+        
+        // Update desktop tab display if it exists
+        if (tab) {
+          const nameSpan = tab.querySelector('.tab-name');
+          if (nameSpan) {
+            nameSpan.textContent = this.escapeHtml(trimmedName);
+          }
+        }
+        
+        // Emit to server to sync with all sessions
+        this.socket.emit('tab-rename', {
+          sessionId: sessionId,
+          name: trimmedName
+        });
+        
+        // Save tabs if sticky is enabled
+        this.saveTabs();
+        
+        console.log('[SSHIFT] Tab renamed:', sessionId, 'to', trimmedName);
+      }
+      return;
+    }
+    
+    // Desktop: inline rename
     const nameSpan = tab.querySelector('.tab-name');
     if (!nameSpan) return;
-
-    const currentName = session.name;
     
     // Create input element
     const input = document.createElement('input');

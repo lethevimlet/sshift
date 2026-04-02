@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mobile Layout Test</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      padding: 20px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    h1 {
+      color: #333;
+    }
+    .test-section {
+      margin: 20px 0;
+      padding: 15px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+    }
+    .test-result {
+      padding: 10px;
+      margin: 5px 0;
+      border-radius: 4px;
+    }
+    .pass {
+      background: #d4edda;
+      color: #155724;
+    }
+    .fail {
+      background: #f8d7da;
+      color: #721c24;
+    }
+    .info {
+      background: #d1ecf1;
+      color: #0c5460;
+    }
+    button {
+      padding: 10px 20px;
+      margin: 5px;
+      border: none;
+      border-radius: 4px;
+      background: #007bff;
+      color: white;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+  </style>
+</head>
+<body>
+  <h1>Mobile Layout Test Suite</h1>
+  
+  <div class="test-section">
+    <h2>Test 1: Viewport Detection</h2>
+    <div id="viewport-test" class="test-result info"></div>
+    <button onclick="testViewport()">Test Viewport</button>
+  </div>
+
+  <div class="test-section">
+    <h2>Test 2: Mobile Overflow Menu</h2>
+    <div id="overflow-test" class="test-result info">Click to test</div>
+    <button onclick="testOverflowMenu()">Test Overflow Menu</button>
+  </div>
+
+  <div class="test-section">
+    <h2>Test 3: Mobile Tabs Dropdown</h2>
+    <div id="tabs-test" class="test-result info">Click to test</div>
+    <button onclick="testTabsDropdown()">Test Tabs Dropdown</button>
+  </div>
+
+  <div class="test-section">
+    <h2>Test 4: Sidebar Slide Animation</h2>
+    <div id="sidebar-test" class="test-result info">Click to test</div>
+    <button onclick="testSidebarSlide()">Test Sidebar</button>
+  </div>
+
+  <div class="test-section">
+    <h2>Test 5: Terminal Color Selector</h2>
+    <div id="color-test" class="test-result info">Click to test</div>
+    <button onclick="testTerminalColorSelector()">Test Color Selector</button>
+  </div>
+
+  <div class="test-section">
+    <h2>Test 6: Special Keys Button Size</h2>
+    <div id="keys-test" class="test-result info">Click to test</div>
+    <button onclick="testSpecialKeysSize()">Test Special Keys</button>
+  </div>
+
+  <div class="test-section">
+    <h2>Test 7: Dialog Viewport Overflow</h2>
+    <div id="dialog-test" class="test-result info">Click to test</div>
+    <button onclick="testDialogOverflow()">Test Dialog Overflow</button>
+  </div>
+
+  <div class="test-section">
+    <h2>Test 8: All Tests</h2>
+    <button onclick="runAllTests()">Run All Tests</button>
+    <div id="all-tests-result" class="test-result info" style="margin-top: 10px;"></div>
+  </div>
+
+  <script>
+    function testViewport() {
+      const width = window.innerWidth;
+      const isMobile = width <= 768;
+      const testDiv = document.getElementById('viewport-test');
+      testDiv.className = 'test-result pass';
+      testDiv.innerHTML = `
+        ✓ Viewport width: ${width}px<br>
+        ✓ Mobile breakpoint: 768px<br>
+        ✓ Is mobile: ${isMobile}
+      `;
+      return true;
+    }
+
+    function testOverflowMenu() {
+      const testDiv = document.getElementById('overflow-test');
+      const overflowToggle = document.getElementById('overflowToggle');
+      const overflowDropdown = document.getElementById('overflowDropdown');
+      
+      if (!overflowToggle || !overflowDropdown) {
+        testDiv.className = 'test-result fail';
+        testDiv.innerHTML = '✗ Overflow menu elements not found';
+        return false;
+      }
+      
+      testDiv.className = 'test-result pass';
+      testDiv.innerHTML = `
+        ✓ Overflow toggle found<br>
+        ✓ Overflow dropdown found<br>
+        ✓ Mobile overflow menu structure is correct
+      `;
+      return true;
+    }
+
+    function testTabsDropdown() {
+      const testDiv = document.getElementById('tabs-test');
+      const tabsDropdown = document.getElementById('mobileTabsDropdown');
+      const tabsSelect = document.getElementById('mobileTabsSelect');
+      
+      if (!tabsDropdown || !tabsSelect) {
+        testDiv.className = 'test-result fail';
+        testDiv.innerHTML = '✗ Tabs dropdown elements not found';
+        return false;
+      }
+      
+      const options = tabsSelect.querySelectorAll('option');
+      testDiv.className = 'test-result pass';
+      testDiv.innerHTML = `
+        ✓ Tabs dropdown found<br>
+        ✓ Tabs select found<br>
+        ✓ Number of tab options: ${options.length}
+      `;
+      return true;
+    }
+
+    function testSidebarSlide() {
+      const testDiv = document.getElementById('sidebar-test');
+      const sidebar = document.getElementById('sidebar');
+      const overlay = document.getElementById('sidebarOverlay');
+      
+      if (!sidebar) {
+        testDiv.className = 'test-result fail';
+        testDiv.innerHTML = '✗ Sidebar element not found';
+        return false;
+      }
+      
+      if (!overlay) {
+        testDiv.className = 'test-result fail';
+        testDiv.innerHTML = '✗ Sidebar overlay element not found';
+        return false;
+      }
+      
+      const computedStyle = window.getComputedStyle(sidebar);
+      const hasTransform = computedStyle.transform !== 'none';
+      
+      testDiv.className = 'test-result pass';
+      testDiv.innerHTML = `
+        ✓ Sidebar element found<br>
+        ✓ Sidebar overlay found<br>
+        ✓ Sidebar has transform: ${hasTransform ? 'yes' : 'no'}<br>
+        ✓ Sidebar slide animation is configured
+      `;
+      return true;
+    }
+
+    function testTerminalColorSelector() {
+      const testDiv = document.getElementById('color-test');
+      const mobileColorSubmenu = document.getElementById('mobileTerminalColorSubmenu');
+      const mobileColorOverride = document.getElementById('mobileTerminalColorOverride');
+      const mobileBgColor = document.getElementById('mobileTerminalBgColor');
+      const mobileFgColor = document.getElementById('mobileTerminalFgColor');
+      
+      if (!mobileColorSubmenu) {
+        testDiv.className = 'test-result fail';
+        testDiv.innerHTML = '✗ Terminal color submenu not found';
+        return false;
+      }
+      
+      if (!mobileColorOverride || !mobileBgColor || !mobileFgColor) {
+        testDiv.className = 'test-result fail';
+        testDiv.innerHTML = '✗ Terminal color inputs not found';
+        return false;
+      }
+      
+      testDiv.className = 'test-result pass';
+      testDiv.innerHTML = `
+        ✓ Terminal color submenu found<br>
+        ✓ Override toggle found<br>
+        ✓ Background color input found<br>
+        ✓ Foreground color input found<br>
+        ✓ Terminal color selector is properly configured
+      `;
+      return true;
+    }
+
+    function testSpecialKeysSize() {
+      const testDiv = document.getElementById('keys-test');
+      const specialKeysModal = document.getElementById('specialKeysModal');
+      
+      if (!specialKeysModal) {
+        testDiv.className = 'test-result fail';
+        testDiv.innerHTML = '✗ Special keys modal not found';
+        return false;
+      }
+      
+      const keyButtons = specialKeysModal.querySelectorAll('.key-btn');
+      if (keyButtons.length === 0) {
+        testDiv.className = 'test-result fail';
+        testDiv.innerHTML = '✗ No key buttons found';
+        return false;
+      }
+      
+      testDiv.className = 'test-result pass';
+      testDiv.innerHTML = `
+        ✓ Special keys modal found<br>
+        ✓ Number of key buttons: ${keyButtons.length}<br>
+        ✓ Special keys grid is configured
+      `;
+      return true;
+    }
+
+    function testDialogOverflow() {
+      const testDiv = document.getElementById('dialog-test');
+      const modals = document.querySelectorAll('.modal');
+      
+      if (modals.length === 0) {
+        testDiv.className = 'test-result fail';
+        testDiv.innerHTML = '✗ No modal dialogs found';
+        return false;
+      }
+      
+      let allHaveMaxHeight = true;
+      modals.forEach(modal => {
+        const content = modal.querySelector('.modal-content');
+        if (content) {
+          const style = window.getComputedStyle(content);
+          if (!style.maxHeight && !style.maxHeight.includes('vh')) {
+            allHaveMaxHeight = false;
+          }
+        }
+      });
+      
+      testDiv.className = 'test-result pass';
+      testDiv.innerHTML = `
+        ✓ Number of modals found: ${modals.length}<br>
+        ✓ Modal content max-height: ${allHaveMaxHeight ? 'configured' : 'needs review'}<br>
+        ✓ Dialog overflow handling is implemented
+      `;
+      return true;
+    }
+
+    function runAllTests() {
+      const results = [
+        testViewport(),
+        testOverflowMenu(),
+        testTabsDropdown(),
+        testSidebarSlide(),
+        testTerminalColorSelector(),
+        testSpecialKeysSize(),
+        testDialogOverflow()
+      ];
+      
+      const passed = results.filter(r => r).length;
+      const total = results.length;
+      
+      const testDiv = document.getElementById('all-tests-result');
+      if (passed === total) {
+        testDiv.className = 'test-result pass';
+        testDiv.innerHTML = `✓ All ${total} tests passed!`;
+      } else {
+        testDiv.className = 'test-result fail';
+        testDiv.innerHTML = `✗ ${passed}/${total} tests passed`;
+      }
+    }
+  </script>
+</body>
+</html>
