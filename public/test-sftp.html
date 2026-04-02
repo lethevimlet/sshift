@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SFTP Test</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    body { padding: 20px; }
+    .test-output { 
+      background: #1e1e1e; 
+      padding: 10px; 
+      margin: 10px 0;
+      font-family: monospace;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <h1>SFTP Container Test</h1>
+  <button onclick="testSFTPContainer()">Test SFTP Container Creation</button>
+  <div id="output" class="test-output"></div>
+  
+  <h2>Terminals Container</h2>
+  <div id="terminalsContainer" style="border: 2px solid red; min-height: 200px;"></div>
+  
+  <script>
+    function log(msg) {
+      const output = document.getElementById('output');
+      output.textContent += msg + '\n';
+      console.log(msg);
+    }
+    
+    function testSFTPContainer() {
+      const sessionId = 'sftp-test-' + Date.now();
+      log('Creating SFTP container with sessionId: ' + sessionId);
+      
+      // Create wrapper
+      const wrapper = document.createElement('div');
+      wrapper.className = 'terminal-wrapper';
+      wrapper.id = `terminal-wrapper-${sessionId}`;
+      
+      // Create container
+      const container = document.createElement('div');
+      container.className = 'sftp-container';
+      container.id = `sftp-${sessionId}`;
+      container.innerHTML = `
+        <div class="sftp-toolbar">
+          <div class="sftp-path">
+            <input type="text" class="sftp-path-input" placeholder="/path/to/directory">
+            <button class="btn btn-sm sftp-go-btn">
+              <i class="fas fa-arrow-right"></i>
+            </button>
+          </div>
+        </div>
+        <div class="sftp-file-list"></div>
+      `;
+      
+      wrapper.appendChild(container);
+      document.getElementById('terminalsContainer').appendChild(wrapper);
+      
+      log('Container created and appended');
+      log('Wrapper ID: ' + wrapper.id);
+      log('Container ID: ' + container.id);
+      
+      // Test finding the container
+      const foundContainer = document.getElementById(`sftp-${sessionId}`);
+      log('Container found by getElementById: ' + !!foundContainer);
+      
+      const foundByQuery = document.querySelector(`#sftp-${sessionId}`);
+      log('Container found by querySelector: ' + !!foundByQuery);
+      
+      // Test finding the file list
+      const fileList = document.querySelector(`#sftp-${sessionId} .sftp-file-list`);
+      log('File list found: ' + !!fileList);
+      
+      // Add active class to wrapper
+      wrapper.classList.add('active');
+      log('Added active class to wrapper');
+      
+      // Try finding again
+      const fileList2 = document.querySelector(`#sftp-${sessionId} .sftp-file-list`);
+      log('File list found after active: ' + !!fileList2);
+      
+      // Test renderSFTPFileList simulation
+      log('\nSimulating renderSFTPFileList...');
+      const testFiles = [
+        { name: 'test.txt', type: '-', size: 100 },
+        { name: 'folder', type: 'd', size: 4096 }
+      ];
+      
+      if (fileList2) {
+        fileList2.innerHTML = '';
+        testFiles.forEach(file => {
+          const item = document.createElement('div');
+          item.className = 'sftp-file-item';
+          item.textContent = file.name + (file.type === 'd' ? '/' : '');
+          fileList2.appendChild(item);
+        });
+        log('Files rendered successfully');
+      } else {
+        log('ERROR: Could not find file list to render files');
+      }
+    }
+  </script>
+</body>
+</html>

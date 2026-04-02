@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test Sidebar Collapse - SSHIFT</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    body {
+      padding: 20px;
+    }
+    .test-container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .test-info {
+      background: var(--bg-tertiary);
+      padding: 20px;
+      border-radius: var(--radius-md);
+      margin-bottom: 20px;
+    }
+    .test-info h2 {
+      color: var(--accent-primary);
+      margin-bottom: 10px;
+    }
+    .test-info p {
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+    }
+    .test-info code {
+      background: var(--bg-primary);
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+      color: var(--accent-primary);
+    }
+  </style>
+</head>
+<body>
+  <div class="test-container">
+    <div class="test-info">
+      <h2>Sidebar Collapse Test</h2>
+      <p>✓ Click the chevron button in the sidebar header to collapse/expand</p>
+      <p>✓ When collapsed, the sidebar should show only icons</p>
+      <p>✓ The chevron icon should rotate 180° when collapsed</p>
+      <p>✓ Button title should change between "Collapse Sidebar" and "Expand Sidebar"</p>
+      <p>Expected behavior: <code>Sidebar width: 260px → 50px</code></p>
+    </div>
+    
+    <div class="app-container" style="height: 600px; border: 1px solid var(--border-color);">
+      <div class="main-content">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+          <div class="sidebar-header">
+            <h2><i class="fas fa-bookmark"></i> <span class="sidebar-title">Bookmarks</span></h2>
+            <div class="sidebar-header-actions">
+              <button class="btn btn-sm" id="addBookmarkBtn" title="Add Bookmark">
+                <i class="fas fa-plus"></i>
+              </button>
+              <button class="btn btn-sm sidebar-toggle" id="sidebarToggle" title="Collapse Sidebar">
+                <i class="fas fa-chevron-left"></i>
+              </button>
+            </div>
+          </div>
+          <div class="bookmarks-list" id="bookmarksList">
+            <div class="bookmark-item">
+              <div class="bookmark-icon ssh">
+                <i class="fas fa-terminal"></i>
+              </div>
+              <div class="bookmark-info">
+                <div class="bookmark-name">Test Server</div>
+                <div class="bookmark-details">user@192.168.1.1:22</div>
+              </div>
+            </div>
+            <div class="bookmark-item">
+              <div class="bookmark-icon sftp">
+                <i class="fas fa-folder"></i>
+              </div>
+              <div class="bookmark-info">
+                <div class="bookmark-name">File Server</div>
+                <div class="bookmark-details">user@files.example.com</div>
+              </div>
+            </div>
+          </div>
+        </aside>
+        
+        <!-- Main Content Area -->
+        <main class="terminal-area" style="display: flex; align-items: center; justify-content: center; background: var(--bg-primary);">
+          <div style="text-align: center; color: var(--text-secondary);">
+            <i class="fas fa-terminal" style="font-size: 48px; margin-bottom: 16px; color: var(--accent-primary);"></i>
+            <p>Terminal area placeholder</p>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script>
+    // Simple test script
+    let sidebarCollapsed = false;
+    
+    document.getElementById('sidebarToggle').addEventListener('click', () => {
+      const sidebar = document.getElementById('sidebar');
+      const toggleBtn = document.getElementById('sidebarToggle');
+      sidebarCollapsed = !sidebarCollapsed;
+      
+      if (sidebarCollapsed) {
+        sidebar.classList.add('collapsed');
+        toggleBtn.title = 'Expand Sidebar';
+        console.log('Sidebar collapsed');
+      } else {
+        sidebar.classList.remove('collapsed');
+        toggleBtn.title = 'Collapse Sidebar';
+        console.log('Sidebar expanded');
+      }
+    });
+    
+    document.getElementById('addBookmarkBtn').addEventListener('click', () => {
+      alert('Add bookmark button clicked! (This is just a test)');
+    });
+  </script>
+</body>
+</html>

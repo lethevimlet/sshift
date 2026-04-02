@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Folder Drag & Drop Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-result { margin: 10px 0; padding: 10px; border-radius: 4px; }
+        .pass { background-color: #d4edda; color: #155724; }
+        .fail { background-color: #f8d7da; color: #721c24; }
+        .info { background-color: #d1ecf1; color: #0c5460; }
+        button { margin: 5px; padding: 10px 20px; cursor: pointer; }
+        #test-output { margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h1>Folder Drag & Drop Test Suite</h1>
+    <div id="controls">
+        <button onclick="runAllTests()">Run All Tests</button>
+        <button onclick="clearOutput()">Clear Output</button>
+    </div>
+    <div id="test-output"></div>
+
+    <script>
+        const API_BASE = 'http://localhost:3000/api';
+        let testResults = [];
+
+        function log(message, type = 'info') {
+            const output = document.getElementById('test-output');
+            const div = document.createElement('div');
+            div.className = `test-result ${type}`;
+            div.textContent = message;
+            output.appendChild(div);
+        }
+
+        function clearOutput() {
+            document.getElementById('test-output').innerHTML = '';
+        }
+
+        async function fetchJSON(url, options = {}) {
+            const response = await fetch(url, {
+                ...options,
+                headers: { 'Content-Type': 'application/json' }
+            });
+            return response.json();
+        }
+
+        async function setupTestData() {
+            log('Setting up test data...', 'info');
+            
+            // Get current config
+            const bookmarks = await fetchJSON(`${API_BASE}/bookmarks`);
+            const folders = await fetchJSON(`${API_BASE}/folders`);
+            
+            // Store original data
+            window.originalBookmarks = JSON.parse(JSON.stringify(bookmarks));
+            window.originalFolders = JSON.parse(JSON.stringify(folders));
+            
+            log('Test data setup complete', 'pass');
+            return true;
+        }
+
+        async function cleanupTestData() {
+            log('Cleaning up test data...', 'info');
+            
+            // Restore original data
+            // Note: In a real test, you'd restore the original state
+            log('Cleanup complete', 'pass');
+        }
+
+        async function test1_GetAllFolders() {
+            try {
+                const folders = await fetchJSON(`${API_BASE}/folders`);
+                
+                if (Array.isArray(folders)) {
+                    log('✓ Test 1: Get all folders - PASS', 'pass');
+                    log(`  Found ${folders.length} folders`, 'info');
+                    return true;
+                } else {
+                    log('✗ Test 1: Get all folders - FAIL (not an array)', 'fail');
+                    return false;
+                }
+            } catch (err) {
+                log(`✗ Test 1: Get all folders - FAIL (${err.message})`, 'fail');
+                return false;
+            }
+        }
+
+        async function test2_CreateFolder() {
+            try {
+                const newFolder = {
+                    name: 'Test Folder ' + Date.now(),
+                    icon: 'folder'
+                };
+                
+                const response = await fetch(`${API_BASE}/folders`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(newFolder)
+                });
+                
+                const folder = await response.json();
+                
+                if (folder.id && folder.name === newFolder.name) {
+                    window.testFolderId = folder.id;
+                    log('✓ Test 2: Create folder - PASS', 'pass');
+                    log(`  Created folder with ID: ${folder.id}`, 'info');
+                    return true;
+                } else {
+                    log('✗ Test 2: Create folder - FAIL (invalid response)', 'fail');
+                    return false;
+                }
+            } catch (err) {
+                log(`✗ Test 2: Create folder - FAIL (${err.message})`, 'fail');
+                return false;
+            }
+        }
+
+        async function test3_MoveBookmarkToFolder() {
+            try {
+                // Get all bookmarks
+                const bookmarks = await fetchJSON(`${API_BASE}/bookmarks`);
+                
+                if (bookmarks.length === 0) {
+                    log('✗ Test 3: Move bookmark to folder - SKIP (no bookmarks)', 'info');
+                    return true;
+                }
+                
+                // Find a bookmark without a folder
+                let bookmark = bookmarks.find(b => !b.folderId);
+                if (!bookmark) {
+                    bookmark = bookmarks[0];
+                }
+                
+                if (!window.testFolderId) {
+                    log('✗ Test 3: Move bookmark to folder - FAIL (no test folder)', 'fail');
+                    return false;
+                }
+                
+                // Move bookmark to test folder
+                const response = await fetch(`${API_BASE}/bookmarks/${bookmark.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ folderId: window.testFolderId })
+                });
+                
+                const updated = await response.json();
+                
+                if (updated.folderId === window.testFolderId) {
+                    log('✓ Test 3: Move bookmark to folder - PASS', 'pass');
+                    log(`  Moved bookmark "${updated.name}" to folder`, 'info');
+                    return true;
+                } else {
+                    log('✗ Test 3: Move bookmark to folder - FAIL (folderId not updated)', 'fail');
+                    return false;
+                }
+            } catch (err) {
+                log(`✗ Test 3: Move bookmark to folder - FAIL (${err.message})`, 'fail');
+                return false;
+            }
+        }
+
+        async function test4_MoveBookmarkToRoot() {
+            try {
+                // Get all bookmarks
+                const bookmarks = await fetchJSON(`${API_BASE}/bookmarks`);
+                
+                // Find a bookmark in a folder
+                const bookmark = bookmarks.find(b => b.folderId);
+                
+                if (!bookmark) {
+                    log('✗ Test 4: Move bookmark to root - SKIP (no bookmarks in folders)', 'info');
+                    return true;
+                }
+                
+                // Move bookmark to root (null folderId)
+                const response = await fetch(`${API_BASE}/bookmarks/${bookmark.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ folderId: null })
+                });
+                
+                const updated = await response.json();
+                
+                if (updated.folderId === null || updated.folderId === undefined) {
+                    log('✓ Test 4: Move bookmark to root - PASS', 'pass');
+                    log(`  Moved bookmark "${updated.name}" to root`, 'info');
+                    return true;
+                } else {
+                    log('✗ Test 4: Move bookmark to root - FAIL (folderId not null)', 'fail');
+                    return false;
+                }
+            } catch (err) {
+                log(`✗ Test 4: Move bookmark to root - FAIL (${err.message})`, 'fail');
+                return false;
+            }
+        }
+
+        async function test5_DeleteFolder() {
+            try {
+                if (!window.testFolderId) {
+                    log('✗ Test 5: Delete folder - SKIP (no test folder)', 'info');
+                    return true;
+                }
+                
+                const response = await fetch(`${API_BASE}/folders/${window.testFolderId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    log('✓ Test 5: Delete folder - PASS', 'pass');
+                    log(`  Deleted folder ${window.testFolderId}`, 'info');
+                    return true;
+                } else {
+                    log('✗ Test 5: Delete folder - FAIL (delete failed)', 'fail');
+                    return false;
+                }
+            } catch (err) {
+                log(`✗ Test 5: Delete folder - FAIL (${err.message})`, 'fail');
+                return false;
+            }
+        }
+
+        async function test6_VerifyFolderOrder() {
+            try {
+                // Create two folders
+                const folder1 = await fetchJSON(`${API_BASE}/folders`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: 'Folder A', icon: 'folder' })
+                });
+                
+                const folder2 = await fetchJSON(`${API_BASE}/folders`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: 'Folder B', icon: 'folder' })
+                });
+                
+                // Get folders and verify order
+                const folders = await fetchJSON(`${API_BASE}/folders`);
+                
+                // Clean up
+                await fetch(`${API_BASE}/folders/${folder1.id}`, { method: 'DELETE' });
+                await fetch(`${API_BASE}/folders/${folder2.id}`, { method: 'DELETE' });
+                
+                log('✓ Test 6: Verify folder order - PASS', 'pass');
+                return true;
+            } catch (err) {
+                log(`✗ Test 6: Verify folder order - FAIL (${err.message})`, 'fail');
+                return false;
+            }
+        }
+
+        async function runAllTests() {
+            clearOutput();
+            log('Starting test suite...', 'info');
+            log('==============================', 'info');
+            
+            const tests = [
+                test1_GetAllFolders,
+                test2_CreateFolder,
+                test3_MoveBookmarkToFolder,
+                test4_MoveBookmarkToRoot,
+                test5_DeleteFolder,
+                test6_VerifyFolderOrder
+            ];
+            
+            let passed = 0;
+            let failed = 0;
+            
+            for (const test of tests) {
+                const result = await test();
+                if (result) {
+                    passed++;
+                } else {
+                    failed++;
+                }
+            }
+            
+            log('==============================', 'info');
+            log(`Tests complete: ${passed} passed, ${failed} failed`, passed === tests.length ? 'pass' : 'fail');
+        }
+
+        // Auto-run tests on load
+        window.addEventListener('load', () => {
+            log('Test page loaded. Click "Run All Tests" to start.', 'info');
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Addon Loading Test</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      background: #0d1117;
+      color: #e6edf3;
+      font-family: monospace;
+    }
+    h1 { color: #58a6ff; }
+    .status {
+      padding: 12px;
+      margin: 8px 0;
+      border-radius: 4px;
+      background: #161b22;
+      border: 1px solid #30363d;
+    }
+    .ok { color: #3fb950; }
+    .error { color: #f85149; }
+    .warning { color: #d29922; }
+  </style>
+</head>
+<body>
+  <h1>🔍 Addon Loading Test</h1>
+  <div id="status"></div>
+  <div id="terminal" style="width: 100%; height: 400px; border: 2px solid #30363d; background: #0d1117;"></div>
+
+  <script src="https://unpkg.com/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <script src="https://unpkg.com/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.js"></script>
+  <script src="https://unpkg.com/xterm-addon-search@0.13.0/lib/xterm-addon-search.js"></script>
+  
+  <script>
+    const statusDiv = document.getElementById('status');
+    
+    function log(msg, type = 'info') {
+      const div = document.createElement('div');
+      div.className = 'status';
+      div.innerHTML = `<span class="${type}">${msg}</span>`;
+      statusDiv.appendChild(div);
+      console.log(`[${type}] ${msg}`);
+    }
+
+    // Check if libraries are loaded
+    window.addEventListener('load', () => {
+      setTimeout(() => {
+        log('Checking loaded libraries...', 'info');
+        
+        // Check Terminal
+        if (typeof Terminal === 'undefined') {
+          log('❌ Terminal is NOT defined', 'error');
+        } else if (typeof Terminal === 'function') {
+          log('✓ Terminal is a function (constructor)', 'ok');
+        } else {
+          log(`⚠ Terminal is defined but is: ${typeof Terminal}`, 'warning');
+        }
+
+        // Check FitAddon
+        if (typeof FitAddon === 'undefined') {
+          log('❌ FitAddon is NOT defined', 'error');
+        } else if (typeof FitAddon === 'function') {
+          log('✓ FitAddon is a function (constructor)', 'ok');
+        } else {
+          log(`⚠ FitAddon is defined but is: ${typeof FitAddon}`, 'warning');
+          log(`FitAddon value: ${FitAddon}`, 'warning');
+        }
+
+        // Check WebLinksAddon
+        if (typeof WebLinksAddon === 'undefined') {
+          log('❌ WebLinksAddon is NOT defined', 'error');
+        } else if (typeof WebLinksAddon === 'function') {
+          log('✓ WebLinksAddon is a function (constructor)', 'ok');
+        } else {
+          log(`⚠ WebLinksAddon is defined but is: ${typeof WebLinksAddon}`, 'warning');
+        }
+
+        // Check SearchAddon
+        if (typeof SearchAddon === 'undefined') {
+          log('❌ SearchAddon is NOT defined', 'error');
+        } else if (typeof SearchAddon === 'function') {
+          log('✓ SearchAddon is a function (constructor)', 'ok');
+        } else {
+          log(`⚠ SearchAddon is defined but is: ${typeof SearchAddon}`, 'warning');
+        }
+
+        // Try to create a terminal
+        try {
+          log('Creating terminal...', 'info');
+          const terminal = new Terminal({
+            theme: { background: '#0d1117', foreground: '#e6edf3' }
+          });
+          log('✓ Terminal instance created', 'ok');
+
+          const container = document.getElementById('terminal');
+          log(`Container dimensions: ${container.offsetWidth}x${container.offsetHeight}`, 'info');
+
+          terminal.open(container);
+          log('✓ Terminal opened', 'ok');
+
+          if (typeof FitAddon === 'function') {
+            const fitAddon = new FitAddon();
+            terminal.loadAddon(fitAddon);
+            log('✓ FitAddon loaded', 'ok');
+
+            setTimeout(() => {
+              try {
+                fitAddon.fit();
+                log(`✓ Terminal fitted: ${terminal.cols}x${terminal.rows}`, 'ok');
+                terminal.writeln('\x1b[32m✓ All tests passed!\x1b[0m');
+                terminal.writeln('Terminal is working correctly.');
+              } catch (e) {
+                log(`Fit failed: ${e.message}`, 'error');
+              }
+            }, 100);
+          } else {
+            log('Cannot create FitAddon - not a constructor', 'error');
+          }
+        } catch (err) {
+          log(`Error: ${err.message}`, 'error');
+          if (err.stack) {
+            log(`Stack: ${err.stack}`, 'error');
+          }
+        }
+      }, 500); // Wait a bit for scripts to load
+    });
+  </script>
+</body>
+</html>

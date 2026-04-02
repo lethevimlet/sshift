@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Complete SFTP Test</title>
+  <link rel="stylesheet" href="/libs/xterm/xterm.css">
+  <link rel="stylesheet" href="/libs/font-awesome/css/all.min.css">
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="/libs/xterm/xterm.js"></script>
+  <script src="/libs/xterm/xterm-addon-fit.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body style="padding: 20px; background: #0d1117; color: #e6edf3;">
+  <h1>Complete SFTP Connection Test</h1>
+  
+  <div style="margin: 20px 0; padding: 20px; background: #161b22; border-radius: 8px;">
+    <h3>Connection Details:</h3>
+    <div style="display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+      <input id="host" type="text" placeholder="Host" value="localhost" style="padding: 8px; background: #0d1117; border: 1px solid #30363d; color: #e6edf3; border-radius: 4px;">
+      <input id="port" type="number" placeholder="Port" value="22" style="padding: 8px; background: #0d1117; border: 1px solid #30363d; color: #e6edf3; border-radius: 4px;">
+      <input id="username" type="text" placeholder="Username" value="root" style="padding: 8px; background: #0d1117; border: 1px solid #30363d; color: #e6edf3; border-radius: 4px;">
+      <input id="password" type="password" placeholder="Password" style="padding: 8px; background: #0d1117; border: 1px solid #30363d; color: #e6edf3; border-radius: 4px;">
+    </div>
+    <button onclick="runTest()" style="margin-top: 10px; padding: 10px 20px; background: #c10059; color: white; border: none; border-radius: 4px; cursor: pointer;">Run Complete Test</button>
+  </div>
+  
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+    <div>
+      <h3>Event Log:</h3>
+      <pre id="log" style="background: #0d1117; padding: 10px; height: 400px; overflow-y: auto; font-family: monospace; border: 1px solid #30363d; border-radius: 4px;"></pre>
+    </div>
+    <div>
+      <h3>DOM State:</h3>
+      <pre id="domState" style="background: #0d1117; padding: 10px; height: 400px; overflow-y: auto; font-family: monospace; border: 1px solid #30363d; border-radius: 4px;"></pre>
+    </div>
+  </div>
+  
+  <h3>Test Terminals Container:</h3>
+  <div id="terminalsContainer" style="border: 2px solid #c10059; height: 400px; position: relative; background: #161b22; border-radius: 4px;"></div>
+  
+  <script>
+    const socket = io();
+    let testSessionId = null;
+    
+    function log(msg) {
+      const logEl = document.getElementById('log');
+      const timestamp = new Date().toLocaleTimeString();
+      logEl.textContent += `[${timestamp}] ${msg}\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log(msg);
+    }
+    
+    function updateDOMState() {
+      const stateEl = document.getElementById('domState');
+      const wrappers = document.querySelectorAll('.terminal-wrapper');
+      const containers = document.querySelectorAll('.sftp-container');
+      const fileLists = document.querySelectorAll('.sftp-file-list');
+      
+      let html = '=== DOM STATE ===\n\n';
+      html += '<b>Terminal Wrappers:</b>\n';
+      if (wrappers.length === 0) {
+        html += '  (none)\n';
+      } else {
+        wrappers.forEach(w => {
+          html += `  ID: ${w.id}\n`;
+          html += `    Active: ${w.classList.contains('active')}\n`;
+          html += `    Display: ${window.getComputedStyle(w).display}\n`;
+          html += `    Children: ${w.children.length}\n`;
+        });
+      }
+      
+      html += '\n<b>SFTP Containers:</b>\n';
+      if (containers.length === 0) {
+        html += '  (none)\n';
+      } else {
+        containers.forEach(c => {
+          html += `  ID: ${c.id}\n`;
+          html += `    Parent: ${c.parentElement?.id || 'none'}\n`;
+          html += `    Display: ${window.getComputedStyle(c).display}\n`;
+        });
+      }
+      
+      html += '\n<b>File Lists:</b>\n';
+      if (fileLists.length === 0) {
+        html += '  (none)\n';
+      } else {
+        fileLists.forEach(f => {
+          html += `  Parent: ${f.parentElement?.id || 'none'}\n`;
+          html += `    Children: ${f.children.length}\n`;
+        });
+      }
+      
+      stateEl.textContent = html;
+    }
+    
+    socket.on('connect', () => {
+      log('✅ Socket connected: ' + socket.id);
+    });
+    
+    socket.on('sftp-connected', (data) => {
+      log('✅ sftp-connected received');
+      log('   sessionId: ' + data.sessionId);
+      log('   testSessionId: ' + testSessionId);
+      log('   Match: ' + (data.sessionId === testSessionId ? 'YES' : 'NO'));
+      
+      updateDOMState();
+      
+      // Try to find container
+      log('\n🔍 Finding container:');
+      log('   #sftp-${data.sessionId}: ' + !!document.querySelector(`#sftp-${data.sessionId}`));
+      log('   #sftp-${data.sessionId} .sftp-file-list: ' + !!document.querySelector(`#sftp-${data.sessionId} .sftp-file-list`));
+      
+      // Request file list
+      log('\n📤 Emitting sftp-list for path: /');
+      socket.emit('sftp-list', { sessionId: data.sessionId, path: '/' });
+    });
+    
+    socket.on('sftp-list-result', (data) => {
+      log('\n✅ sftp-list-result received');
+      log('   sessionId: ' + data.sessionId);
+      log('   path: ' + data.path);
+      log('   files: ' + (data.files?.length || 0));
+      
+      updateDOMState();
+      
+      // Try to find file list
+      const selector = `#sftp-${data.sessionId} .sftp-file-list`;
+      log('\n🔍 Finding file list:');
+      log('   Selector: ' + selector);
+      
+      const fileList = document.querySelector(selector);
+      if (fileList) {
+        log('   Found: YES');
+        log('   Rendering files...');
+        
+        fileList.innerHTML = '';
+        if (data.files && data.files.length > 0) {
+          data.files.forEach(file => {
+            const item = document.createElement('div');
+            item.className = 'sftp-file-item';
+            item.style.cssText = 'padding: 8px; border-bottom: 1px solid #30363d; cursor: pointer;';
+            item.textContent = file.name + (file.type === 'd' ? '/' : '');
+            fileList.appendChild(item);
+          });
+          log('   ✅ Rendered ' + data.files.length + ' files');
+        } else {
+          fileList.innerHTML = '<div style="padding: 10px; color: #8b949e;">No files found</div>';
+          log('   ⚠️ No files to render');
+        }
+      } else {
+        log('   Found: NO');
+        log('   ❌ ERROR: File list container not found!');
+        
+        // Try alternatives
+        log('\n🔍 Trying alternatives:');
+        log('   .sftp-file-list: ' + !!document.querySelector('.sftp-file-list'));
+        log('   .sftp-container: ' + !!document.querySelector('.sftp-container'));
+        log('   .terminal-wrapper.active: ' + !!document.querySelector('.terminal-wrapper.active'));
+        
+        // Try to find by active wrapper
+        const activeWrapper = document.querySelector('.terminal-wrapper.active');
+        if (activeWrapper) {
+          log('   Active wrapper ID: ' + activeWrapper.id);
+          const containerInActive = activeWrapper.querySelector('.sftp-file-list');
+          log('   File list in active wrapper: ' + !!containerInActive);
+          
+          if (containerInActive) {
+            log('   Using active wrapper file list...');
+            containerInActive.innerHTML = '<div style="padding: 10px; color: #f85149;">Files loaded but wrong container!</div>';
+          }
+        }
+      }
+    });
+    
+    socket.on('sftp-error', (data) => {
+      log('❌ SFTP ERROR: ' + data.message);
+    });
+    
+    async function runTest() {
+      const host = document.getElementById('host').value;
+      const port = parseInt(document.getElementById('port').value) || 22;
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+      
+      testSessionId = 'sftp-' + Date.now();
+      
+      log('========================================');
+      log('🚀 Starting SFTP Test');
+      log('   testSessionId: ' + testSessionId);
+      log('   host: ' + host);
+      log('   port: ' + port);
+      log('   username: ' + username);
+      
+      // Step 1: Create wrapper
+      log('\n📦 Step 1: Creating wrapper');
+      const wrapper = document.createElement('div');
+      wrapper.className = 'terminal-wrapper active';
+      wrapper.id = `terminal-wrapper-${testSessionId}`;
+      log('   Created: ' + wrapper.id);
+      
+      // Step 2: Create container
+      log('\n📦 Step 2: Creating container');
+      const container = document.createElement('div');
+      container.className = 'sftp-container';
+      container.id = `sftp-${testSessionId}`;
+      container.innerHTML = `
+        <div class="sftp-toolbar">
+          <div class="sftp-path">
+            <input type="text" class="sftp-path-input" value="/" placeholder="/path/to/directory">
+          </div>
+        </div>
+        <div class="sftp-file-list"></div>
+      `;
+      log('   Created: ' + container.id);
+      
+      // Step 3: Append to DOM
+      log('\n📦 Step 3: Appending to DOM');
+      wrapper.appendChild(container);
+      document.getElementById('terminalsContainer').appendChild(wrapper);
+      log('   Appended to terminalsContainer');
+      
+      // Step 4: Verify DOM
+      log('\n📦 Step 4: Verifying DOM');
+      updateDOMState();
+      
+      const foundById = document.getElementById(`sftp-${testSessionId}`);
+      const foundByQuery = document.querySelector(`#sftp-${testSessionId}`);
+      const fileList = document.querySelector(`#sftp-${testSessionId} .sftp-file-list`);
+      
+      log('   getElementById: ' + !!foundById);
+      log('   querySelector: ' + !!foundByQuery);
+      log('   file list: ' + !!fileList);
+      
+      // Step 5: Connect
+      log('\n📦 Step 5: Emitting sftp-connect');
+      socket.emit('sftp-connect', {
+        host,
+        port,
+        username,
+        password,
+        sessionId: testSessionId
+      });
+      
+      log('   Emitted with sessionId: ' + testSessionId);
+    }
+  </script>
+</body>
+</html>

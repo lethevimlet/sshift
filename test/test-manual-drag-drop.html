@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Manual Drag & Drop Test Instructions</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; }
+        h1 { color: #333; }
+        h2 { color: #555; margin-top: 30px; }
+        .test-case { background: #f5f5f5; padding: 15px; margin: 10px 0; border-radius: 4px; }
+        .test-case h3 { margin-top: 0; color: #0066cc; }
+        .expected { color: #28a745; font-weight: bold; }
+        .note { background: #fff3cd; padding: 10px; border-radius: 4px; margin: 10px 0; }
+        ul { margin: 5px 0; }
+        code { background: #e9ecef; padding: 2px 6px; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <h1>Folder Drag & Drop - Manual Test Instructions</h1>
+    
+    <div class="note">
+        <strong>Prerequisites:</strong>
+        <ul>
+            <li>Server running at http://localhost:3000</li>
+            <li>At least 2 bookmarks created</li>
+            <li>At least 1 folder created</li>
+        </ul>
+    </div>
+
+    <h2>Test 1: Drag Bookmark to Folder</h2>
+    <div class="test-case">
+        <h3>Steps:</h3>
+        <ol>
+            <li>Open http://localhost:3000 in browser</li>
+            <li>Locate a bookmark in the root (not in a folder)</li>
+            <li>Drag the bookmark and drop it on a folder header</li>
+        </ol>
+        <h3>Expected Result:</h3>
+        <p class="expected">Bookmark moves into the folder and appears indented under the folder name.</p>
+        <p>Console should show: "Moving bookmark [id] to folder [folderId]"</p>
+    </div>
+
+    <h2>Test 2: Drag Bookmark from Folder to Root</h2>
+    <div class="test-case">
+        <h3>Steps:</h3>
+        <ol>
+            <li>Expand a folder that contains bookmarks</li>
+            <li>Drag a bookmark from the folder</li>
+            <li>Drop it on the empty space below all folders (root area)</li>
+        </ol>
+        <h3>Expected Result:</h3>
+        <p class="expected">Bookmark moves out of the folder and appears in the root area.</p>
+        <p>Console should show: "Dropping to root: [bookmark name]"</p>
+    </div>
+
+    <h2>Test 3: Reorder Bookmarks in Same Folder</h2>
+    <div class="test-case">
+        <h3>Steps:</h3>
+        <ol>
+            <li>Create at least 2 bookmarks in the same folder (or root)</li>
+            <li>Drag one bookmark and drop it on another bookmark in the same location</li>
+        </ol>
+        <h3>Expected Result:</h3>
+        <p class="expected">Bookmarks reorder within the same folder. Order is persisted after page refresh.</p>
+        <p>Console should show: "Same folder reordering. Dragged index: X, Target index: Y"</p>
+    </div>
+
+    <h2>Test 4: Drag Bookmark Between Folders</h2>
+    <div class="test-case">
+        <h3>Steps:</h3>
+        <ol>
+            <li>Create at least 2 folders with bookmarks in each</li>
+            <li>Drag a bookmark from one folder</li>
+            <li>Drop it on another folder's header</li>
+        </ol>
+        <h3>Expected Result:</h3>
+        <p class="expected">Bookmark moves from first folder to second folder.</p>
+        <p>Console should show: "Moving to different folder: [folderId]"</p>
+    </div>
+
+    <h2>Test 5: Drag Folder to Reorder</h2>
+    <div class="test-case">
+        <h3>Steps:</h3>
+        <ol>
+            <li>Create at least 2 folders</li>
+            <li>Drag one folder header and drop it on another folder header</li>
+        </ol>
+        <h3>Expected Result:</h3>
+        <p class="expected">Folders reorder. Order is persisted after page refresh.</p>
+    </div>
+
+    <h2>Test 6: Visual Feedback During Drag</h2>
+    <div class="test-case">
+        <h3>Steps:</h3>
+        <ol>
+            <li>Start dragging a bookmark</li>
+            <li>Hover over different drop targets without dropping</li>
+        </ol>
+        <h3>Expected Result:</h3>
+        <p class="expected">Visual feedback should appear:</p>
+        <ul>
+            <li>When hovering over a bookmark: Blue border on top</li>
+            <li>When hovering over a folder header: Highlighted background with blue border</li>
+            <li>When hovering over root area: Light background highlight</li>
+        </ul>
+    </div>
+
+    <h2>Test 7: Persistence After Page Reload</h2>
+    <div class="test-case">
+        <h3>Steps:</h3>
+        <ol>
+            <li>Perform any of the above drag operations</li>
+            <li>Refresh the page (F5)</li>
+        </ol>
+        <h3>Expected Result:</h3>
+        <p class="expected">All changes should persist - bookmarks remain in their new folders/positions.</p>
+    </div>
+
+    <h2>Test 8: Empty Root Drop Zone</h2>
+    <div class="test-case">
+        <h3>Steps:</h3>
+        <ol>
+            <li>Move all bookmarks into folders (so root is empty)</li>
+            <li>Drag a bookmark from a folder</li>
+            <li>Drop it on the empty root area</li>
+        </ol>
+        <h3>Expected Result:</h3>
+        <p class="expected">Bookmark successfully moves to root. Root container should always be available as a drop target even when empty.</p>
+    </div>
+
+    <h2>Debug Console Commands</h2>
+    <div class="test-case">
+        <h3>Open browser console (F12) and run these commands to check state:</h3>
+        <pre>
+// Get all bookmarks
+fetch('/api/bookmarks').then(r => r.json()).then(console.log)
+
+// Get all folders
+fetch('/api/folders').then(r => r.json()).then(console.log)
+
+// Check config.json directly (in server terminal)
+cat config.json
+        </pre>
+    </div>
+
+    <h2>Known Issues to Check</h2>
+    <div class="test-case">
+        <ul>
+            <li>✓ Root container should always be droppable (even when empty)</li>
+            <li>✓ Dropping on bookmark in root should not trigger "move to root"</li>
+            <li>✓ Visual feedback should clear after drag ends</li>
+            <li>✓ Folder expansion state should persist</li>
+        </ul>
+    </div>
+
+    <script>
+        console.log('Manual test instructions loaded.');
+        console.log('Open http://localhost:3000 to start testing.');
+    </script>
+</body>
+</html>

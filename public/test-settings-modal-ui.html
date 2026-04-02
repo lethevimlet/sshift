@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Settings Modal Test</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    .test-result { margin: 10px 0; padding: 10px; border-radius: 4px; }
+    .pass { background: #d4edda; color: #155724; }
+    .fail { background: #f8d7da; color: #721c24; }
+    .modal { display: none; }
+    .modal.active { display: block; }
+  </style>
+</head>
+<body>
+  <h1>Settings Modal Test</h1>
+  <button onclick="runTests()">Run Tests</button>
+  <div id="results"></div>
+  
+  <script>
+    async function runTests() {
+      const results = document.getElementById('results');
+      results.innerHTML = '';
+      
+      // Test 1: Check if settings button exists
+      const settingsBtn = document.getElementById('settingsBtn');
+      const test1 = document.createElement('div');
+      test1.className = 'test-result ' + (settingsBtn ? 'pass' : 'fail');
+      test1.textContent = settingsBtn ? '✓ Settings button exists' : '✗ Settings button not found';
+      results.appendChild(test1);
+      
+      // Test 2: Check if settings modal exists
+      const settingsModal = document.getElementById('settingsModal');
+      const test2 = document.createElement('div');
+      test2.className = 'test-result ' + (settingsModal ? 'pass' : 'fail');
+      test2.textContent = settingsModal ? '✓ Settings modal exists' : '✗ Settings modal not found';
+      results.appendChild(test2);
+      
+      // Test 3: Check if close button exists
+      const closeBtn = document.getElementById('closeSettingsModal');
+      const test3 = document.createElement('div');
+      test3.className = 'test-result ' + (closeBtn ? 'pass' : 'fail');
+      test3.textContent = closeBtn ? '✓ Close button exists' : '✗ Close button not found';
+      results.appendChild(test3);
+      
+      // Test 4: Check if cancel button exists
+      const cancelBtn = document.getElementById('cancelSettings');
+      const test4 = document.createElement('div');
+      test4.className = 'test-result ' + (cancelBtn ? 'pass' : 'fail');
+      test4.textContent = cancelBtn ? '✓ Cancel button exists' : '✗ Cancel button not found';
+      results.appendChild(test4);
+      
+      // Test 5: Check if save button exists
+      const saveBtn = document.getElementById('saveSettings');
+      const test5 = document.createElement('div');
+      test5.className = 'test-result ' + (saveBtn ? 'pass' : 'fail');
+      test5.textContent = saveBtn ? '✓ Save button exists' : '✗ Save button not found';
+      results.appendChild(test5);
+      
+      // Test 6: Check if sticky toggle exists
+      const stickyToggle = document.getElementById('stickyToggle');
+      const test6 = document.createElement('div');
+      test6.className = 'test-result ' + (stickyToggle ? 'pass' : 'fail');
+      test6.textContent = stickyToggle ? '✓ Sticky toggle exists' : '✗ Sticky toggle not found';
+      results.appendChild(test6);
+    }
+  </script>
+  
+  <!-- Include the actual HTML elements from index.html -->
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/libs/font-awesome/css/all.min.css">
+  
+  <!-- Settings Button -->
+  <button class="btn btn-icon" id="settingsBtn" title="Settings">
+    <i class="fas fa-cog"></i>
+  </button>
+  
+  <!-- Settings Modal -->
+  <div class="modal" id="settingsModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2><i class="fas fa-cog"></i> Settings</h2>
+        <button class="modal-close" id="closeSettingsModal">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="setting-group">
+          <div class="setting-item">
+            <label class="setting-label">
+              <i class="fas fa-link"></i> Sticky Sessions
+            </label>
+            <div class="setting-description">
+              When enabled, sessions and tabs are synchronized across browser windows. When disabled, each browser tab works independently with its own session.
+            </div>
+            <div class="setting-control">
+              <label class="toggle-switch">
+                <input type="checkbox" id="stickyToggle" checked>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="cancelSettings">Cancel</button>
+        <button class="btn btn-primary" id="saveSettings">
+          <i class="fas fa-save"></i> Save
+        </button>
+      </div>
+    </div>
+  </div>
+  
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/app.js"></script>
+  <script>
+    window.addEventListener('load', () => {
+      console.log('App initialized, running tests...');
+      setTimeout(runTests, 500);
+    });
+  </script>
+</body>
+</html>

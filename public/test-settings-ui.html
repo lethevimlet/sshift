@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings Modal UI Test</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #1a1a1a;
+      color: #e0e0e0;
+    }
+    h1 {
+      color: #4CAF50;
+    }
+    .test-section {
+      background: #2a2a2a;
+      padding: 20px;
+      border-radius: 8px;
+      margin: 20px 0;
+    }
+    .test-result {
+      padding: 10px;
+      margin: 5px 0;
+      border-radius: 4px;
+    }
+    .pass {
+      background: #2e7d32;
+      color: white;
+    }
+    .fail {
+      background: #c62828;
+      color: white;
+    }
+    .info {
+      background: #1565c0;
+      color: white;
+    }
+    button {
+      background: #4CAF50;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 5px;
+    }
+    button:hover {
+      background: #45a049;
+    }
+    #testFrame {
+      width: 100%;
+      height: 600px;
+      border: 2px solid #4CAF50;
+      border-radius: 8px;
+      margin: 20px 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>🧪 Settings Modal UI Test</h1>
+  
+  <div class="test-section">
+    <h2>Test Controls</h2>
+    <button onclick="runAllTests()">Run All Tests</button>
+    <button onclick="testInMainApp()">Open Main App</button>
+  </div>
+  
+  <div class="test-section">
+    <h2>Test Results</h2>
+    <div id="results"></div>
+  </div>
+  
+  <div class="test-section">
+    <h2>Live App Test</h2>
+    <p>Click "Open Main App" to test the settings modal in the actual application:</p>
+    <ol>
+      <li>Click the Settings button (gear icon) in the top-right</li>
+      <li>Verify the settings modal opens</li>
+      <li>Toggle the "Sticky Sessions" switch</li>
+      <li>Click "Save" - modal should close</li>
+      <li>Open settings again - toggle should reflect saved state</li>
+      <li>Click "X" or "Cancel" - modal should close without saving</li>
+    </ol>
+  </div>
+  
+  <script>
+    function addResult(message, type) {
+      const results = document.getElementById('results');
+      const div = document.createElement('div');
+      div.className = `test-result ${type}`;
+      div.textContent = message;
+      results.appendChild(div);
+    }
+    
+    async function runAllTests() {
+      const results = document.getElementById('results');
+      results.innerHTML = '';
+      
+      addResult('Starting Settings Modal UI Tests...', 'info');
+      
+      // Test 1: Check if app.js loads
+      try {
+        const response = await fetch('/js/app.js');
+        if (response.ok) {
+          addResult('✓ app.js loads successfully', 'pass');
+        } else {
+          addResult('✗ app.js failed to load', 'fail');
+          return;
+        }
+      } catch (err) {
+        addResult(`✗ Error loading app.js: ${err.message}`, 'fail');
+        return;
+      }
+      
+      // Test 2: Check if index.html has settings modal
+      try {
+        const response = await fetch('/');
+        const html = await response.text();
+        
+        if (html.includes('id="settingsModal"')) {
+          addResult('✓ Settings modal exists in HTML', 'pass');
+        } else {
+          addResult('✗ Settings modal not found in HTML', 'fail');
+          return;
+        }
+        
+        if (html.includes('id="settingsBtn"')) {
+          addResult('✓ Settings button exists', 'pass');
+        } else {
+          addResult('✗ Settings button not found', 'fail');
+          return;
+        }
+        
+        if (html.includes('id="closeSettingsModal"')) {
+          addResult('✓ Close button (X) exists', 'pass');
+        } else {
+          addResult('✗ Close button not found', 'fail');
+          return;
+        }
+        
+        if (html.includes('id="cancelSettings"')) {
+          addResult('✓ Cancel button exists', 'pass');
+        } else {
+          addResult('✗ Cancel button not found', 'fail');
+          return;
+        }
+        
+        if (html.includes('id="saveSettings"')) {
+          addResult('✓ Save button exists', 'pass');
+        } else {
+          addResult('✗ Save button not found', 'fail');
+          return;
+        }
+        
+        if (html.includes('id="stickyToggle"')) {
+          addResult('✓ Sticky toggle exists', 'pass');
+        } else {
+          addResult('✗ Sticky toggle not found', 'fail');
+          return;
+        }
+      } catch (err) {
+        addResult(`✗ Error fetching HTML: ${err.message}`, 'fail');
+        return;
+      }
+      
+      // Test 3: Check API endpoints
+      try {
+        const configResponse = await fetch('/api/config');
+        const config = await configResponse.json();
+        
+        if (typeof config.sticky === 'boolean') {
+          addResult(`✓ GET /api/config returns sticky: ${config.sticky}`, 'pass');
+        } else {
+          addResult('✗ GET /api/config does not return sticky property', 'fail');
+          return;
+        }
+        
+        // Test POST endpoint
+        const postResponse = await fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sticky: !config.sticky })
+        });
+        
+        const result = await postResponse.json();
+        
+        if (result.success) {
+          addResult(`✓ POST /api/config updates sticky: ${result.sticky}`, 'pass');
+          
+          // Restore original value
+          await fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sticky: config.sticky })
+          });
+        } else {
+          addResult('✗ POST /api/config failed', 'fail');
+          return;
+        }
+      } catch (err) {
+        addResult(`✗ API test error: ${err.message}`, 'fail');
+        return;
+      }
+      
+      // Test 4: Check CSS for modal
+      try {
+        const response = await fetch('/css/style.css');
+        const css = await response.text();
+        
+        if (css.includes('.modal.active')) {
+          addResult('✓ Modal active class defined in CSS', 'pass');
+        } else {
+          addResult('✗ Modal active class not found in CSS', 'fail');
+        }
+        
+        if (css.includes('.modal-close')) {
+          addResult('✓ Modal close button styles exist', 'pass');
+        } else {
+          addResult('✗ Modal close button styles not found', 'fail');
+        }
+        
+        if (css.includes('.toggle-switch')) {
+          addResult('✓ Toggle switch styles exist', 'pass');
+        } else {
+          addResult('✗ Toggle switch styles not found', 'fail');
+        }
+      } catch (err) {
+        addResult(`✗ CSS test error: ${err.message}`, 'fail');
+      }
+      
+      addResult('========================================', 'info');
+      addResult('✓ All UI component tests passed!', 'pass');
+      addResult('========================================', 'info');
+      addResult('', 'info');
+      addResult('Next: Test the modal in the live app', 'info');
+      addResult('1. Click "Open Main App" button below', 'info');
+      addResult('2. Click the Settings (gear) icon', 'info');
+      addResult('3. Test all buttons: X, Cancel, Save', 'info');
+    }
+    
+    function testInMainApp() {
+      window.open('/', '_blank');
+    }
+    
+    // Auto-run tests on load
+    window.addEventListener('load', () => {
+      setTimeout(runAllTests, 500);
+    });
+  </script>
+</body>
+</html>

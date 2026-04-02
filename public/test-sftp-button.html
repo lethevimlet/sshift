@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test SFTP Button - SSHIFT</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    body {
+      padding: 20px;
+    }
+    .test-container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .test-info {
+      background: var(--bg-tertiary);
+      padding: 20px;
+      border-radius: var(--radius-md);
+      margin-bottom: 20px;
+    }
+    .test-info h2 {
+      color: var(--accent-primary);
+      margin-bottom: 10px;
+    }
+    .test-info p {
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+    }
+    .test-info code {
+      background: var(--bg-primary);
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+      color: var(--accent-primary);
+    }
+    .test-section {
+      background: var(--bg-secondary);
+      padding: 20px;
+      border-radius: var(--radius-md);
+      margin-bottom: 20px;
+    }
+    .test-section h3 {
+      color: var(--text-primary);
+      margin-bottom: 15px;
+    }
+  </style>
+</head>
+<body>
+  <div class="test-container">
+    <div class="test-info">
+      <h2>SFTP Button Test</h2>
+      <p>✓ SSH bookmarks should show a folder icon button for SFTP</p>
+      <p>✓ SFTP bookmarks should NOT show the SFTP button</p>
+      <p>✓ Hover over the SFTP button to see purple color</p>
+      <p>✓ Click the SFTP button to open SFTP connection</p>
+    </div>
+    
+    <div class="test-section">
+      <h3>SSH Bookmark (should have SFTP button)</h3>
+      <div style="width: 300px;">
+        <div class="bookmark-item">
+          <div class="bookmark-icon ssh">
+            <i class="fas fa-terminal"></i>
+          </div>
+          <div class="bookmark-info">
+            <div class="bookmark-name">Test Server</div>
+            <div class="bookmark-details">user@192.168.1.1:22</div>
+          </div>
+          <div class="bookmark-actions">
+            <button class="sftp-bookmark" title="Open SFTP"><i class="fas fa-folder-open"></i></button>
+            <button class="edit-bookmark" title="Edit"><i class="fas fa-edit"></i></button>
+            <button class="delete-bookmark" title="Delete"><i class="fas fa-trash"></i></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="test-section">
+      <h3>SFTP Bookmark (should NOT have SFTP button)</h3>
+      <div style="width: 300px;">
+        <div class="bookmark-item">
+          <div class="bookmark-icon sftp">
+            <i class="fas fa-folder-open"></i>
+          </div>
+          <div class="bookmark-info">
+            <div class="bookmark-name">File Server</div>
+            <div class="bookmark-details">user@files.example.com:22</div>
+          </div>
+          <div class="bookmark-actions">
+            <button class="edit-bookmark" title="Edit"><i class="fas fa-edit"></i></button>
+            <button class="delete-bookmark" title="Delete"><i class="fas fa-trash"></i></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="test-section">
+      <h3>Collapsed Sidebar View</h3>
+      <p style="color: var(--text-secondary); margin-bottom: 10px;">When sidebar is collapsed, only icons should be visible</p>
+      <div style="width: 50px;">
+        <div class="bookmark-item" style="justify-content: center; padding: 10px;">
+          <div class="bookmark-icon ssh" style="margin-right: 0;">
+            <i class="fas fa-terminal"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script>
+    // Test button clicks
+    document.querySelectorAll('.sftp-bookmark').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        alert('SFTP button clicked! This would open an SFTP connection.');
+      });
+    });
+
+    document.querySelectorAll('.edit-bookmark').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        alert('Edit button clicked!');
+      });
+    });
+
+    document.querySelectorAll('.delete-bookmark').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        alert('Delete button clicked!');
+      });
+    });
+  </script>
+</body>
+</html>

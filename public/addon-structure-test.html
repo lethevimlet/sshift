@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>FitAddon Structure Test</title>
+  <style>
+    body { background: #0d1117; color: #e6edf3; font-family: monospace; padding: 20px; }
+    .ok { color: #3fb950; } .error { color: #f85149; } .warning { color: #d29922; }
+    pre { background: #161b22; padding: 10px; border-radius: 4px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>FitAddon Structure Test</h1>
+  <div id="log"></div>
+
+  <script src="https://unpkg.com/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  
+  <script>
+    const logEl = document.getElementById('log');
+    function log(msg, type = 'info') {
+      const div = document.createElement('div');
+      div.className = type;
+      div.textContent = msg;
+      logEl.appendChild(div);
+      console.log(msg);
+    }
+
+    log('=== Checking FitAddon Structure ===');
+    
+    // Check what's actually in the global scope
+    log(`typeof FitAddon: ${typeof FitAddon}`);
+    log(`typeof window.FitAddon: ${typeof window.FitAddon}`);
+    log(`typeof self.FitAddon: ${typeof self.FitAddon}`);
+    
+    // If it's an object, check its properties
+    if (typeof FitAddon !== 'undefined') {
+      log('\n--- FitAddon (global) ---');
+      if (typeof FitAddon === 'object' && FitAddon !== null) {
+        log(`Keys: ${Object.keys(FitAddon).join(', ')}`);
+        if (FitAddon.FitAddon) {
+          log(`typeof FitAddon.FitAddon: ${typeof FitAddon.FitAddon}`, 'ok');
+          log('✅ FitAddon.FitAddon exists!', 'ok');
+        }
+      } else if (typeof FitAddon === 'function') {
+        log('✅ FitAddon is a function (constructor)', 'ok');
+        log(`FitAddon.name: ${FitAddon.name}`);
+        log(`FitAddon.length: ${FitAddon.length}`);
+      }
+    }
+    
+    if (typeof window.FitAddon !== 'undefined') {
+      log('\n--- window.FitAddon ---');
+      if (typeof window.FitAddon === 'object' && window.FitAddon !== null) {
+        log(`Keys: ${Object.keys(window.FitAddon).join(', ')}`);
+        if (window.FitAddon.FitAddon) {
+          log(`typeof window.FitAddon.FitAddon: ${typeof window.FitAddon.FitAddon}`, 'ok');
+          log('✅ window.FitAddon.FitAddon exists!', 'ok');
+        }
+      } else if (typeof window.FitAddon === 'function') {
+        log('✅ window.FitAddon is a function (constructor)', 'ok');
+        log(`window.FitAddon.name: ${window.FitAddon.name}`);
+      }
+    }
+    
+    // Try to determine the correct constructor
+    log('\n=== Finding Correct Constructor ===');
+    
+    let FitAddonConstructor = null;
+    
+    if (typeof FitAddon === 'function') {
+      FitAddonConstructor = FitAddon;
+      log('✅ Using global FitAddon (function)', 'ok');
+    } else if (typeof window.FitAddon === 'function') {
+      FitAddonConstructor = window.FitAddon;
+      log('✅ Using window.FitAddon (function)', 'ok');
+    } else if (typeof FitAddon === 'object' && FitAddon && FitAddon.FitAddon && typeof FitAddon.FitAddon === 'function') {
+      FitAddonConstructor = FitAddon.FitAddon;
+      log('✅ Using FitAddon.FitAddon (nested)', 'ok');
+    } else if (typeof window.FitAddon === 'object' && window.FitAddon && window.FitAddon.FitAddon && typeof window.FitAddon.FitAddon === 'function') {
+      FitAddonConstructor = window.FitAddon.FitAddon;
+      log('✅ Using window.FitAddon.FitAddon (nested)', 'ok');
+    } else {
+      log('❌ Could not find FitAddon constructor', 'error');
+    }
+    
+    if (FitAddonConstructor) {
+      log(`\nConstructor found: ${FitAddonConstructor.name || 'anonymous'}`, 'ok');
+      log(`typeof FitAddonConstructor: ${typeof FitAddonConstructor}`, 'ok');
+      
+      // Try to create instance
+      try {
+        const instance = new FitAddonConstructor();
+        log('✅ Successfully created FitAddon instance!', 'ok');
+        log(`Instance: ${instance}`, 'ok');
+        log(`Instance has fit method: ${typeof instance.fit === 'function'}`, 'ok');
+      } catch (e) {
+        log(`❌ Failed to create instance: ${e.message}`, 'error');
+      }
+    }
+    
+    // Also check Terminal
+    log('\n=== Checking Terminal ===');
+    let TerminalConstructor = null;
+    
+    if (typeof Terminal === 'function') {
+      TerminalConstructor = Terminal;
+      log('✅ Using global Terminal (function)', 'ok');
+    } else if (typeof window.Terminal === 'function') {
+      TerminalConstructor = window.Terminal;
+      log('✅ Using window.Terminal (function)', 'ok');
+    } else if (typeof Terminal === 'object' && Terminal && Terminal.Terminal) {
+      TerminalConstructor = Terminal.Terminal;
+      log('✅ Using Terminal.Terminal (nested)', 'ok');
+    } else if (typeof window.Terminal === 'object' && window.Terminal && window.Terminal.Terminal) {
+      TerminalConstructor = window.Terminal.Terminal;
+      log('✅ Using window.Terminal.Terminal (nested)', 'ok');
+    }
+    
+    if (TerminalConstructor) {
+      log(`Terminal constructor found: ${TerminalConstructor.name || 'anonymous'}`, 'ok');
+    }
+  </script>
+</body>
+</html>

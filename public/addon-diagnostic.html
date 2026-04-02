@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Addon Loading Diagnostic</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      background: #0d1117;
+      color: #e6edf3;
+      font-family: monospace;
+    }
+    h1 { color: #58a6ff; }
+    .status {
+      padding: 12px;
+      margin: 8px 0;
+      border-radius: 4px;
+      background: #161b22;
+      border: 1px solid #30363d;
+      font-family: monospace;
+    }
+    .ok { color: #3fb950; }
+    .error { color: #f85149; }
+    .warning { color: #d29922; }
+    .info { color: #58a6ff; }
+    pre {
+      background: #0d1117;
+      padding: 12px;
+      border-radius: 4px;
+      overflow-x: auto;
+      border: 1px solid #30363d;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔍 Addon Loading Diagnostic</h1>
+  <div id="status"></div>
+  <div id="details"></div>
+
+  <script src="https://unpkg.com/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <script src="https://unpkg.com/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.js"></script>
+  <script src="https://unpkg.com/xterm-addon-search@0.13.0/lib/xterm-addon-search.js"></script>
+  
+  <script>
+    const statusDiv = document.getElementById('status');
+    const detailsDiv = document.getElementById('details');
+    
+    function log(msg, type = 'info') {
+      const div = document.createElement('div');
+      div.className = 'status';
+      div.innerHTML = `<span class="${type}">${msg}</span>`;
+      statusDiv.appendChild(div);
+      console.log(`[${type}] ${msg}`);
+    }
+
+    function inspect(obj, name) {
+      const details = [];
+      details.push(`\n${name}:`);
+      details.push(`  typeof: ${typeof obj}`);
+      
+      if (obj === null) {
+        details.push(`  value: null`);
+      } else if (obj === undefined) {
+        details.push(`  value: undefined`);
+      } else if (typeof obj === 'object') {
+        details.push(`  constructor: ${obj.constructor ? obj.constructor.name : 'unknown'}`);
+        details.push(`  keys: ${Object.keys(obj).join(', ')}`);
+        if (obj.constructor && obj.constructor.name) {
+          details.push(`  prototype keys: ${Object.keys(obj.constructor.prototype).join(', ')}`);
+        }
+      } else if (typeof obj === 'function') {
+        details.push(`  name: ${obj.name}`);
+        details.push(`  length: ${obj.length}`);
+        details.push(`  prototype: ${obj.prototype ? 'yes' : 'no'}`);
+        if (obj.prototype) {
+          details.push(`  prototype keys: ${Object.keys(obj.prototype).join(', ')}`);
+        }
+      }
+      
+      return details.join('\n');
+    }
+
+    // Wait for scripts to load
+    setTimeout(() => {
+      log('=== Checking Global Scope ===', 'info');
+      
+      // Check Terminal
+      log('Checking Terminal...', 'info');
+      if (typeof Terminal === 'undefined') {
+        log('❌ Terminal is NOT defined in global scope', 'error');
+      } else {
+        log('✓ Terminal is defined in global scope', 'ok');
+        detailsDiv.innerHTML += `<pre>${inspect(Terminal, 'Terminal (global)')}</pre>`;
+      }
+      
+      // Check window.Terminal
+      if (typeof window.Terminal === 'undefined') {
+        log('⚠ window.Terminal is NOT defined', 'warning');
+      } else {
+        log('✓ window.Terminal is defined', 'ok');
+        detailsDiv.innerHTML += `<pre>${inspect(window.Terminal, 'window.Terminal')}</pre>`;
+      }
+      
+      // Check self.Terminal
+      if (typeof self !== 'undefined') {
+        if (typeof self.Terminal === 'undefined') {
+          log('⚠ self.Terminal is NOT defined', 'warning');
+        } else {
+          log('✓ self.Terminal is defined', 'ok');
+          detailsDiv.innerHTML += `<pre>${inspect(self.Terminal, 'self.Terminal')}</pre>`;
+        }
+      }
+      
+      log('', 'info');
+      log('=== Checking FitAddon ===', 'info');
+      
+      // Check FitAddon
+      if (typeof FitAddon === 'undefined') {
+        log('❌ FitAddon is NOT defined in global scope', 'error');
+      } else {
+        log('✓ FitAddon is defined in global scope', 'ok');
+        detailsDiv.innerHTML += `<pre>${inspect(FitAddon, 'FitAddon (global)')}</pre>`;
+      }
+      
+      // Check window.FitAddon
+      if (typeof window.FitAddon === 'undefined') {
+        log('⚠ window.FitAddon is NOT defined', 'warning');
+      } else {
+        log('✓ window.FitAddon is defined', 'ok');
+        detailsDiv.innerHTML += `<pre>${inspect(window.FitAddon, 'window.FitAddon')}</pre>`;
+      }
+      
+      // Check self.FitAddon
+      if (typeof self !== 'undefined') {
+        if (typeof self.FitAddon === 'undefined') {
+          log('⚠ self.FitAddon is NOT defined', 'warning');
+        } else {
+          log('✓ self.FitAddon is defined', 'ok');
+          detailsDiv.innerHTML += `<pre>${inspect(self.FitAddon, 'self.FitAddon')}</pre>`;
+        }
+      }
+      
+      log('', 'info');
+      log('=== Checking WebLinksAddon ===', 'info');
+      
+      if (typeof WebLinksAddon === 'undefined') {
+        log('⚠ WebLinksAddon is NOT defined in global scope', 'warning');
+      } else {
+        log('✓ WebLinksAddon is defined in global scope', 'ok');
+        detailsDiv.innerHTML += `<pre>${inspect(WebLinksAddon, 'WebLinksAddon (global)')}</pre>`;
+      }
+      
+      if (typeof window.WebLinksAddon === 'undefined') {
+        log('⚠ window.WebLinksAddon is NOT defined', 'warning');
+      } else {
+        log('✓ window.WebLinksAddon is defined', 'ok');
+      }
+      
+      log('', 'info');
+      log('=== Checking SearchAddon ===', 'info');
+      
+      if (typeof SearchAddon === 'undefined') {
+        log('⚠ SearchAddon is NOT defined in global scope', 'warning');
+      } else {
+        log('✓ SearchAddon is defined in global scope', 'ok');
+        detailsDiv.innerHTML += `<pre>${inspect(SearchAddon, 'SearchAddon (global)')}</pre>`;
+      }
+      
+      if (typeof window.SearchAddon === 'undefined') {
+        log('⚠ window.SearchAddon is NOT defined', 'warning');
+      } else {
+        log('✓ window.SearchAddon is defined', 'ok');
+      }
+      
+      log('', 'info');
+      log('=== Testing Constructor ===', 'info');
+      
+      // Try to create instances
+      try {
+        const TerminalClass = window.Terminal || (typeof Terminal !== 'undefined' ? Terminal : null);
+        if (!TerminalClass) {
+          log('❌ Cannot find Terminal class', 'error');
+        } else {
+          log('✓ Found Terminal class', 'ok');
+          const term = new TerminalClass();
+          log('✓ Created Terminal instance', 'ok');
+        }
+      } catch (e) {
+        log(`❌ Failed to create Terminal: ${e.message}`, 'error');
+      }
+      
+      try {
+        const FitAddonClass = window.FitAddon || (typeof FitAddon !== 'undefined' ? FitAddon : null);
+        if (!FitAddonClass) {
+          log('❌ Cannot find FitAddon class', 'error');
+        } else {
+          log('✓ Found FitAddon class', 'ok');
+          const fit = new FitAddonClass();
+          log('✓ Created FitAddon instance', 'ok');
+        }
+      } catch (e) {
+        log(`❌ Failed to create FitAddon: ${e.message}`, 'error');
+        if (e.stack) {
+          detailsDiv.innerHTML += `<pre>Stack trace:\n${e.stack}</pre>`;
+        }
+      }
+      
+    }, 1000);
+  </script>
+</body>
+</html>

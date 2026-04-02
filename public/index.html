@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:;">
+  <title>SSHIFT - SSH & SFTP Terminal Client</title>
+  <!-- Local resources for offline support -->
+  <link rel="stylesheet" href="/libs/xterm/xterm.css">
+  <link rel="stylesheet" href="/libs/font-awesome/css/all.min.css">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <button class="menu-btn" id="menuBtn" title="Toggle Sidebar">
+          <i class="fas fa-bars"></i>
+        </button>
+        <h1 class="logo">
+          <i class="fas fa-terminal"></i>
+          <span class="logo-text">SSHIFT</span>
+        </h1>
+      </div>
+      <div class="header-right">
+        <button class="btn btn-icon" id="newSshBtn" title="New SSH Connection">
+          <i class="fas fa-plug"></i>
+          <span class="btn-text">SSH</span>
+        </button>
+        <button class="btn btn-icon" id="newSftpBtn" title="New SFTP Connection">
+          <i class="fas fa-folder-open"></i>
+          <span class="btn-text">SFTP</span>
+        </button>
+        <button class="btn btn-icon theme-toggle" id="themeToggle" title="Toggle Theme">
+          <i class="fas fa-lightbulb"></i>
+        </button>
+        <div class="accent-selector" id="accentSelector">
+          <button class="btn btn-icon accent-btn" title="Change Accent Color">
+            <span class="accent-preview"></span>
+          </button>
+          <div class="accent-dropdown">
+            <button class="accent-option" data-accent="fuchsia" title="Fuchsia">
+              <span class="accent-color" style="background: #c10059;"></span>
+              <span class="accent-label">Fuchsia</span>
+            </button>
+            <button class="accent-option" data-accent="green" title="Green">
+              <span class="accent-color" style="background: #2ea043;"></span>
+              <span class="accent-label">Green</span>
+            </button>
+            <button class="accent-option" data-accent="purple" title="Purple">
+              <span class="accent-color" style="background: #a371f2;"></span>
+              <span class="accent-label">Purple</span>
+            </button>
+            <button class="accent-option" data-accent="orange" title="Orange">
+              <span class="accent-color" style="background: #d18616;"></span>
+              <span class="accent-label">Orange</span>
+            </button>
+            <button class="accent-option" data-accent="red" title="Red">
+              <span class="accent-color" style="background: #da3633;"></span>
+              <span class="accent-label">Red</span>
+            </button>
+            <button class="accent-option" data-accent="cyan" title="Cyan">
+              <span class="accent-color" style="background: #1f6feb;"></span>
+              <span class="accent-label">Cyan</span>
+            </button>
+            <button class="accent-option" data-accent="blue" title="Blue">
+              <span class="accent-color" style="background: #58a6ff;"></span>
+              <span class="accent-label">Blue</span>
+            </button>
+            <button class="accent-option" data-accent="yellow" title="Yellow">
+              <span class="accent-color" style="background: #d29922;"></span>
+              <span class="accent-label">Yellow</span>
+            </button>
+          </div>
+        </div>
+        <div class="terminal-color-selector" id="terminalColorSelector">
+          <button class="btn btn-icon terminal-color-btn" title="Terminal Colors">
+            <i class="fas fa-palette"></i>
+          </button>
+          <div class="terminal-color-dropdown">
+            <div class="terminal-color-header">
+              <span>Terminal Colors</span>
+            </div>
+            <div class="terminal-color-option">
+              <label class="toggle-label">
+                <span>Override Colors</span>
+                <input type="checkbox" id="terminalColorOverride" class="toggle-checkbox">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="terminal-color-options" id="terminalColorOptions">
+              <div class="terminal-color-option">
+                <label for="terminalBgColor">Background</label>
+                <input type="color" id="terminalBgColor" class="color-input" value="#0d1117">
+              </div>
+              <div class="terminal-color-option">
+                <label for="terminalFgColor">Foreground</label>
+                <input type="color" id="terminalFgColor" class="color-input" value="#e6edf3">
+              </div>
+              <div class="terminal-color-option">
+                <label for="terminalSelectionColor">Selection</label>
+                <input type="color" id="terminalSelectionColor" class="color-input" value="#264f78">
+              </div>
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-icon" id="settingsBtn" title="Settings">
+          <i class="fas fa-cog"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="main-content">
+      <!-- Sidebar -->
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+          <h2><i class="fas fa-bookmark"></i> <span class="sidebar-title">Bookmarks</span></h2>
+          <div class="sidebar-header-actions">
+            <button class="btn btn-sm" id="addFolderBtn" title="Add Folder">
+              <i class="fas fa-folder-plus"></i>
+            </button>
+            <button class="btn btn-sm" id="addBookmarkBtn" title="Add Bookmark">
+              <i class="fas fa-plus"></i>
+            </button>
+            <button class="btn btn-sm sidebar-toggle" id="sidebarToggle" title="Collapse Sidebar">
+              <i class="fas fa-chevron-left"></i>
+            </button>
+          </div>
+        </div>
+        <div class="bookmarks-list" id="bookmarksList">
+          <!-- Bookmarks will be populated here -->
+        </div>
+      </aside>
+
+      <!-- Terminal Area -->
+      <main class="terminal-area">
+        <!-- Tabs -->
+        <div class="tabs-container">
+          <div class="tabs" id="tabs">
+            <!-- Tabs will be added here -->
+          </div>
+          <div class="tabs-actions">
+            <button class="btn btn-sm" id="specialKeysBtn" title="Special Keys">
+              <i class="fas fa-keyboard"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Terminal Container -->
+        <div class="terminals-container" id="terminalsContainer">
+          <div class="empty-state" id="emptyState">
+            <i class="fas fa-terminal"></i>
+            <h3>No Active Sessions</h3>
+            <p>Connect to a server using SSH or SFTP</p>
+            <div class="empty-actions">
+              <button class="btn btn-primary" id="quickSshBtn">
+                <i class="fas fa-plug"></i> Quick SSH
+              </button>
+              <button class="btn btn-primary" id="quickSftpBtn">
+                <i class="fas fa-folder-open"></i> Quick SFTP
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Connection Modal -->
+  <div class="modal" id="connectionModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="connectionModalTitle">New Connection</h2>
+        <button class="modal-close" id="closeConnectionModal">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="connectionForm">
+          <div class="form-group">
+            <label for="connName">Name (optional)</label>
+            <input type="text" id="connName" placeholder="My Server">
+          </div>
+          <div class="form-row">
+            <div class="form-group flex-3">
+              <label for="connHost">Host *</label>
+              <input type="text" id="connHost" required placeholder="hostname or IP">
+            </div>
+            <div class="form-group flex-1">
+              <label for="connPort">Port</label>
+              <input type="number" id="connPort" value="22" min="1" max="65535">
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="connUsername">Username *</label>
+            <input type="text" id="connUsername" required placeholder="username">
+          </div>
+          <div class="form-group">
+            <label for="connPassword">Password</label>
+            <div class="password-input">
+              <input type="password" id="connPassword" placeholder="password">
+              <button type="button" class="password-toggle" id="togglePassword">
+                <i class="fas fa-eye"></i>
+              </button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="connPrivateKey">Private Key (optional)</label>
+            <textarea id="connPrivateKey" rows="4" placeholder="Paste your private key here..."></textarea>
+          </div>
+          <div class="form-group">
+            <label for="connPassphrase">Key Passphrase (optional)</label>
+            <input type="password" id="connPassphrase" placeholder="passphrase">
+          </div>
+          <div class="form-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="saveBookmark">
+              <span class="checkbox-custom"></span>
+              <span>Save as bookmark</span>
+            </label>
+          </div>
+          <input type="hidden" id="connectionType" value="ssh">
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="cancelConnection">Cancel</button>
+        <button class="btn btn-primary" id="connectBtn">
+          <i class="fas fa-plug"></i> Connect
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bookmark Modal -->
+  <div class="modal" id="bookmarkModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="bookmarkModalTitle">Add Bookmark</h2>
+        <button class="modal-close" id="closeBookmarkModal">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="bookmarkForm">
+          <input type="hidden" id="bookmarkId">
+          <div class="form-group">
+            <label for="bookmarkName">Name *</label>
+            <input type="text" id="bookmarkName" required placeholder="My Server">
+          </div>
+          <div class="form-row">
+            <div class="form-group flex-3">
+              <label for="bookmarkHost">Host *</label>
+              <input type="text" id="bookmarkHost" required placeholder="hostname or IP">
+            </div>
+            <div class="form-group flex-1">
+              <label for="bookmarkPort">Port</label>
+              <input type="number" id="bookmarkPort" value="22" min="1" max="65535">
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="bookmarkUsername">Username *</label>
+            <input type="text" id="bookmarkUsername" required placeholder="username">
+          </div>
+          <div class="form-group">
+            <label for="bookmarkPassword">Password</label>
+            <div class="password-input">
+              <input type="password" id="bookmarkPassword" placeholder="password (optional)">
+              <button type="button" class="password-toggle" id="toggleBookmarkPassword">
+                <i class="fas fa-eye"></i>
+              </button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="bookmarkPrivateKey">Private Key (optional)</label>
+            <textarea id="bookmarkPrivateKey" rows="4" placeholder="Paste your private key here..."></textarea>
+          </div>
+          <div class="form-group">
+            <label for="bookmarkPassphrase">Key Passphrase (optional)</label>
+            <input type="password" id="bookmarkPassphrase" placeholder="passphrase">
+          </div>
+          <div class="form-group">
+            <label for="bookmarkType">Type</label>
+            <select id="bookmarkType">
+              <option value="ssh">SSH</option>
+              <option value="sftp">SFTP</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="bookmarkFolder">Folder</label>
+            <select id="bookmarkFolder">
+              <option value="">No Folder</option>
+              <!-- Folders will be populated dynamically -->
+            </select>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="cancelBookmark">Cancel</button>
+        <button class="btn btn-primary" id="saveBookmarkBtn">
+          <i class="fas fa-save"></i> Save
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Folder Modal -->
+  <div class="modal" id="folderModal">
+    <div class="modal-content modal-sm">
+      <div class="modal-header">
+        <h2 id="folderModalTitle">Add Folder</h2>
+        <button class="modal-close" id="closeFolderModal">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="folderForm">
+          <input type="hidden" id="folderId">
+          <div class="form-group">
+            <label for="folderName">Folder Name *</label>
+            <input type="text" id="folderName" required placeholder="My Folder">
+          </div>
+          <div class="form-group">
+            <label for="folderIcon">Icon</label>
+            <div class="icon-selector" id="folderIconSelector">
+              <div class="icon-option selected" data-icon="folder" title="Folder">
+                <i class="fas fa-folder"></i>
+              </div>
+              <div class="icon-option" data-icon="server" title="Server">
+                <i class="fas fa-server"></i>
+              </div>
+              <div class="icon-option" data-icon="cloud" title="Cloud">
+                <i class="fas fa-cloud"></i>
+              </div>
+              <div class="icon-option" data-icon="database" title="Database">
+                <i class="fas fa-database"></i>
+              </div>
+              <div class="icon-option" data-icon="code" title="Code">
+                <i class="fas fa-code"></i>
+              </div>
+              <div class="icon-option" data-icon="cog" title="Settings">
+                <i class="fas fa-cog"></i>
+              </div>
+              <div class="icon-option" data-icon="briefcase" title="Work">
+                <i class="fas fa-briefcase"></i>
+              </div>
+              <div class="icon-option" data-icon="home" title="Home">
+                <i class="fas fa-home"></i>
+              </div>
+            </div>
+            <input type="hidden" id="folderIcon" value="folder">
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="cancelFolder">Cancel</button>
+        <button class="btn btn-primary" id="saveFolderBtn">
+          <i class="fas fa-save"></i> Save
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Special Keys Modal -->
+  <div class="modal" id="specialKeysModal">
+    <div class="modal-content modal-sm">
+      <div class="modal-header">
+        <h2><i class="fas fa-keyboard"></i> Special Keys</h2>
+        <button class="modal-close" id="closeSpecialKeysModal">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="special-keys-grid">
+          <button class="key-btn" data-key="ctrl+c" title="Interrupt">
+            <span class="key-combo">Ctrl+C</span>
+            <span class="key-desc">Interrupt</span>
+          </button>
+          <button class="key-btn" data-key="ctrl+d" title="EOF">
+            <span class="key-combo">Ctrl+D</span>
+            <span class="key-desc">EOF</span>
+          </button>
+          <button class="key-btn" data-key="ctrl+z" title="Suspend">
+            <span class="key-combo">Ctrl+Z</span>
+            <span class="key-desc">Suspend</span>
+          </button>
+          <button class="key-btn" data-key="ctrl+a" title="Beginning of line">
+            <span class="key-combo">Ctrl+A</span>
+            <span class="key-desc">Home</span>
+          </button>
+          <button class="key-btn" data-key="ctrl+e" title="End of line">
+            <span class="key-combo">Ctrl+E</span>
+            <span class="key-desc">End</span>
+          </button>
+          <button class="key-btn" data-key="ctrl+l" title="Clear screen">
+            <span class="key-combo">Ctrl+L</span>
+            <span class="key-desc">Clear</span>
+          </button>
+          <button class="key-btn" data-key="ctrl+r" title="Reverse search">
+            <span class="key-combo">Ctrl+R</span>
+            <span class="key-desc">Search</span>
+          </button>
+          <button class="key-btn" data-key="ctrl+u" title="Clear line">
+            <span class="key-combo">Ctrl+U</span>
+            <span class="key-desc">Clear Line</span>
+          </button>
+          <button class="key-btn" data-key="ctrl+k" title="Clear to end">
+            <span class="key-combo">Ctrl+K</span>
+            <span class="key-desc">Clear End</span>
+          </button>
+          <button class="key-btn" data-key="ctrl+w" title="Delete word">
+            <span class="key-combo">Ctrl+W</span>
+            <span class="key-desc">Del Word</span>
+          </button>
+          <button class="key-btn" data-key="tab" title="Tab">
+            <span class="key-combo">Tab</span>
+            <span class="key-desc">Complete</span>
+          </button>
+          <button class="key-btn" data-key="escape" title="Escape">
+            <span class="key-combo">Esc</span>
+            <span class="key-desc">Escape</span>
+          </button>
+          <button class="key-btn" data-key="f1" title="F1">
+            <span class="key-combo">F1</span>
+          </button>
+          <button class="key-btn" data-key="f2" title="F2">
+            <span class="key-combo">F2</span>
+          </button>
+          <button class="key-btn" data-key="f3" title="F3">
+            <span class="key-combo">F3</span>
+          </button>
+          <button class="key-btn" data-key="f4" title="F4">
+            <span class="key-combo">F4</span>
+          </button>
+          <button class="key-btn" data-key="f5" title="F5">
+            <span class="key-combo">F5</span>
+          </button>
+          <button class="key-btn" data-key="f6" title="F6">
+            <span class="key-combo">F6</span>
+          </button>
+          <button class="key-btn" data-key="f7" title="F7">
+            <span class="key-combo">F7</span>
+          </button>
+          <button class="key-btn" data-key="f8" title="F8">
+            <span class="key-combo">F8</span>
+          </button>
+          <button class="key-btn" data-key="f9" title="F9">
+            <span class="key-combo">F9</span>
+          </button>
+          <button class="key-btn" data-key="f10" title="F10">
+            <span class="key-combo">F10</span>
+          </button>
+          <button class="key-btn" data-key="f11" title="F11">
+            <span class="key-combo">F11</span>
+          </button>
+          <button class="key-btn" data-key="f12" title="F12">
+            <span class="key-combo">F12</span>
+          </button>
+          <button class="key-btn" data-key="arrow_up" title="Up Arrow">
+            <span class="key-combo">↑</span>
+          </button>
+          <button class="key-btn" data-key="arrow_down" title="Down Arrow">
+            <span class="key-combo">↓</span>
+          </button>
+          <button class="key-btn" data-key="arrow_left" title="Left Arrow">
+            <span class="key-combo">←</span>
+          </button>
+          <button class="key-btn" data-key="arrow_right" title="Right Arrow">
+            <span class="key-combo">→</span>
+          </button>
+          <button class="key-btn" data-key="home" title="Home">
+            <span class="key-combo">Home</span>
+          </button>
+          <button class="key-btn" data-key="end" title="End">
+            <span class="key-combo">End</span>
+          </button>
+          <button class="key-btn" data-key="pageup" title="Page Up">
+            <span class="key-combo">PgUp</span>
+          </button>
+          <button class="key-btn" data-key="pagedown" title="Page Down">
+            <span class="key-combo">PgDn</span>
+          </button>
+          <button class="key-btn" data-key="insert" title="Insert">
+            <span class="key-combo">Ins</span>
+          </button>
+          <button class="key-btn" data-key="delete" title="Delete">
+            <span class="key-combo">Del</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SFTP Browser Modal -->
+  <div class="modal" id="sftpModal">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <h2><i class="fas fa-folder-open"></i> <span id="sftpTitle">SFTP Browser</span></h2>
+        <button class="modal-close" id="closeSftpModal">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="sftp-toolbar">
+          <div class="sftp-path">
+            <input type="text" id="sftpPath" placeholder="/path/to/directory">
+            <button class="btn btn-sm" id="sftpGoBtn">
+              <i class="fas fa-arrow-right"></i>
+            </button>
+          </div>
+          <div class="sftp-actions">
+            <button class="btn btn-sm" id="sftpRefreshBtn" title="Refresh">
+              <i class="fas fa-sync-alt"></i>
+            </button>
+            <button class="btn btn-sm" id="sftpMkdirBtn" title="New Folder">
+              <i class="fas fa-folder-plus"></i>
+            </button>
+            <button class="btn btn-sm" id="sftpUploadBtn" title="Upload">
+              <i class="fas fa-upload"></i>
+            </button>
+          </div>
+        </div>
+        <div class="sftp-file-list" id="sftpFileList">
+          <!-- Files will be listed here -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div class="modal" id="settingsModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2><i class="fas fa-cog"></i> Settings</h2>
+        <button class="modal-close" id="closeSettingsModal">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <!-- Sticky Sessions Setting -->
+        <div class="setting-group">
+          <div class="setting-item">
+            <label class="setting-label">
+              <i class="fas fa-link"></i> Sticky Sessions
+            </label>
+            <div class="setting-description">
+              When enabled, sessions and tabs are synchronized across browser windows. When disabled, each browser tab works independently with its own session.
+            </div>
+            <div class="setting-control">
+              <label class="toggle-switch">
+                <input type="checkbox" id="stickyToggle" checked>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+        
+        <!-- SSH Keepalive Settings -->
+        <div class="setting-group">
+          <div class="setting-item">
+            <label class="setting-label">
+              <i class="fas fa-heartbeat"></i> SSH Keepalive Interval (ms)
+            </label>
+            <div class="setting-description">
+              How often to send keepalive packets to maintain SSH connections. Default: 10000ms (10 seconds).
+            </div>
+            <div class="setting-control">
+              <input type="number" id="sshKeepaliveInterval" class="setting-input" min="1000" max="60000" step="1000" value="10000">
+            </div>
+          </div>
+          
+          <div class="setting-item">
+            <label class="setting-label">
+              <i class="fas fa-exclamation-triangle"></i> SSH Keepalive Count Max
+            </label>
+            <div class="setting-description">
+              Maximum number of missed keepalive responses before disconnecting. Higher values allow longer connection persistence. Default: 1000 (~2.7 hours).
+            </div>
+            <div class="setting-control">
+              <input type="number" id="sshKeepaliveCountMax" class="setting-input" min="1" max="10000" step="1" value="1000">
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="cancelSettings">Cancel</button>
+        <button class="btn btn-primary" id="saveSettings">
+          <i class="fas fa-save"></i> Save
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Scripts -->
+  <!-- xterm.js and addons - Local files for offline support -->
+  <script src="/libs/xterm/xterm.js"></script>
+  <script src="/libs/xterm/xterm-addon-fit.js"></script>
+  <script src="/libs/xterm/xterm-addon-web-links.js"></script>
+  <script src="/libs/xterm/xterm-addon-search.js"></script>
+  <script src="/libs/xterm/xterm-addon-serialize.js"></script>
+  
+  <!-- Normalize addon exports - UMD pattern exports { FitAddon: class } not the class directly -->
+  <script>
+    // The UMD pattern exports an object with the class as a property
+    // e.g., window.FitAddon = { FitAddon: class FitAddon { ... } }
+    // We need to extract the actual constructor
+    
+    (function() {
+      console.log('[SSHIFT] Normalizing addon exports...');
+      console.log('[SSHIFT] Before normalization:');
+      console.log('[SSHIFT]   Terminal:', typeof window.Terminal);
+      console.log('[SSHIFT]   FitAddon:', typeof window.FitAddon);
+      console.log('[SSHIFT]   WebLinksAddon:', typeof window.WebLinksAddon);
+      console.log('[SSHIFT]   SearchAddon:', typeof window.SearchAddon);
+      
+      // Normalize Terminal - check if it's an object with Terminal property
+      if (typeof window.Terminal === 'object' && window.Terminal !== null) {
+        if (window.Terminal.Terminal) {
+          console.log('[SSHIFT] Terminal is object with .Terminal property, extracting...');
+          window.Terminal = window.Terminal.Terminal;
+        } else {
+          console.log('[SSHIFT] Terminal is object but no .Terminal property found');
+          // Check if it's already the Terminal class in a different location
+          if (window.Terminal.default) {
+            window.Terminal = window.Terminal.default;
+          }
+        }
+      }
+      
+      // Normalize FitAddon
+      if (typeof window.FitAddon === 'object' && window.FitAddon !== null) {
+        if (window.FitAddon.FitAddon) {
+          console.log('[SSHIFT] FitAddon is object with .FitAddon property, extracting...');
+          window.FitAddon = window.FitAddon.FitAddon;
+        } else if (window.FitAddon.default) {
+          window.FitAddon = window.FitAddon.default;
+        }
+      } else if (typeof window.FitAddon === 'undefined') {
+        // Try global scope
+        if (typeof FitAddon !== 'undefined') {
+          if (typeof FitAddon === 'object' && FitAddon !== null) {
+            window.FitAddon = FitAddon.FitAddon || FitAddon.default || FitAddon;
+          } else if (typeof FitAddon === 'function') {
+            window.FitAddon = FitAddon;
+          }
+        }
+      }
+      
+      // Normalize WebLinksAddon
+      if (typeof window.WebLinksAddon === 'object' && window.WebLinksAddon !== null) {
+        if (window.WebLinksAddon.WebLinksAddon) {
+          console.log('[SSHIFT] WebLinksAddon is object with .WebLinksAddon property, extracting...');
+          window.WebLinksAddon = window.WebLinksAddon.WebLinksAddon;
+        } else if (window.WebLinksAddon.default) {
+          window.WebLinksAddon = window.WebLinksAddon.default;
+        }
+      } else if (typeof window.WebLinksAddon === 'undefined') {
+        if (typeof WebLinksAddon !== 'undefined') {
+          if (typeof WebLinksAddon === 'object' && WebLinksAddon !== null) {
+            window.WebLinksAddon = WebLinksAddon.WebLinksAddon || WebLinksAddon.default || WebLinksAddon;
+          } else if (typeof WebLinksAddon === 'function') {
+            window.WebLinksAddon = WebLinksAddon;
+          }
+        }
+      }
+      
+      // Normalize SearchAddon
+      if (typeof window.SearchAddon === 'object' && window.SearchAddon !== null) {
+        if (window.SearchAddon.SearchAddon) {
+          console.log('[SSHIFT] SearchAddon is object with .SearchAddon property, extracting...');
+          window.SearchAddon = window.SearchAddon.SearchAddon;
+        } else if (window.SearchAddon.default) {
+          window.SearchAddon = window.SearchAddon.default;
+        }
+      } else if (typeof window.SearchAddon === 'undefined') {
+        if (typeof SearchAddon !== 'undefined') {
+          if (typeof SearchAddon === 'object' && SearchAddon !== null) {
+            window.SearchAddon = SearchAddon.SearchAddon || SearchAddon.default || SearchAddon;
+          } else if (typeof SearchAddon === 'function') {
+            window.SearchAddon = SearchAddon;
+          }
+        }
+      }
+      
+      // Normalize SerializeAddon
+      if (typeof window.SerializeAddon === 'object' && window.SerializeAddon !== null) {
+        if (window.SerializeAddon.SerializeAddon) {
+          console.log('[SSHIFT] SerializeAddon is object with .SerializeAddon property, extracting...');
+          window.SerializeAddon = window.SerializeAddon.SerializeAddon;
+        } else if (window.SerializeAddon.default) {
+          window.SerializeAddon = window.SerializeAddon.default;
+        }
+      } else if (typeof window.SerializeAddon === 'undefined') {
+        if (typeof SerializeAddon !== 'undefined') {
+          if (typeof SerializeAddon === 'object' && SerializeAddon !== null) {
+            window.SerializeAddon = SerializeAddon.SerializeAddon || SerializeAddon.default || SerializeAddon;
+          } else if (typeof SerializeAddon === 'function') {
+            window.SerializeAddon = SerializeAddon;
+          }
+        }
+      }
+      
+      console.log('[SSHIFT] After normalization:');
+      console.log('[SSHIFT]   Terminal:', typeof window.Terminal);
+      console.log('[SSHIFT]   FitAddon:', typeof window.FitAddon);
+      console.log('[SSHIFT]   WebLinksAddon:', typeof window.WebLinksAddon);
+      console.log('[SSHIFT]   SearchAddon:', typeof window.SearchAddon);
+      
+      // Verify all required libraries are loaded
+      if (typeof window.Terminal !== 'function') {
+        console.error('[SSHIFT] CRITICAL: Terminal class not loaded! typeof:', typeof window.Terminal);
+        if (typeof window.Terminal === 'object') {
+          console.error('[SSHIFT] Terminal object keys:', window.Terminal ? Object.keys(window.Terminal) : 'null');
+        }
+        alert('Failed to load terminal library. Please refresh the page.');
+        return;
+      }
+      
+      if (typeof window.FitAddon !== 'function') {
+        console.error('[SSHIFT] CRITICAL: FitAddon class not loaded! typeof:', typeof window.FitAddon);
+        if (typeof window.FitAddon === 'object') {
+          console.error('[SSHIFT] FitAddon object keys:', window.FitAddon ? Object.keys(window.FitAddon) : 'null');
+        }
+        alert('Failed to load terminal fit addon. Please refresh the page.');
+        return;
+      }
+      
+      console.log('[SSHIFT] ✓ All required libraries loaded successfully');
+    })();
+  </script>
+  
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

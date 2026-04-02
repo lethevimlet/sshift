@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test SSH Keepalive Settings</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .test-section {
+      background: white;
+      padding: 20px;
+      margin: 20px 0;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h2 {
+      color: #333;
+      border-bottom: 2px solid #007acc;
+      padding-bottom: 10px;
+    }
+    .result {
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 4px;
+    }
+    .pass {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    .fail {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+    .info {
+      background: #e7f3ff;
+      color: #004085;
+      border: 1px solid #b8daff;
+    }
+    button {
+      background: #007acc;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      margin: 5px;
+    }
+    button:hover {
+      background: #005a9e;
+    }
+    pre {
+      background: #f8f9fa;
+      padding: 10px;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>SSH Keepalive Settings Test</h1>
+  
+  <div class="test-section">
+    <h2>Test 1: Config File</h2>
+    <button onclick="testConfigFile()">Run Test</button>
+    <div id="test1-result"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>Test 2: API Endpoint</h2>
+    <button onclick="testAPIEndpoint()">Run Test</button>
+    <div id="test2-result"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>Test 3: Settings Modal</h2>
+    <button onclick="openSettingsModal()">Open Settings</button>
+    <div id="test3-result"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>Test 4: Save Settings</h2>
+    <button onclick="testSaveSettings()">Test Save</button>
+    <div id="test4-result"></div>
+  </div>
+
+  <script>
+    async function testConfigFile() {
+      const resultDiv = document.getElementById('test1-result');
+      resultDiv.innerHTML = '<div class="info">Testing config file...</div>';
+      
+      try {
+        const response = await fetch('/api/config');
+        const config = await response.json();
+        
+        let html = '<div class="pass">✅ Config loaded successfully</div>';
+        html += '<pre>' + JSON.stringify(config, null, 2) + '</pre>';
+        
+        if ('sshKeepaliveInterval' in config && 'sshKeepaliveCountMax' in config) {
+          html += '<div class="pass">✅ Keepalive settings present</div>';
+          html += `<div class="info">Interval: ${config.sshKeepaliveInterval}ms<br>Count Max: ${config.sshKeepaliveCountMax}</div>`;
+        } else {
+          html += '<div class="fail">❌ Keepalive settings missing (will use defaults)</div>';
+        }
+        
+        resultDiv.innerHTML = html;
+      } catch (err) {
+        resultDiv.innerHTML = '<div class="fail">❌ Error: ' + err.message + '</div>';
+      }
+    }
+
+    async function testAPIEndpoint() {
+      const resultDiv = document.getElementById('test2-result');
+      resultDiv.innerHTML = '<div class="info">Testing API endpoint...</div>';
+      
+      try {
+        // Test GET
+        const getResponse = await fetch('/api/config');
+        const getConfig = await getResponse.json();
+        
+        let html = '<div class="pass">✅ GET /api/config works</div>';
+        
+        // Test POST with new values
+        const testInterval = 15000;
+        const testCountMax = 500;
+        
+        const postResponse = await fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sshKeepaliveInterval: testInterval,
+            sshKeepaliveCountMax: testCountMax
+          })
+        });
+        
+        if (postResponse.ok) {
+          html += '<div class="pass">✅ POST /api/config works</div>';
+          
+          // Verify the values were saved
+          const verifyResponse = await fetch('/api/config');
+          const verifyConfig = await verifyResponse.json();
+          
+          if (verifyConfig.sshKeepaliveInterval === testInterval && 
+              verifyConfig.sshKeepaliveCountMax === testCountMax) {
+            html += '<div class="pass">✅ Settings saved correctly</div>';
+          } else {
+            html += '<div class="fail">❌ Settings not saved correctly</div>';
+          }
+          
+          // Restore original values
+          await fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sshKeepaliveInterval: getConfig.sshKeepaliveInterval,
+              sshKeepaliveCountMax: getConfig.sshKeepaliveCountMax
+            })
+          });
+          
+          html += '<div class="info">✅ Original values restored</div>';
+        } else {
+          html += '<div class="fail">❌ POST /api/config failed</div>';
+        }
+        
+        resultDiv.innerHTML = html;
+      } catch (err) {
+        resultDiv.innerHTML = '<div class="fail">❌ Error: ' + err.message + '</div>';
+      }
+    }
+
+    function openSettingsModal() {
+      const resultDiv = document.getElementById('test3-result');
+      
+      // Check if settings modal exists in the main app
+      const testWindow = window.open('/index.html', '_blank');
+      
+      if (testWindow) {
+        resultDiv.innerHTML = '<div class="pass">✅ Main app opened in new tab</div>' +
+          '<div class="info">Click the Settings button to verify the SSH keepalive settings are visible</div>';
+      } else {
+        resultDiv.innerHTML = '<div class="fail">❌ Could not open main app</div>';
+      }
+    }
+
+    async function testSaveSettings() {
+      const resultDiv = document.getElementById('test4-result');
+      resultDiv.innerHTML = '<div class="info">Testing settings save functionality...</div>';
+      
+      try {
+        // Get current config
+        const getResponse = await fetch('/api/config');
+        const originalConfig = await getResponse.json();
+        
+        // Test saving new values
+        const testValues = {
+          sticky: false,
+          sshKeepaliveInterval: 20000,
+          sshKeepaliveCountMax: 2000
+        };
+        
+        const saveResponse = await fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(testValues)
+        });
+        
+        if (saveResponse.ok) {
+          // Verify values were saved
+          const verifyResponse = await fetch('/api/config');
+          const savedConfig = await verifyResponse.json();
+          
+          let html = '<div class="pass">✅ Settings saved</div>';
+          
+          if (savedConfig.sticky === testValues.sticky &&
+              savedConfig.sshKeepaliveInterval === testValues.sshKeepaliveInterval &&
+              savedConfig.sshKeepaliveCountMax === testValues.sshKeepaliveCountMax) {
+            html += '<div class="pass">✅ All values saved correctly</div>';
+            html += '<pre>' + JSON.stringify(savedConfig, null, 2) + '</pre>';
+          } else {
+            html += '<div class="fail">❌ Values not saved correctly</div>';
+            html += '<pre>Expected: ' + JSON.stringify(testValues, null, 2) + '</pre>';
+            html += '<pre>Got: ' + JSON.stringify(savedConfig, null, 2) + '</pre>';
+          }
+          
+          // Restore original values
+          await fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(originalConfig)
+          });
+          
+          html += '<div class="info">✅ Original values restored</div>';
+          resultDiv.innerHTML = html;
+        } else {
+          resultDiv.innerHTML = '<div class="fail">❌ Failed to save settings</div>';
+        }
+      } catch (err) {
+        resultDiv.innerHTML = '<div class="fail">❌ Error: ' + err.message + '</div>';
+      }
+    }
+  </script>
+</body>
+</html>

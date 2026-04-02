@@ -1,0 +1,41 @@
+{
+  "sticky": true,
+  "sshKeepaliveInterval": 15000,
+  "sshKeepaliveCountMax": 500,
+  "bookmarks": [
+    {
+      "id": "example1",
+      "name": "Example SSH Server",
+      "host": "example.com",
+      "port": 22,
+      "username": "your_username",
+      "type": "ssh",
+      "folderId": null
+    },
+    {
+      "id": "example2",
+      "name": "Example SFTP Server",
+      "host": "sftp.example.com",
+      "port": 22,
+      "username": "your_username",
+      "type": "sftp",
+      "folderId": "folder1"
+    }
+  ],
+  "folders": [
+    {
+      "id": "folder1",
+      "name": "Work Servers",
+      "icon": "briefcase",
+      "expanded": true
+    },
+    {
+      "id": "folder2",
+      "name": "Personal",
+      "icon": "home",
+      "expanded": true
+    }
+  ],
+  "folderOrder": ["folder1", "folder2"],
+  "bookmarkOrder": ["example1", "example2"]
+}

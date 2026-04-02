@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Console Error Test</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      background: #0d1117;
+      color: #e6edf3;
+      font-family: monospace;
+    }
+    h1 { color: #58a6ff; }
+    #errors {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .error-item {
+      padding: 8px;
+      margin: 4px 0;
+      background: #da3633;
+      border-radius: 4px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .info-item {
+      padding: 8px;
+      margin: 4px 0;
+      background: #1f6feb;
+      border-radius: 4px;
+    }
+    .success-item {
+      padding: 8px;
+      margin: 4px 0;
+      background: #238636;
+      border-radius: 4px;
+    }
+    #terminal-container {
+      width: 100%;
+      height: 400px;
+      border: 2px solid #30363d;
+      background: #0d1117;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔍 Console Error Test</h1>
+  <div id="errors"></div>
+  <div id="terminal-container"></div>
+
+  <script src="https://unpkg.com/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <script>
+    const errorsDiv = document.getElementById('errors');
+    
+    function log(msg, type = 'info') {
+      const item = document.createElement('div');
+      item.className = `${type}-item`;
+      item.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      errorsDiv.appendChild(item);
+      errorsDiv.scrollTop = errorsDiv.scrollHeight;
+      console.log(`[${type}] ${msg}`);
+    }
+
+    // Capture all console methods
+    const originalConsole = {
+      log: console.log,
+      error: console.error,
+      warn: console.warn,
+      info: console.info
+    };
+
+    console.log = function(...args) {
+      log(args.join(' '), 'info');
+      originalConsole.log.apply(console, args);
+    };
+
+    console.error = function(...args) {
+      log(args.join(' '), 'error');
+      originalConsole.error.apply(console, args);
+    };
+
+    console.warn = function(...args) {
+      log(args.join(' '), 'info');
+      originalConsole.warn.apply(console, args);
+    };
+
+    // Capture window errors
+    window.onerror = function(msg, url, line, col, error) {
+      log(`Error: ${msg} at ${url}:${line}:${col}`, 'error');
+      if (error && error.stack) {
+        log(`Stack: ${error.stack}`, 'error');
+      }
+      return false;
+    };
+
+    // Capture unhandled promise rejections
+    window.addEventListener('unhandledrejection', function(event) {
+      log(`Unhandled Promise Rejection: ${event.reason}`, 'error');
+    });
+
+    log('Starting test...', 'info');
+
+    // Test terminal creation
+    window.addEventListener('load', () => {
+      try {
+        log('Creating terminal...', 'info');
+        
+        const terminal = new Terminal({
+          theme: {
+            background: '#0d1117',
+            foreground: '#e6edf3'
+          },
+          fontFamily: 'monospace',
+          fontSize: 14
+        });
+        
+        log('✓ Terminal instance created', 'success');
+        
+        const fitAddon = new FitAddon();
+        terminal.loadAddon(fitAddon);
+        
+        log('✓ FitAddon loaded', 'success');
+        
+        const container = document.getElementById('terminal-container');
+        log(`Container dimensions: ${container.offsetWidth}x${container.offsetHeight}`, 'info');
+        
+        terminal.open(container);
+        log('✓ Terminal opened', 'success');
+        
+        setTimeout(() => {
+          try {
+            fitAddon.fit();
+            log(`✓ Terminal fitted: ${terminal.cols}x${terminal.rows}`, 'success');
+            
+            terminal.writeln('\x1b[32m✓ Terminal is working!\x1b[0m');
+            terminal.writeln('');
+            terminal.writeln('If you can see this, xterm.js is functioning correctly.');
+            terminal.writeln('');
+            terminal.write('$ ');
+            
+            log('✓ Test completed successfully', 'success');
+          } catch (e) {
+            log(`✗ Fit failed: ${e.message}`, 'error');
+            log(`Stack: ${e.stack}`, 'error');
+          }
+        }, 100);
+        
+      } catch (err) {
+        log(`✗ Error: ${err.message}`, 'error');
+        if (err.stack) {
+          log(`Stack: ${err.stack}`, 'error');
+        }
+      }
+    });
+  </script>
+</body>
+</html>

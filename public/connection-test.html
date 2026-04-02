@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebSSH Connection Test</title>
+  <link rel="stylesheet" href="https://unpkg.com/xterm@5.3.0/css/xterm.css">
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      background: #0d1117;
+      color: #e6edf3;
+      font-family: monospace;
+    }
+    h1 { color: #58a6ff; margin-bottom: 20px; }
+    .test-section {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    h2 { color: #8b949e; margin-top: 0; }
+    .log {
+      background: #0d1117;
+      padding: 12px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+      max-height: 300px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+    .status { padding: 8px 12px; margin: 4px 0; border-radius: 4px; }
+    .ok { background: #238636; }
+    .error { background: #da3633; }
+    .warning { background: #d29922; }
+    .info { background: #1f6feb; }
+    button {
+      background: #238636;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      margin: 4px;
+    }
+    button:hover { background: #2ea043; }
+    input {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      color: #e6edf3;
+      padding: 8px;
+      border-radius: 4px;
+      margin: 4px;
+    }
+    .terminals-container {
+      height: 400px;
+      border: 2px solid #30363d;
+      position: relative;
+      background: #0d1117;
+    }
+  </style>
+</head>
+<body>
+  <h1>🧪 WebSSH Connection Test</h1>
+  
+  <div class="test-section">
+    <h2>Connection Settings</h2>
+    <div>
+      <label>Host: </label><input type="text" id="host" value="127.0.0.1">
+      <label>Port: </label><input type="number" id="port" value="22">
+      <label>Username: </label><input type="text" id="username" value="root">
+      <label>Password: </label><input type="password" id="password" placeholder="Enter password">
+    </div>
+    <div style="margin-top: 12px;">
+      <button onclick="testConnection()">Test Connection</button>
+      <button onclick="clearLogs()">Clear Logs</button>
+    </div>
+  </div>
+
+  <div class="test-section">
+    <h2>Terminal Test</h2>
+    <div class="terminals-container" id="terminalsContainer">
+      <div class="empty-state" id="emptyState">
+        <i class="fas fa-terminal"></i>
+        <h3>No Active Sessions</h3>
+        <p>Click "Test Connection" to start</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="test-section">
+    <h2>Console Log</h2>
+    <div class="log" id="log"></div>
+  </div>
+
+  <script src="https://unpkg.com/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <script src="https://unpkg.com/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.js"></script>
+  <script src="https://unpkg.com/xterm-addon-search@0.13.0/lib/xterm-addon-search.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const logEl = document.getElementById('log');
+    let socket = null;
+    let sessionId = null;
+    let terminal = null;
+    let fitAddon = null;
+
+    function log(msg, type = 'info') {
+      const timestamp = new Date().toLocaleTimeString();
+      const colors = {
+        info: '#58a6ff',
+        success: '#3fb950',
+        error: '#f85149',
+        warning: '#d29922'
+      };
+      logEl.innerHTML += `<span style="color: ${colors[type] || colors.info}">[${timestamp}] ${msg}</span>\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log(`[${type}] ${msg}`);
+    }
+
+    function clearLogs() {
+      logEl.innerHTML = '';
+      log('Logs cleared', 'info');
+    }
+
+    window.onerror = function(msg, url, line, col, error) {
+      log(`Error: ${msg} at ${url}:${line}:${col}`, 'error');
+      if (error && error.stack) {
+        log(`Stack: ${error.stack}`, 'error');
+      }
+      return false;
+    };
+
+    function testConnection() {
+      const host = document.getElementById('host').value;
+      const port = parseInt(document.getElementById('port').value) || 22;
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+
+      if (!password) {
+        log('Please enter a password', 'error');
+        return;
+      }
+
+      log('Starting connection test...', 'info');
+
+      // Create terminal wrapper
+      const wrapper = document.createElement('div');
+      wrapper.className = 'terminal-wrapper active';
+      wrapper.id = `terminal-wrapper-test`;
+
+      const container = document.createElement('div');
+      container.className = 'terminal-container';
+      container.id = 'terminal-test';
+
+      wrapper.appendChild(container);
+      document.getElementById('terminalsContainer').appendChild(wrapper);
+
+      // Hide empty state
+      document.getElementById('emptyState').classList.add('hidden');
+
+      // Wait for wrapper to be visible
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          try {
+            log('Creating terminal...', 'info');
+
+            // Check dimensions
+            const rect = container.getBoundingClientRect();
+            log(`Container dimensions: ${rect.width}x${rect.height}`, 'info');
+
+            if (rect.width === 0 || rect.height === 0) {
+              log('Container has zero dimensions!', 'error');
+              return;
+            }
+
+            // Create terminal
+            terminal = new Terminal({
+              theme: {
+                background: '#0d1117',
+                foreground: '#e6edf3'
+              },
+              fontFamily: 'monospace',
+              fontSize: 14,
+              cursorBlink: true
+            });
+
+            fitAddon = new FitAddon();
+            terminal.loadAddon(fitAddon);
+
+            log('Opening terminal...', 'info');
+            terminal.open(container);
+
+            setTimeout(() => {
+              try {
+                fitAddon.fit();
+                log(`Terminal fitted: ${terminal.cols}x${terminal.rows}`, 'success');
+
+                // Connect to server
+                log('Connecting to server...', 'info');
+                socket = io('/', { transports: ['websocket', 'polling'], reconnection: false });
+
+                socket.on('connect', () => {
+                  log(`Socket connected: ${socket.id}`, 'success');
+                  sessionId = 'test-' + Date.now();
+
+                  socket.emit('ssh-connect', {
+                    sessionId,
+                    host,
+                    port,
+                    username,
+                    password,
+                    cols: terminal.cols,
+                    rows: terminal.rows
+                  });
+                });
+
+                socket.on('ssh-connected', (data) => {
+                  log(`SSH connected: ${data.sessionId}`, 'success');
+                  terminal.writeln('\x1b[32m✓ Connected!\x1b[0m');
+                  terminal.writeln('');
+                  terminal.write('$ ');
+                });
+
+                socket.on('ssh-data', (data) => {
+                  if (data.sessionId === sessionId) {
+                    terminal.write(data.data);
+                  }
+                });
+
+                socket.on('ssh-error', (data) => {
+                  log(`SSH error: ${data.message}`, 'error');
+                  terminal.writeln(`\x1b[31m✗ Error: ${data.message}\x1b[0m`);
+                });
+
+                socket.on('ssh-disconnected', (data) => {
+                  log(`SSH disconnected: ${data.sessionId}`, 'warning');
+                  terminal.writeln('\x1b[33mDisconnected\x1b[0m');
+                });
+
+                socket.on('connect_error', (err) => {
+                  log(`Socket error: ${err.message}`, 'error');
+                });
+
+                // Handle terminal input
+                terminal.onData((data) => {
+                  if (socket && sessionId) {
+                    socket.emit('ssh-data', { sessionId, data });
+                  }
+                });
+
+              } catch (e) {
+                log(`Fit failed: ${e.message}`, 'error');
+              }
+            }, 100);
+
+          } catch (err) {
+            log(`Terminal error: ${err.message}`, 'error');
+            if (err.stack) {
+              log(`Stack: ${err.stack}`, 'error');
+            }
+          }
+        });
+      });
+    }
+  </script>
+</body>
+</html>

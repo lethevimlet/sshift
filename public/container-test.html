@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terminal Container Test</title>
+  <link rel="stylesheet" href="https://unpkg.com/xterm@5.3.0/css/xterm.css">
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      background: #0d1117;
+      color: #e6edf3;
+      font-family: monospace;
+    }
+    .test-section {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    h1 { color: #58a6ff; margin-top: 0; }
+    h2 { color: #8b949e; margin-top: 0; }
+    .log {
+      background: #0d1117;
+      padding: 12px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+      max-height: 300px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+    .status { padding: 8px 12px; margin: 4px 0; border-radius: 4px; }
+    .ok { background: #238636; }
+    .error { background: #da3633; }
+    .warning { background: #d29922; }
+    .info { background: #1f6feb; }
+  </style>
+</head>
+<body>
+  <h1>🧪 Terminal Container Test</h1>
+  
+  <div class="test-section">
+    <h2>Test 1: Direct Terminal Creation</h2>
+    <div id="test1-container" style="width: 100%; height: 300px; border: 2px solid #30363d; background: #0d1117;"></div>
+    <div id="test1-log" class="log"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>Test 2: Terminal with Wrapper (like app.js)</h2>
+    <div class="terminals-container" style="height: 300px; border: 2px solid #30363d;">
+      <div id="test2-wrapper" class="terminal-wrapper">
+        <div id="test2-terminal" class="terminal-container"></div>
+      </div>
+    </div>
+    <div id="test2-log" class="log"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>Test 3: Terminal with Hidden Wrapper (like real app)</h2>
+    <div class="terminals-container" style="height: 300px; border: 2px solid #30363d;">
+      <div id="test3-wrapper" class="terminal-wrapper" style="display: none;">
+        <div id="test3-terminal" class="terminal-container"></div>
+      </div>
+    </div>
+    <button onclick="activateTest3()">Activate Test 3</button>
+    <div id="test3-log" class="log"></div>
+  </div>
+
+  <script src="https://unpkg.com/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <script>
+    function log(containerId, msg, type = 'info') {
+      const logEl = document.getElementById(containerId);
+      const timestamp = new Date().toLocaleTimeString();
+      const colors = {
+        info: '#58a6ff',
+        success: '#3fb950',
+        error: '#f85149',
+        warning: '#d29922'
+      };
+      logEl.innerHTML += `<span style="color: ${colors[type] || colors.info}">[${timestamp}] ${msg}</span>\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log(`[${type}] ${msg}`);
+    }
+
+    window.onerror = function(msg, url, line, col, error) {
+      log('test1-log', `Error: ${msg} at ${url}:${line}:${col}`, 'error');
+      return false;
+    };
+
+    // Test 1: Direct terminal creation
+    function test1() {
+      const logId = 'test1-log';
+      try {
+        log(logId, 'Creating terminal...', 'info');
+        
+        const terminal = new Terminal({
+          theme: { background: '#0d1117', foreground: '#e6edf3' },
+          fontFamily: 'monospace',
+          fontSize: 14
+        });
+        
+        log(logId, '✓ Terminal instance created', 'success');
+        
+        const fitAddon = new FitAddon();
+        terminal.loadAddon(fitAddon);
+        
+        log(logId, '✓ FitAddon loaded', 'success');
+        
+        const container = document.getElementById('test1-container');
+        log(logId, `Container dimensions: ${container.offsetWidth}x${container.offsetHeight}`, 'info');
+        
+        terminal.open(container);
+        log(logId, '✓ Terminal opened', 'success');
+        
+        fitAddon.fit();
+        log(logId, `✓ Terminal fitted: ${terminal.cols}x${terminal.rows}`, 'success');
+        
+        terminal.writeln('\x1b[32m✓ Test 1 PASSED\x1b[0m');
+        terminal.writeln('Direct terminal creation works!');
+        
+      } catch (err) {
+        log(logId, `✗ Error: ${err.message}`, 'error');
+        if (err.stack) log(logId, err.stack, 'error');
+      }
+    }
+
+    // Test 2: Terminal with wrapper (already visible)
+    function test2() {
+      const logId = 'test2-log';
+      try {
+        log(logId, 'Creating terminal with wrapper...', 'info');
+        
+        const terminal = new Terminal({
+          theme: { background: '#0d1117', foreground: '#e6edf3' },
+          fontFamily: 'monospace',
+          fontSize: 14
+        });
+        
+        log(logId, '✓ Terminal instance created', 'success');
+        
+        const fitAddon = new FitAddon();
+        terminal.loadAddon(fitAddon);
+        
+        log(logId, '✓ FitAddon loaded', 'success');
+        
+        const wrapper = document.getElementById('test2-wrapper');
+        const container = document.getElementById('test2-terminal');
+        
+        log(logId, `Wrapper display: ${getComputedStyle(wrapper).display}`, 'info');
+        log(logId, `Wrapper visibility: ${getComputedStyle(wrapper).visibility}`, 'info');
+        log(logId, `Container dimensions: ${container.offsetWidth}x${container.offsetHeight}`, 'info');
+        
+        terminal.open(container);
+        log(logId, '✓ Terminal opened', 'success');
+        
+        setTimeout(() => {
+          try {
+            fitAddon.fit();
+            log(logId, `✓ Terminal fitted: ${terminal.cols}x${terminal.rows}`, 'success');
+            terminal.writeln('\x1b[32m✓ Test 2 PASSED\x1b[0m');
+            terminal.writeln('Terminal with wrapper works!');
+          } catch (e) {
+            log(logId, `✗ Fit failed: ${e.message}`, 'error');
+          }
+        }, 50);
+        
+      } catch (err) {
+        log(logId, `✗ Error: ${err.message}`, 'error');
+        if (err.stack) log(logId, err.stack, 'error');
+      }
+    }
+
+    // Test 3: Terminal with hidden wrapper (like real app)
+    function test3() {
+      const logId = 'test3-log';
+      try {
+        log(logId, 'Creating terminal with HIDDEN wrapper...', 'info');
+        
+        const terminal = new Terminal({
+          theme: { background: '#0d1117', foreground: '#e6edf3' },
+          fontFamily: 'monospace',
+          fontSize: 14
+        });
+        
+        log(logId, '✓ Terminal instance created', 'success');
+        
+        const fitAddon = new FitAddon();
+        terminal.loadAddon(fitAddon);
+        
+        log(logId, '✓ FitAddon loaded', 'success');
+        
+        const wrapper = document.getElementById('test3-wrapper');
+        const container = document.getElementById('test3-terminal');
+        
+        log(logId, `Wrapper display: ${getComputedStyle(wrapper).display}`, 'info');
+        log(logId, `Container dimensions: ${container.offsetWidth}x${container.offsetHeight}`, 'info');
+        
+        // Try to open while hidden
+        try {
+          terminal.open(container);
+          log(logId, '✓ Terminal opened (while hidden)', 'success');
+        } catch (e) {
+          log(logId, `✗ Cannot open while hidden: ${e.message}`, 'error');
+          return;
+        }
+        
+        // Try to fit while hidden
+        try {
+          fitAddon.fit();
+          log(logId, `✓ Fit called (while hidden): ${terminal.cols}x${terminal.rows}`, 'warning');
+        } catch (e) {
+          log(logId, `⚠ Fit failed while hidden: ${e.message}`, 'warning');
+        }
+        
+        terminal.writeln('\x1b[33mTerminal created while hidden\x1b[0m');
+        
+      } catch (err) {
+        log(logId, `✗ Error: ${err.message}`, 'error');
+        if (err.stack) log(logId, err.stack, 'error');
+      }
+    }
+
+    function activateTest3() {
+      const logId = 'test3-log';
+      const wrapper = document.getElementById('test3-wrapper');
+      
+      log(logId, 'Activating wrapper (making visible)...', 'info');
+      wrapper.classList.add('active');
+      
+      const container = document.getElementById('test3-terminal');
+      log(logId, `Container dimensions after visible: ${container.offsetWidth}x${container.offsetHeight}`, 'info');
+      
+      // Get the terminal instance and try to fit again
+      setTimeout(() => {
+        log(logId, 'Terminal should now be visible', 'success');
+      }, 100);
+    }
+
+    // Run tests on load
+    window.addEventListener('load', () => {
+      setTimeout(test1, 100);
+      setTimeout(test2, 200);
+      setTimeout(test3, 300);
+    });
+  </script>
+</body>
+</html>

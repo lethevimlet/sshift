@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebSSH Diagnostic</title>
+  <style>
+    body {
+      font-family: monospace;
+      background: #0d1117;
+      color: #e6edf3;
+      padding: 20px;
+      margin: 0;
+    }
+    .section {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    h1 { color: #58a6ff; margin-top: 0; }
+    h2 { color: #8b949e; margin-top: 0; }
+    .status { padding: 8px 12px; margin: 4px 0; border-radius: 4px; }
+    .ok { background: #238636; }
+    .error { background: #da3633; }
+    .warning { background: #d29922; }
+    .info { background: #1f6feb; }
+    pre {
+      background: #0d1117;
+      padding: 12px;
+      border-radius: 4px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    #terminal-test {
+      height: 300px;
+      border: 1px solid #30363d;
+      border-radius: 4px;
+      margin-top: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔍 WebSSH Diagnostic Page</h1>
+  
+  <div class="section">
+    <h2>Library Loading Status</h2>
+    <div id="libraryStatus"></div>
+  </div>
+
+  <div class="section">
+    <h2>Socket.IO Status</h2>
+    <div id="socketStatus"></div>
+  </div>
+
+  <div class="section">
+    <h2>Terminal Test</h2>
+    <div id="terminalStatus"></div>
+    <div id="terminal-test"></div>
+  </div>
+
+  <div class="section">
+    <h2>Console Errors</h2>
+    <div id="consoleErrors"></div>
+  </div>
+
+  <!-- Load scripts in same order as index.html -->
+  <link rel="stylesheet" href="/libs/xterm/xterm.css">
+  <script src="/libs/xterm/xterm.js"></script>
+  <script src="/libs/xterm/xterm-addon-fit.js"></script>
+  <script src="/libs/xterm/xterm-addon-web-links.js"></script>
+  <script src="/libs/xterm/xterm-addon-search.js"></script>
+  
+  <!-- Normalize addon exports - UMD pattern exports { FitAddon: class } not the class directly -->
+  <script>
+    (function() {
+      console.log('[Diagnostic] Normalizing addon exports...');
+      
+      // Normalize Terminal
+      if (typeof window.Terminal === 'object' && window.Terminal && window.Terminal.Terminal) {
+        window.Terminal = window.Terminal.Terminal;
+        console.log('[Diagnostic] ✓ Normalized Terminal export');
+      }
+      
+      // Normalize FitAddon
+      if (typeof window.FitAddon === 'object' && window.FitAddon && window.FitAddon.FitAddon) {
+        window.FitAddon = window.FitAddon.FitAddon;
+        console.log('[Diagnostic] ✓ Normalized FitAddon export');
+      }
+      
+      // Normalize WebLinksAddon
+      if (typeof window.WebLinksAddon === 'object' && window.WebLinksAddon && window.WebLinksAddon.WebLinksAddon) {
+        window.WebLinksAddon = window.WebLinksAddon.WebLinksAddon;
+        console.log('[Diagnostic] ✓ Normalized WebLinksAddon export');
+      }
+      
+      // Normalize SearchAddon
+      if (typeof window.SearchAddon === 'object' && window.SearchAddon && window.SearchAddon.SearchAddon) {
+        window.SearchAddon = window.SearchAddon.SearchAddon;
+        console.log('[Diagnostic] ✓ Normalized SearchAddon export');
+      }
+    })();
+  </script>
+  
+  <script src="/socket.io/socket.io.js"></script>
+  
+  <script>
+    const errors = [];
+    const status = {
+      libraries: {},
+      socket: false
+    };
+
+    // Capture console errors
+    const originalError = console.error;
+    console.error = function(...args) {
+      errors.push(args.map(a => String(a)).join(' '));
+      originalError.apply(console, args);
+      updateConsoleErrors();
+    };
+
+    // Capture window errors
+    window.onerror = function(msg, url, line, col, error) {
+      errors.push(`Error: ${msg} at ${url}:${line}:${col}`);
+      updateConsoleErrors();
+      return false;
+    };
+
+    function updateConsoleErrors() {
+      const el = document.getElementById('consoleErrors');
+      if (errors.length === 0) {
+        el.innerHTML = '<div class="status ok">No errors detected</div>';
+      } else {
+        el.innerHTML = errors.map(e => `<div class="status error">${escapeHtml(e)}</div>`).join('');
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function checkLibraries() {
+      const results = document.getElementById('libraryStatus');
+      let html = '';
+
+      // Check xterm
+      if (typeof Terminal !== 'undefined') {
+        html += '<div class="status ok">✓ xterm.js loaded (Terminal class available)</div>';
+        status.libraries.xterm = true;
+      } else {
+        html += '<div class="status error">✗ xterm.js NOT loaded (Terminal class undefined)</div>';
+        status.libraries.xterm = false;
+      }
+
+      // Check FitAddon
+      if (typeof FitAddon !== 'undefined') {
+        html += '<div class="status ok">✓ FitAddon loaded</div>';
+        status.libraries.fitAddon = true;
+      } else {
+        html += '<div class="status error">✗ FitAddon NOT loaded</div>';
+        status.libraries.fitAddon = false;
+      }
+
+      // Check WebLinksAddon
+      if (typeof WebLinksAddon !== 'undefined') {
+        html += '<div class="status ok">✓ WebLinksAddon loaded</div>';
+        status.libraries.webLinksAddon = true;
+      } else {
+        html += '<div class="status error">✗ WebLinksAddon NOT loaded</div>';
+        status.libraries.webLinksAddon = false;
+      }
+
+      // Check SearchAddon
+      if (typeof SearchAddon !== 'undefined') {
+        html += '<div class="status ok">✓ SearchAddon loaded</div>';
+        status.libraries.searchAddon = true;
+      } else {
+        html += '<div class="status error">✗ SearchAddon NOT loaded</div>';
+        status.libraries.searchAddon = false;
+      }
+
+      // Check Socket.IO
+      if (typeof io !== 'undefined') {
+        html += '<div class="status ok">✓ Socket.IO loaded</div>';
+        status.libraries.socketIO = true;
+      } else {
+        html += '<div class="status error">✗ Socket.IO NOT loaded</div>';
+        status.libraries.socketIO = false;
+      }
+
+      results.innerHTML = html;
+    }
+
+    function testSocket() {
+      const results = document.getElementById('socketStatus');
+      results.innerHTML = '<div class="status info">Connecting to server...</div>';
+
+      try {
+        const socket = io({
+          transports: ['websocket', 'polling'],
+          reconnection: false
+        });
+
+        socket.on('connect', () => {
+          results.innerHTML = `<div class="status ok">✓ Socket connected (ID: ${socket.id})</div>`;
+          status.socket = true;
+          setTimeout(() => socket.disconnect(), 100);
+        });
+
+        socket.on('connect_error', (err) => {
+          results.innerHTML = `<div class="status error">✗ Socket connection failed: ${escapeHtml(err.message)}</div>`;
+          status.socket = false;
+        });
+
+        setTimeout(() => {
+          if (!status.socket) {
+            results.innerHTML = '<div class="status error">✗ Socket connection timeout</div>';
+          }
+        }, 5000);
+      } catch (err) {
+        results.innerHTML = `<div class="status error">✗ Socket.IO error: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    function testTerminal() {
+      const results = document.getElementById('terminalStatus');
+      const container = document.getElementById('terminal-test');
+      
+      results.innerHTML = '<div class="status info">Creating terminal...</div>';
+
+      try {
+        if (!status.libraries.xterm) {
+          throw new Error('Terminal class not available');
+        }
+
+        if (!status.libraries.fitAddon) {
+          throw new Error('FitAddon not available');
+        }
+
+        // Create terminal
+        const terminal = new Terminal({
+          theme: {
+            background: '#0d1117',
+            foreground: '#e6edf3'
+          },
+          fontFamily: 'monospace',
+          fontSize: 14
+        });
+
+        results.innerHTML += '<div class="status ok">✓ Terminal instance created</div>';
+
+        // Create addons
+        const fitAddon = new FitAddon();
+        const webLinksAddon = new WebLinksAddon();
+        const searchAddon = new SearchAddon();
+
+        results.innerHTML += '<div class="status ok">✓ Addons instantiated</div>';
+
+        // Load addons
+        terminal.loadAddon(fitAddon);
+        terminal.loadAddon(webLinksAddon);
+        terminal.loadAddon(searchAddon);
+
+        results.innerHTML += '<div class="status ok">✓ Addons loaded</div>';
+
+        // Open terminal
+        terminal.open(container);
+
+        results.innerHTML += '<div class="status ok">✓ Terminal opened in container</div>';
+
+        // Fit terminal
+        try {
+          fitAddon.fit();
+          results.innerHTML += `<div class="status ok">✓ Terminal fitted (cols: ${terminal.cols}, rows: ${terminal.rows})</div>`;
+        } catch (e) {
+          results.innerHTML += `<div class="status warning">⚠ Fit failed: ${escapeHtml(e.message)}</div>`;
+        }
+
+        // Write test content
+        terminal.writeln('\x1b[32m✓ Terminal is working!\x1b[0m');
+        terminal.writeln('');
+        terminal.writeln('This is a test terminal.');
+        terminal.writeln('If you can see this, xterm.js is functioning correctly.');
+        terminal.writeln('');
+        terminal.write('$ ');
+
+        results.innerHTML += '<div class="status ok">✓ Test content written</div>';
+
+        // Check container dimensions
+        const rect = container.getBoundingClientRect();
+        results.innerHTML += `<div class="status info">Container: ${rect.width}x${rect.height}px</div>`;
+
+      } catch (err) {
+        results.innerHTML += `<div class="status error">✗ Terminal error: ${escapeHtml(err.message)}</div>`;
+        if (err.stack) {
+          results.innerHTML += `<pre>${escapeHtml(err.stack)}</pre>`;
+        }
+      }
+    }
+
+    // Run diagnostics
+    window.addEventListener('load', () => {
+      console.log('[Diagnostic] Starting diagnostics...');
+      
+      // Check libraries
+      checkLibraries();
+      
+      // Test socket
+      testSocket();
+      
+      // Test terminal
+      setTimeout(() => {
+        testTerminal();
+      }, 100);
+    });
+  </script>
+</body>
+</html>

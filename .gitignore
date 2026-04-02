@@ -1,0 +1,62 @@
+# Dependencies
+node_modules/
+
+# Config files (user-specific)
+config.json
+
+# Environment files and directory
+.env
+.env/
+.env.local
+.env.*.local
+
+# AI agent files
+.agents/
+
+# Prevent AI-generated documentation in root (except README.md and AGENTS.md)
+*IMPLEMENTATION*.md
+*DEBUGGING*.md
+*SETUP*.md
+*SUMMARY*.md
+*FIX*.md
+*BEHAVIOR*.md
+*TEST_*.md
+!README.md
+!AGENTS.md
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+server.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build outputs
+dist/
+build/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# SSH keys (if any stored locally)
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+known_hosts
+
+# Package files
+*.tgz
+package-lock.json

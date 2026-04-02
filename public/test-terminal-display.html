@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terminal Display Test</title>
+  <link rel="stylesheet" href="/libs/xterm/xterm.css">
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      background: #0d1117;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    
+    .test-container {
+      width: 100%;
+      height: 400px;
+      border: 2px solid #c10059;
+      background: #0d1117;
+      margin-bottom: 20px;
+    }
+    
+    .terminal-wrapper {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .terminal-container {
+      width: 100%;
+      height: 100%;
+      flex: 1;
+      min-height: 200px;
+      position: relative;
+    }
+    
+    .terminal-container .xterm {
+      height: 100%;
+      padding: 0;
+      margin: 0;
+    }
+    
+    .terminal-container .xterm-viewport {
+      height: 100% !important;
+    }
+    
+    .terminal-container .xterm-screen {
+      height: 100% !important;
+    }
+    
+    /* Fix for accessibility elements */
+    .terminal-container .xterm .xterm-accessibility {
+      z-index: 10;
+      pointer-events: none;
+      opacity: 0;
+    }
+    
+    .terminal-container .xterm .xterm-helpers {
+      z-index: 5;
+      opacity: 0;
+    }
+    
+    .log {
+      background: #161b22;
+      padding: 10px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    
+    .log-entry {
+      margin: 5px 0;
+    }
+    
+    .log-entry.error {
+      color: #f85149;
+    }
+    
+    .log-entry.success {
+      color: #3fb950;
+    }
+    
+    .log-entry.info {
+      color: #58a6ff;
+    }
+  </style>
+</head>
+<body>
+  <h1>Terminal Display Test</h1>
+  <p>This test checks if xterm.js renders correctly without accessibility overlay issues.</p>
+  
+  <div class="test-container">
+    <div class="terminal-wrapper">
+      <div class="terminal-container" id="terminal-container"></div>
+    </div>
+  </div>
+  
+  <div class="log" id="log"></div>
+  
+  <script src="/libs/xterm/xterm.js"></script>
+  <script src="/libs/xterm/xterm-addon-fit.js"></script>
+  
+  <script>
+    const logEl = document.getElementById('log');
+    
+    function log(message, type = 'info') {
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type}`;
+      entry.textContent = `[${new Date().toISOString()}] ${message}`;
+      logEl.appendChild(entry);
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log(message);
+    }
+    
+    log('Starting terminal test...', 'info');
+    
+    try {
+      // Check if Terminal is available
+      log(`Terminal available: ${typeof Terminal}`, typeof Terminal === 'function' ? 'success' : 'error');
+      log(`FitAddon available: ${typeof FitAddon}`, typeof FitAddon === 'function' ? 'success' : 'error');
+      
+      // Normalize FitAddon if needed
+      if (typeof FitAddon === 'object' && FitAddon !== null) {
+        if (FitAddon.FitAddon) {
+          log('FitAddon is object with .FitAddon property, extracting...', 'info');
+          window.FitAddon = FitAddon.FitAddon;
+        } else if (FitAddon.default) {
+          log('FitAddon has .default property, extracting...', 'info');
+          window.FitAddon = FitAddon.default;
+        }
+      }
+      
+      // Normalize Terminal if needed
+      if (typeof Terminal === 'object' && Terminal !== null) {
+        if (Terminal.Terminal) {
+          log('Terminal is object with .Terminal property, extracting...', 'info');
+          window.Terminal = Terminal.Terminal;
+        } else if (Terminal.default) {
+          log('Terminal has .default property, extracting...', 'info');
+          window.Terminal = Terminal.default;
+        }
+      }
+      
+      log(`After normalization - Terminal: ${typeof window.Terminal}`, typeof window.Terminal === 'function' ? 'success' : 'error');
+      log(`After normalization - FitAddon: ${typeof window.FitAddon}`, typeof window.FitAddon === 'function' ? 'success' : 'error');
+      
+      if (typeof window.Terminal !== 'function') {
+        throw new Error('Terminal class not available');
+      }
+      
+      if (typeof window.FitAddon !== 'function') {
+        throw new Error('FitAddon class not available');
+      }
+      
+      // Create terminal
+      log('Creating terminal instance...', 'info');
+      const terminal = new window.Terminal({
+        theme: {
+          background: '#0d1117',
+          foreground: '#e6edf3',
+          cursor: '#c10059',
+          cursorAccent: '#0d1117',
+          selection: 'rgba(193, 0, 89, 0.3)'
+        },
+        fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+        fontSize: 14,
+        lineHeight: 1.2,
+        cursorBlink: true,
+        cursorStyle: 'block',
+        scrollback: 10000,
+        allowProposedApi: true,
+        convertEol: true
+      });
+      
+      log('Terminal instance created', 'success');
+      
+      // Create fit addon
+      log('Creating FitAddon...', 'info');
+      const fitAddon = new window.FitAddon();
+      log('FitAddon created', 'success');
+      
+      // Load addon
+      log('Loading FitAddon into terminal...', 'info');
+      terminal.loadAddon(fitAddon);
+      log('FitAddon loaded', 'success');
+      
+      // Get container
+      const container = document.getElementById('terminal-container');
+      log(`Container dimensions: ${container.offsetWidth}x${container.offsetHeight}`, container.offsetWidth > 0 && container.offsetHeight > 0 ? 'success' : 'error');
+      
+      // Open terminal
+      log('Opening terminal in container...', 'info');
+      terminal.open(container);
+      log('Terminal opened', 'success');
+      
+      // Fit terminal
+      log('Fitting terminal...', 'info');
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          try {
+            fitAddon.fit();
+            log(`Terminal fitted: ${terminal.cols} cols x ${terminal.rows} rows`, 'success');
+            
+            // Write test content
+            terminal.writeln('\x1b[35m╔══════════════════════════════════════╗\x1b[0m');
+            terminal.writeln('\x1b[35m║\x1b[0m  \x1b[1;36mSSHIFT Terminal Test\x1b[0m              \x1b[35m║\x1b[0m');
+            terminal.writeln('\x1b[35m╚══════════════════════════════════════╝\x1b[0m');
+            terminal.writeln('');
+            terminal.writeln('\x1b[32m✓ Terminal initialized successfully\x1b[0m');
+            terminal.writeln('\x1b[33m✓ Display rendering correctly\x1b[0m');
+            terminal.writeln('\x1b[34m✓ Accessibility overlay hidden\x1b[0m');
+            terminal.writeln('');
+            terminal.writeln('\x1b[90mIf you can see this text, the terminal is working!\x1b[0m');
+            terminal.writeln('');
+            terminal.write('\x1b[1;36m$ \x1b[0m');
+            
+            log('Test content written to terminal', 'success');
+            
+            // Check for accessibility elements
+            const accessibilityEl = container.querySelector('.xterm-accessibility');
+            const helpersEl = container.querySelector('.xterm-helpers');
+            
+            if (accessibilityEl) {
+              const styles = window.getComputedStyle(accessibilityEl);
+              log(`Accessibility element found - z-index: ${styles.zIndex}, pointer-events: ${styles.pointerEvents}, opacity: ${styles.opacity}`, 'info');
+            } else {
+              log('No accessibility element found', 'info');
+            }
+            
+            if (helpersEl) {
+              const styles = window.getComputedStyle(helpersEl);
+              log(`Helpers element found - z-index: ${styles.zIndex}, opacity: ${styles.opacity}`, 'info');
+            } else {
+              log('No helpers element found', 'info');
+            }
+            
+            // Check canvas
+            const canvas = container.querySelector('canvas');
+            if (canvas) {
+              log(`Canvas found: ${canvas.width}x${canvas.height}`, 'success');
+            } else {
+              log('No canvas found!', 'error');
+            }
+            
+          } catch (e) {
+            log(`Fit failed: ${e.message}`, 'error');
+            console.error(e);
+          }
+        }, 100);
+      });
+      
+    } catch (error) {
+      log(`ERROR: ${error.message}`, 'error');
+      console.error(error);
+    }
+  </script>
+</body>
+</html>

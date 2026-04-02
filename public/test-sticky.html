@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sticky Behavior Test</title>
+  <style>
+    body {
+      font-family: 'Courier New', monospace;
+      background: #1a1a1a;
+      color: #00ff00;
+      padding: 20px;
+      margin: 0;
+    }
+    .test-section {
+      margin: 20px 0;
+      padding: 15px;
+      border: 1px solid #00ff00;
+      border-radius: 5px;
+    }
+    h2 {
+      margin-top: 0;
+      color: #00ffff;
+    }
+    .test-result {
+      margin: 10px 0;
+      padding: 10px;
+      background: #2a2a2a;
+      border-radius: 3px;
+    }
+    .pass {
+      color: #00ff00;
+    }
+    .fail {
+      color: #ff0000;
+    }
+    .info {
+      color: #ffff00;
+    }
+    button {
+      background: #00ff00;
+      color: #000;
+      border: none;
+      padding: 10px 20px;
+      margin: 5px;
+      cursor: pointer;
+      font-family: inherit;
+      font-weight: bold;
+      border-radius: 3px;
+    }
+    button:hover {
+      background: #00cc00;
+    }
+    #console {
+      background: #000;
+      padding: 10px;
+      margin-top: 20px;
+      border-radius: 3px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .log-entry {
+      margin: 2px 0;
+    }
+    .log-time {
+      color: #888;
+    }
+  </style>
+</head>
+<body>
+  <h1>🧪 Sticky Behavior Test Suite</h1>
+  
+  <div class="test-section">
+    <h2>Test Controls</h2>
+    <button onclick="runAllTests()">Run All Tests</button>
+    <button onclick="clearStorage()">Clear Local Storage</button>
+    <button onclick="showCurrentState()">Show Current State</button>
+  </div>
+
+  <div class="test-section">
+    <h2>Test Results</h2>
+    <div id="testResults"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>Console Log</h2>
+    <div id="console"></div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    let testResults = [];
+    let socket = null;
+
+    function log(message, type = 'info') {
+      const consoleDiv = document.getElementById('console');
+      const time = new Date().toLocaleTimeString();
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type}`;
+      entry.innerHTML = `<span class="log-time">[${time}]</span> ${message}`;
+      consoleDiv.appendChild(entry);
+      consoleDiv.scrollTop = consoleDiv.scrollHeight;
+      console.log(message);
+    }
+
+    function addResult(test, passed, message = '') {
+      testResults.push({ test, passed, message });
+      const resultsDiv = document.getElementById('testResults');
+      const result = document.createElement('div');
+      result.className = `test-result ${passed ? 'pass' : 'fail'}`;
+      result.innerHTML = `${passed ? '✓' : '✗'} <strong>${test}</strong>${message ? ': ' + message : ''}`;
+      resultsDiv.appendChild(result);
+    }
+
+    async function testConfigAPI() {
+      log('Testing Config API...', 'info');
+      try {
+        const response = await fetch('/api/config');
+        const config = await response.json();
+        
+        if (typeof config.sticky !== 'boolean') {
+          addResult('Config API sticky', false, 'sticky is not boolean');
+          return false;
+        }
+        
+        addResult('Config API returns sticky property', true, 
+          `sticky=${config.sticky}`);
+        return true;
+      } catch (err) {
+        addResult('Config API', false, err.message);
+        return false;
+      }
+    }
+
+    async function testLocalStorageSave() {
+      log('Testing localStorage save...', 'info');
+      try {
+        // Test data
+        const testTabs = [
+          {
+            sessionId: 'test-ssh-123',
+            name: 'Test SSH',
+            type: 'ssh',
+            connectionData: { host: 'test.com', port: 22, username: 'test' },
+            active: true
+          },
+          {
+            sessionId: 'test-sftp-456',
+            name: 'Test SFTP',
+            type: 'sftp',
+            connectionData: { host: 'test.com', port: 22, username: 'test' },
+            active: false
+          }
+        ];
+        
+        // Save test data
+        localStorage.setItem('openTabs', JSON.stringify(testTabs));
+        
+        // Load and verify
+        const loaded = JSON.parse(localStorage.getItem('openTabs'));
+        
+        if (loaded.length !== 2) {
+          addResult('localStorage save/load', false, 'Wrong number of tabs');
+          return false;
+        }
+        
+        if (loaded[0].sessionId !== 'test-ssh-123') {
+          addResult('localStorage save/load', false, 'Session ID mismatch');
+          return false;
+        }
+        
+        addResult('localStorage save/load', true, 'Successfully saved and loaded tabs');
+        return true;
+      } catch (err) {
+        addResult('localStorage save/load', false, err.message);
+        return false;
+      }
+    }
+
+    async function testSocketConnection() {
+      log('Testing Socket.IO connection...', 'info');
+      return new Promise((resolve) => {
+        try {
+          socket = io({
+            transports: ['websocket', 'polling'],
+            reconnection: false
+          });
+          
+          socket.on('connect', () => {
+            addResult('Socket.IO connection', true, `Connected with ID: ${socket.id}`);
+            resolve(true);
+          });
+          
+          socket.on('connect_error', (err) => {
+            addResult('Socket.IO connection', false, err.message);
+            resolve(false);
+          });
+          
+          // Timeout after 5 seconds
+          setTimeout(() => {
+            if (!socket.connected) {
+              addResult('Socket.IO connection', false, 'Connection timeout');
+              resolve(false);
+            }
+          }, 5000);
+        } catch (err) {
+          addResult('Socket.IO connection', false, err.message);
+          resolve(false);
+        }
+      });
+    }
+
+    async function testStickyDisabled() {
+      log('Testing sticky disabled behavior...', 'info');
+      try {
+        // Save some test data
+        const testTabs = [
+          { sessionId: 'test-1', name: 'Test', type: 'ssh', connectionData: {}, active: true }
+        ];
+        localStorage.setItem('openTabs', JSON.stringify(testTabs));
+        
+        // Simulate sticky disabled
+        const config = { sticky: false };
+        
+        // If sticky is false, tabs should be cleared
+        if (!config.sticky) {
+          localStorage.removeItem('openTabs');
+        }
+        
+        const loaded = localStorage.getItem('openTabs');
+        
+        if (loaded !== null) {
+          addResult('sticky disabled', false, 'Tabs not cleared');
+          return false;
+        }
+        
+        addResult('sticky disabled', true, 'Tabs properly cleared when disabled');
+        return true;
+      } catch (err) {
+        addResult('sticky disabled', false, err.message);
+        return false;
+      }
+    }
+
+    async function testStickyEnabled() {
+      log('Testing sticky enabled behavior...', 'info');
+      try {
+        // Test data
+        const testTabs = [
+          { 
+            sessionId: 'existing-session-123', 
+            name: 'Existing', 
+            type: 'ssh', 
+            connectionData: { host: 'existing.com' },
+            active: true 
+          }
+        ];
+        
+        // Case 1: sticky = true (should try to join existing session)
+        const config1 = { sticky: true };
+        const restoreSessionId1 = config1.sticky ? testTabs[0].sessionId : null;
+        
+        if (restoreSessionId1 !== 'existing-session-123') {
+          addResult('sticky=true logic', false, 'Should use existing session ID');
+          return false;
+        }
+        
+        // Case 2: sticky = false (should create new session)
+        const config2 = { sticky: false };
+        const restoreSessionId2 = config2.sticky ? testTabs[0].sessionId : null;
+        
+        if (restoreSessionId2 !== null) {
+          addResult('sticky=false logic', false, 'Should not use existing session ID');
+          return false;
+        }
+        
+        addResult('sticky logic', true, 'Both cases work correctly');
+        return true;
+      } catch (err) {
+        addResult('sticky logic', false, err.message);
+        return false;
+      }
+    }
+
+    function clearStorage() {
+      localStorage.clear();
+      log('Local storage cleared', 'info');
+      document.getElementById('testResults').innerHTML = '';
+      testResults = [];
+    }
+
+    function showCurrentState() {
+      log('=== Current State ===', 'info');
+      log(`openTabs: ${localStorage.getItem('openTabs') || 'null'}`, 'info');
+      log(`sidebarCollapsed: ${localStorage.getItem('sidebarCollapsed') || 'null'}`, 'info');
+      log(`bookmarkOrder: ${localStorage.getItem('bookmarkOrder') || 'null'}`, 'info');
+    }
+
+    async function runAllTests() {
+      testResults = [];
+      document.getElementById('testResults').innerHTML = '';
+      log('Starting test suite...', 'info');
+      
+      await testConfigAPI();
+      await testLocalStorageSave();
+      await testSocketConnection();
+      await testStickyDisabled();
+      await testStickyEnabled();
+      
+      const passed = testResults.filter(r => r.passed).length;
+      const total = testResults.length;
+      
+      log(`\n=== Test Summary ===`, 'info');
+      log(`Passed: ${passed}/${total}`, passed === total ? 'pass' : 'fail');
+      
+      if (passed === total) {
+        log('✓ All tests passed!', 'pass');
+      } else {
+        log(`✗ ${total - passed} test(s) failed`, 'fail');
+      }
+    }
+
+    // Auto-run tests on load
+    window.addEventListener('load', () => {
+      log('Test page loaded. Click "Run All Tests" to start.', 'info');
+    });
+  </script>
+</body>
+</html>

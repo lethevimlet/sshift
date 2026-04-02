@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Simple Terminal Test</title>
+  <link rel="stylesheet" href="/libs/xterm/xterm.css">
+  <style>
+    body {
+      background: #0d1117;
+      color: #e6edf3;
+      font-family: monospace;
+      padding: 20px;
+    }
+    #terminal {
+      width: 800px;
+      height: 400px;
+      border: 2px solid #c10059;
+      background: #0d1117;
+    }
+    .log {
+      margin-top: 20px;
+      background: #161b22;
+      padding: 10px;
+      border-radius: 4px;
+    }
+    .success { color: #3fb950; }
+    .error { color: #f85149; }
+  </style>
+</head>
+<body>
+  <h1>Simple Terminal Test</h1>
+  <div id="terminal"></div>
+  <div class="log" id="log"></div>
+
+  <script src="/libs/xterm/xterm.js"></script>
+  <script src="/libs/xterm/xterm-addon-fit.js"></script>
+  <script>
+    const log = document.getElementById('log');
+    
+    function addLog(message, type = 'info') {
+      const div = document.createElement('div');
+      div.className = type;
+      div.textContent = message;
+      log.appendChild(div);
+    }
+    
+    // Capture all errors
+    window.onerror = function(msg, url, line, col, error) {
+      addLog(`Error: ${msg} at ${url}:${line}:${col}`, 'error');
+      return false;
+    };
+    
+    window.addEventListener('error', (e) => {
+      addLog(`Window error: ${e.message}`, 'error');
+    });
+    
+    window.addEventListener('load', () => {
+      addLog('Page loaded, checking libraries...');
+      
+      try {
+        // Check Terminal
+        if (typeof window.Terminal === 'undefined') {
+          addLog('ERROR: Terminal not defined!', 'error');
+          return;
+        }
+        
+        const terminalType = typeof window.Terminal;
+        addLog(`Terminal type: ${terminalType}`);
+        
+        if (terminalType === 'object') {
+          addLog('Terminal is object, checking for Terminal.Terminal...');
+          if (window.Terminal.Terminal) {
+            addLog('Found Terminal.Terminal, reassigning...', 'success');
+            window.Terminal = window.Terminal.Terminal;
+          } else {
+            addLog('ERROR: Terminal.Terminal not found!', 'error');
+            return;
+          }
+        }
+        
+        // Check FitAddon
+        if (typeof window.FitAddon === 'undefined') {
+          addLog('ERROR: FitAddon not defined!', 'error');
+          return;
+        }
+        
+        const fitAddonType = typeof window.FitAddon;
+        addLog(`FitAddon type: ${fitAddonType}`);
+        
+        if (fitAddonType === 'object') {
+          addLog('FitAddon is object, checking for FitAddon.FitAddon...');
+          if (window.FitAddon.FitAddon) {
+            addLog('Found FitAddon.FitAddon, reassigning...', 'success');
+            window.FitAddon = window.FitAddon.FitAddon;
+          } else {
+            addLog('ERROR: FitAddon.FitAddon not found!', 'error');
+            return;
+          }
+        }
+        
+        addLog('Creating Terminal instance...', 'success');
+        const term = new Terminal({
+          theme: {
+            background: '#0d1117',
+            foreground: '#e6edf3'
+          }
+        });
+        
+        addLog('Terminal created successfully', 'success');
+        
+        const container = document.getElementById('terminal');
+        addLog(`Container: ${container.offsetWidth}x${container.offsetHeight}px`);
+        
+        addLog('Opening terminal...');
+        term.open(container);
+        addLog('Terminal opened', 'success');
+        
+        addLog('Creating FitAddon...');
+        const fitAddon = new FitAddon();
+        term.loadAddon(fitAddon);
+        addLog('FitAddon loaded', 'success');
+        
+        addLog('Fitting terminal...');
+        fitAddon.fit();
+        addLog(`Terminal size: ${term.cols} cols x ${term.rows} rows`, 'success');
+        
+        term.writeln('\x1b[32m✓ Terminal is working!\x1b[0m');
+        term.writeln('Type something to test input:');
+        
+        term.onData((data) => {
+          term.write(`You typed: ${data}`);
+        });
+        
+        addLog('Test complete - terminal is functional!', 'success');
+        
+      } catch (error) {
+        addLog(`Exception: ${error.message}`, 'error');
+        addLog(`Stack: ${error.stack}`, 'error');
+      }
+    });
+  </script>
+</body>
+</html>

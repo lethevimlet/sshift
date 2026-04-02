@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Simple Addon Test</title>
+  <style>
+    body { background: #0d1117; color: #e6edf3; font-family: monospace; padding: 20px; }
+    .ok { color: #3fb950; }
+    .error { color: #f85149; }
+    .warning { color: #d29922; }
+    pre { background: #161b22; padding: 10px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Simple Addon Test</h1>
+  <div id="log"></div>
+  <div id="terminal" style="width: 100%; height: 300px; border: 2px solid #30363d; margin-top: 20px;"></div>
+
+  <script src="https://unpkg.com/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  
+  <script>
+    const logEl = document.getElementById('log');
+    
+    function log(msg, type = 'info') {
+      const div = document.createElement('div');
+      div.className = type;
+      div.textContent = msg;
+      logEl.appendChild(div);
+      console.log(msg);
+    }
+
+    // Check immediately after script load
+    log('=== Checking after script load ===');
+    
+    // Check all possible scopes
+    log(`typeof Terminal: ${typeof Terminal}`);
+    log(`typeof window.Terminal: ${typeof window.Terminal}`);
+    log(`typeof self.Terminal: ${typeof self.Terminal}`);
+    
+    log('');
+    log(`typeof FitAddon: ${typeof FitAddon}`);
+    log(`typeof window.FitAddon: ${typeof window.FitAddon}`);
+    log(`typeof self.FitAddon: ${typeof self.FitAddon}`);
+    
+    // Try to see what FitAddon actually is
+    if (typeof FitAddon !== 'undefined') {
+      log('');
+      log('FitAddon details:');
+      log(`  value: ${FitAddon}`);
+      log(`  constructor: ${FitAddon.constructor}`);
+      log(`  constructor.name: ${FitAddon.constructor.name}`);
+      log(`  prototype: ${FitAddon.prototype}`);
+      
+      if (typeof FitAddon === 'object') {
+        log(`  keys: ${Object.keys(FitAddon).join(', ')}`);
+        log(`  FitAddon.FitAddon: ${typeof FitAddon.FitAddon}`);
+        if (FitAddon.FitAddon) {
+          log(`  FitAddon.FitAddon is: ${typeof FitAddon.FitAddon}`);
+          log(`  ✅ FitAddon.FitAddon is the constructor!`, 'ok');
+        }
+      }
+    }
+    
+    if (typeof window.FitAddon !== 'undefined') {
+      log('');
+      log('window.FitAddon details:');
+      log(`  value: ${window.FitAddon}`);
+      log(`  constructor.name: ${window.FitAddon.constructor.name}`);
+      
+      if (typeof window.FitAddon === 'object') {
+        log(`  keys: ${Object.keys(window.FitAddon).join(', ')}`);
+        if (window.FitAddon.FitAddon) {
+          log(`  ✅ window.FitAddon.FitAddon is the constructor!`, 'ok');
+        }
+      }
+    }
+    
+    // Try to create terminal
+    log('');
+    log('=== Creating Terminal ===');
+    
+    try {
+      const TerminalClass = window.Terminal || Terminal;
+      const term = new TerminalClass({
+        theme: { background: '#0d1117', foreground: '#e6edf3' }
+      });
+      log('✅ Terminal created successfully', 'ok');
+      
+      // Try to create FitAddon
+      log('');
+      log('=== Creating FitAddon ===');
+      
+      let fitAddon = null;
+      
+      // Try different ways to get FitAddon
+      if (typeof FitAddon === 'function') {
+        log('Trying: new FitAddon()');
+        fitAddon = new FitAddon();
+        log('✅ FitAddon created from global', 'ok');
+      } else if (typeof window.FitAddon === 'function') {
+        log('Trying: new window.FitAddon()');
+        fitAddon = new window.FitAddon();
+        log('✅ FitAddon created from window', 'ok');
+      } else if (typeof FitAddon === 'object' && FitAddon.FitAddon) {
+        log('Trying: new FitAddon.FitAddon()');
+        fitAddon = new FitAddon.FitAddon();
+        log('✅ FitAddon created from FitAddon.FitAddon', 'ok');
+      } else if (typeof window.FitAddon === 'object' && window.FitAddon.FitAddon) {
+        log('Trying: new window.FitAddon.FitAddon()');
+        fitAddon = new window.FitAddon.FitAddon();
+        log('✅ FitAddon created from window.FitAddon.FitAddon', 'ok');
+      } else {
+        log('❌ Cannot find FitAddon constructor', 'error');
+        log(`FitAddon type: ${typeof FitAddon}`, 'error');
+        log(`window.FitAddon type: ${typeof window.FitAddon}`, 'error');
+      }
+      
+      if (fitAddon) {
+        term.loadAddon(fitAddon);
+        term.open(document.getElementById('terminal'));
+        fitAddon.fit();
+        term.writeln('\x1b[32m✅ Terminal is working!\x1b[0m');
+        term.writeln('FitAddon loaded successfully!');
+        log('✅ Terminal opened and fitted', 'ok');
+      }
+      
+    } catch (e) {
+      log(`❌ Error: ${e.message}`, 'error');
+      log(`Stack: ${e.stack}`, 'error');
+    }
+  </script>
+</body>
+</html>

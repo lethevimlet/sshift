@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>xterm.js Test</title>
+  <link rel="stylesheet" href="/libs/xterm/xterm.css">
+  <style>
+    body { margin: 20px; background: #1a1a1a; color: #e6edf3; font-family: sans-serif; }
+    #terminal { width: 800px; height: 400px; border: 2px solid #c10059; }
+    .log { margin-top: 20px; padding: 10px; background: #0d1117; border: 1px solid #30363d; }
+    .success { color: #3fb950; }
+    .error { color: #f85149; }
+  </style>
+</head>
+<body>
+  <h1>xterm.js Loading Test</h1>
+  <div id="terminal"></div>
+  <div class="log" id="log"></div>
+  
+  <script src="/libs/xterm/xterm.js"></script>
+  <script src="/libs/xterm/xterm-addon-fit.js"></script>
+  <script>
+    const log = document.getElementById('log');
+    
+    function addLog(message, type = 'info') {
+      const div = document.createElement('div');
+      div.className = type;
+      div.textContent = `[${new Date().toISOString()}] ${message}`;
+      log.appendChild(div);
+    }
+    
+    addLog('Starting xterm.js test...');
+    
+    // Check what's available
+    addLog(`typeof window.Terminal: ${typeof window.Terminal}`);
+    addLog(`typeof window.FitAddon: ${typeof window.FitAddon}`);
+    
+    // Check if Terminal is an object with Terminal property
+    if (typeof window.Terminal === 'object' && window.Terminal !== null) {
+      addLog('Terminal is an object, checking properties...', 'warning');
+      addLog(`Terminal keys: ${Object.keys(window.Terminal).join(', ')}`);
+      if (window.Terminal.Terminal) {
+        addLog('Found Terminal.Terminal, normalizing...', 'warning');
+        window.Terminal = window.Terminal.Terminal;
+        addLog(`After normalization, typeof window.Terminal: ${typeof window.Terminal}`, 'success');
+      }
+    }
+    
+    // Check if FitAddon is an object with FitAddon property
+    if (typeof window.FitAddon === 'object' && window.FitAddon !== null) {
+      addLog('FitAddon is an object, checking properties...', 'warning');
+      addLog(`FitAddon keys: ${Object.keys(window.FitAddon).join(', ')}`);
+      if (window.FitAddon.FitAddon) {
+        addLog('Found FitAddon.FitAddon, normalizing...', 'warning');
+        window.FitAddon = window.FitAddon.FitAddon;
+        addLog(`After normalization, typeof window.FitAddon: ${typeof window.FitAddon}`, 'success');
+      }
+    }
+    
+    // Try to create terminal
+    try {
+      addLog('Attempting to create Terminal instance...');
+      
+      if (typeof window.Terminal !== 'function') {
+        throw new Error(`Terminal is not a constructor! typeof: ${typeof window.Terminal}`);
+      }
+      
+      const terminal = new window.Terminal({
+        theme: {
+          background: '#0d1117',
+          foreground: '#e6edf3',
+          cursor: '#c10059'
+        },
+        fontFamily: "'JetBrains Mono', 'Fira Code', monospace',
+        fontSize: 14
+      });
+      
+      addLog('Terminal instance created successfully', 'success');
+      
+      // Open in container
+      const container = document.getElementById('terminal');
+      addLog('Opening terminal in container...');
+      terminal.open(container);
+      addLog('Terminal opened successfully', 'success');
+      
+      // Try to fit
+      if (typeof window.FitAddon === 'function') {
+        addLog('Creating FitAddon...');
+        const fitAddon = new window.FitAddon();
+        terminal.loadAddon(fitAddon);
+        addLog('FitAddon loaded', 'success');
+        
+        setTimeout(() => {
+          try {
+            fitAddon.fit();
+            addLog(`Terminal fitted: ${terminal.cols} cols x ${terminal.rows} rows`, 'success');
+          } catch (e) {
+            addLog(`Fit error: ${e.message}`, 'error');
+          }
+        }, 100);
+      } else {
+        addLog('FitAddon not available as constructor', 'error');
+      }
+      
+      // Write test content
+      terminal.writeln('\x1b[36m=== xterm.js Test Successful ===\x1b[0m');
+      terminal.writeln('');
+      terminal.writeln('\x1b[32m✓ Terminal initialized\x1b[0m');
+      terminal.writeln('\x1b[32m✓ FitAddon loaded\x1b[0m');
+      terminal.writeln('\x1b[32m✓ Terminal fitted\x1b[0m');
+      terminal.writeln('');
+      terminal.writeln('Terminal is working correctly!');
+      terminal.writeln('');
+      terminal.write('$ ');
+      
+      addLog('Test content written to terminal', 'success');
+      
+    } catch (error) {
+      addLog(`ERROR: ${error.message}`, 'error');
+      addLog(`Stack: ${error.stack}`, 'error');
+    }
+  </script>
+</body>
+</html>

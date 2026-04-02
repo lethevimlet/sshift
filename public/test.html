@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebSSH Frontend Test</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      margin: 0;
+      padding: 20px;
+    }
+    h1 { color: #58a6ff; }
+    .test-section {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .test-result {
+      padding: 8px 12px;
+      margin: 4px 0;
+      border-radius: 4px;
+      font-family: monospace;
+    }
+    .pass { background: #238636; }
+    .fail { background: #da3633; }
+    .pending { background: #6e7681; }
+    .running { background: #1f6feb; }
+    .log {
+      background: #0d1117;
+      padding: 12px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+      max-height: 300px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+    button {
+      background: #238636;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      margin: 4px;
+    }
+    button:hover { background: #2ea043; }
+    button:disabled { background: #484f58; cursor: not-allowed; }
+    .summary {
+      display: flex;
+      gap: 20px;
+      margin-top: 16px;
+    }
+    .summary-item {
+      background: #161b22;
+      padding: 12px 20px;
+      border-radius: 6px;
+      text-align: center;
+    }
+    .summary-item .count {
+      font-size: 32px;
+      font-weight: bold;
+    }
+    .summary-item .label {
+      font-size: 12px;
+      color: #8b949e;
+    }
+  </style>
+</head>
+<body>
+  <h1>🧪 WebSSH Frontend Test Suite</h1>
+  
+  <div class="test-section">
+    <h2>Test Configuration</h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+      <div>
+        <label>Host:</label>
+        <input type="text" id="testHost" value="127.0.0.1" style="width: 100%; padding: 8px; background: #0d1117; border: 1px solid #30363d; color: #e6edf3; border-radius: 4px;">
+      </div>
+      <div>
+        <label>Port:</label>
+        <input type="number" id="testPort" value="22" style="width: 100%; padding: 8px; background: #0d1117; border: 1px solid #30363d; color: #e6edf3; border-radius: 4px;">
+      </div>
+      <div>
+        <label>Username:</label>
+        <input type="text" id="testUser" value="root" style="width: 100%; padding: 8px; background: #0d1117; border: 1px solid #30363d; color: #e6edf3; border-radius: 4px;">
+      </div>
+      <div>
+        <label>Password:</label>
+        <input type="password" id="testPass" placeholder="Enter password" style="width: 100%; padding: 8px; background: #0d1117; border: 1px solid #30363d; color: #e6edf3; border-radius: 4px;">
+      </div>
+    </div>
+    <div style="margin-top: 12px;">
+      <button id="runTestsBtn" onclick="runAllTests()">▶ Run All Tests</button>
+      <button onclick="runConnectionTest()">Test Connection Only</button>
+      <button onclick="clearLogs()">Clear Logs</button>
+    </div>
+  </div>
+
+  <div class="test-section">
+    <h2>Test Results</h2>
+    <div id="testResults"></div>
+    <div class="summary">
+      <div class="summary-item">
+        <div class="count" id="passCount" style="color: #3fb950;">0</div>
+        <div class="label">Passed</div>
+      </div>
+      <div class="summary-item">
+        <div class="count" id="failCount" style="color: #f85149;">0</div>
+        <div class="label">Failed</div>
+      </div>
+      <div class="summary-item">
+        <div class="count" id="totalCount" style="color: #58a6ff;">0</div>
+        <div class="label">Total</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="test-section">
+    <h2>Console Log</h2>
+    <div class="log" id="consoleLog">Waiting for tests...</div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    let socket = null;
+    let tests = [];
+    let currentTest = 0;
+    let passCount = 0;
+    let failCount = 0;
+
+    function log(message, type = 'info') {
+      const logEl = document.getElementById('consoleLog');
+      const timestamp = new Date().toLocaleTimeString();
+      const colors = {
+        info: '#8b949e',
+        success: '#3fb950',
+        error: '#f85149',
+        warning: '#d29922'
+      };
+      logEl.innerHTML += `<span style="color: ${colors[type] || colors.info}">[${timestamp}] ${message}</span>\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function clearLogs() {
+      document.getElementById('consoleLog').innerHTML = '';
+      document.getElementById('testResults').innerHTML = '';
+      passCount = 0;
+      failCount = 0;
+      updateSummary();
+    }
+
+    function updateSummary() {
+      document.getElementById('passCount').textContent = passCount;
+      document.getElementById('failCount').textContent = failCount;
+      document.getElementById('totalCount').textContent = passCount + failCount;
+    }
+
+    function addTestResult(name, status, message = '') {
+      const resultsEl = document.getElementById('testResults');
+      const statusClass = status === 'pass' ? 'pass' : status === 'fail' ? 'fail' : status === 'running' ? 'running' : 'pending';
+      resultsEl.innerHTML += `<div class="test-result ${statusClass}">${status === 'pass' ? '✅' : status === 'fail' ? '❌' : status === 'running' ? '⏳' : '⏸️'} ${name}${message ? ': ' + message : ''}</div>`;
+    }
+
+    function getConfig() {
+      return {
+        host: document.getElementById('testHost').value,
+        port: parseInt(document.getElementById('testPort').value) || 22,
+        username: document.getElementById('testUser').value,
+        password: document.getElementById('testPass').value
+      };
+    }
+
+    async function runAllTests() {
+      clearLogs();
+      document.getElementById('runTestsBtn').disabled = true;
+      
+      log('Starting test suite...', 'info');
+      
+      const testList = [
+        { name: 'Socket.IO Connection', fn: testSocketConnection },
+        { name: 'SSH Connection', fn: testSSHConnection },
+        { name: 'SSH Data Flow', fn: testSSHDataFlow },
+        { name: 'Terminal Resize', fn: testTerminalResize },
+        { name: 'SFTP Connection', fn: testSFTPConnection },
+        { name: 'SFTP Directory List', fn: testSFTPList },
+        { name: 'Session Disconnect', fn: testDisconnect }
+      ];
+
+      for (const test of testList) {
+        addTestResult(test.name, 'running');
+        try {
+          await test.fn();
+          addTestResult(test.name, 'pass');
+          passCount++;
+          log(`${test.name}: PASSED`, 'success');
+        } catch (error) {
+          addTestResult(test.name, 'fail', error.message);
+          failCount++;
+          log(`${test.name}: FAILED - ${error.message}`, 'error');
+        }
+        updateSummary();
+      }
+
+      log('Test suite completed!', 'info');
+      document.getElementById('runTestsBtn').disabled = false;
+    }
+
+    async function runConnectionTest() {
+      clearLogs();
+      try {
+        addTestResult('Quick Connection Test', 'running');
+        await testSSHConnection();
+        addTestResult('Quick Connection Test', 'pass');
+        passCount++;
+        log('Connection test passed!', 'success');
+      } catch (error) {
+        addTestResult('Quick Connection Test', 'fail', error.message);
+        failCount++;
+        log('Connection test failed: ' + error.message, 'error');
+      }
+      updateSummary();
+    }
+
+    function createSocket() {
+      return new Promise((resolve, reject) => {
+        const sock = io('/', { transports: ['websocket', 'polling'], reconnection: false });
+        sock.on('connect', () => resolve(sock));
+        sock.on('connect_error', (err) => reject(new Error('Socket connection failed: ' + err.message)));
+        setTimeout(() => reject(new Error('Socket connection timeout')), 10000);
+      });
+    }
+
+    async function testSocketConnection() {
+      log('Testing Socket.IO connection...', 'info');
+      const sock = await createSocket();
+      log('Socket connected: ' + sock.id, 'success');
+      sock.disconnect();
+    }
+
+    async function testSSHConnection() {
+      log('Testing SSH connection...', 'info');
+      const config = getConfig();
+      const sock = await createSocket();
+      
+      return new Promise((resolve, reject) => {
+        const sessionId = 'test-' + Date.now();
+        let connected = false;
+        
+        sock.on('ssh-connected', (data) => {
+          connected = true;
+          log('SSH connected: ' + data.sessionId, 'success');
+          sock.disconnect();
+          resolve();
+        });
+        
+        sock.on('ssh-error', (data) => {
+          log('SSH error: ' + data.message, 'error');
+          sock.disconnect();
+          reject(new Error(data.message));
+        });
+        
+        sock.on('connect', () => {
+          log('Emitting ssh-connect for ' + config.host + ':' + config.port, 'info');
+          sock.emit('ssh-connect', {
+            sessionId,
+            host: config.host,
+            port: config.port,
+            username: config.username,
+            password: config.password,
+            cols: 80,
+            rows: 24
+          });
+        });
+        
+        setTimeout(() => {
+          if (!connected) {
+            sock.disconnect();
+            reject(new Error('SSH connection timeout'));
+          }
+        }, 15000);
+      });
+    }
+
+    async function testSSHDataFlow() {
+      log('Testing SSH data flow...', 'info');
+      const config = getConfig();
+      const sock = await createSocket();
+      
+      return new Promise((resolve, reject) => {
+        const sessionId = 'test-data-' + Date.now();
+        let receivedData = false;
+        let outputBuffer = '';
+        
+        sock.on('ssh-connected', () => {
+          log('SSH connected, sending echo command...', 'info');
+          setTimeout(() => {
+            sock.emit('ssh-data', { sessionId, data: 'echo "TESTMARKER123"\n' });
+          }, 500);
+        });
+        
+        sock.on('ssh-data', (data) => {
+          outputBuffer += data.data;
+          if (outputBuffer.includes('TESTMARKER123') && !receivedData) {
+            receivedData = true;
+            log('Received expected output', 'success');
+            sock.disconnect();
+            resolve();
+          }
+        });
+        
+        sock.on('ssh-error', (data) => {
+          sock.disconnect();
+          reject(new Error(data.message));
+        });
+        
+        sock.on('connect', () => {
+          sock.emit('ssh-connect', {
+            sessionId,
+            host: config.host,
+            port: config.port,
+            username: config.username,
+            password: config.password,
+            cols: 80,
+            rows: 24
+          });
+        });
+        
+        setTimeout(() => {
+          sock.disconnect();
+          if (receivedData) {
+            resolve();
+          } else {
+            reject(new Error('Data flow timeout'));
+          }
+        }, 15000);
+      });
+    }
+
+    async function testTerminalResize() {
+      log('Testing terminal resize...', 'info');
+      const config = getConfig();
+      const sock = await createSocket();
+      
+      return new Promise((resolve, reject) => {
+        const sessionId = 'test-resize-' + Date.now();
+        let connected = false;
+        
+        sock.on('ssh-connected', () => {
+          connected = true;
+          log('SSH connected, testing resize...', 'info');
+          sock.emit('ssh-resize', { sessionId, cols: 120, rows: 40 });
+          setTimeout(() => {
+            log('Resize command sent successfully', 'success');
+            sock.disconnect();
+            resolve();
+          }, 500);
+        });
+        
+        sock.on('ssh-error', (data) => {
+          sock.disconnect();
+          reject(new Error(data.message));
+        });
+        
+        sock.on('connect', () => {
+          sock.emit('ssh-connect', {
+            sessionId,
+            host: config.host,
+            port: config.port,
+            username: config.username,
+            password: config.password,
+            cols: 80,
+            rows: 24
+          });
+        });
+        
+        setTimeout(() => {
+          if (!connected) {
+            sock.disconnect();
+            reject(new Error('Resize test timeout'));
+          }
+        }, 10000);
+      });
+    }
+
+    async function testSFTPConnection() {
+      log('Testing SFTP connection...', 'info');
+      const config = getConfig();
+      const sock = await createSocket();
+      
+      return new Promise((resolve, reject) => {
+        const sessionId = 'test-sftp-' + Date.now();
+        
+        sock.on('sftp-connected', () => {
+          log('SFTP connected', 'success');
+          sock.disconnect();
+          resolve();
+        });
+        
+        sock.on('sftp-error', (data) => {
+          sock.disconnect();
+          reject(new Error(data.message));
+        });
+        
+        sock.on('connect', () => {
+          sock.emit('sftp-connect', {
+            sessionId,
+            host: config.host,
+            port: config.port,
+            username: config.username,
+            password: config.password
+          });
+        });
+        
+        setTimeout(() => {
+          sock.disconnect();
+          reject(new Error('SFTP connection timeout'));
+        }, 15000);
+      });
+    }
+
+    async function testSFTPList() {
+      log('Testing SFTP directory listing...', 'info');
+      const config = getConfig();
+      const sock = await createSocket();
+      
+      return new Promise((resolve, reject) => {
+        const sessionId = 'test-sftp-list-' + Date.now();
+        
+        sock.on('sftp-connected', () => {
+          log('SFTP connected, listing directory...', 'info');
+          sock.emit('sftp-list', { sessionId, path: '/root' });
+        });
+        
+        sock.on('sftp-list-result', (data) => {
+          log('Listed ' + data.path + ': ' + data.files.length + ' items', 'success');
+          sock.disconnect();
+          resolve();
+        });
+        
+        sock.on('sftp-error', (data) => {
+          sock.disconnect();
+          reject(new Error(data.message));
+        });
+        
+        sock.on('connect', () => {
+          sock.emit('sftp-connect', {
+            sessionId,
+            host: config.host,
+            port: config.port,
+            username: config.username,
+            password: config.password
+          });
+        });
+        
+        setTimeout(() => {
+          sock.disconnect();
+          reject(new Error('SFTP list timeout'));
+        }, 15000);
+      });
+    }
+
+    async function testDisconnect() {
+      log('Testing session disconnect...', 'info');
+      const config = getConfig();
+      const sock = await createSocket();
+      
+      return new Promise((resolve, reject) => {
+        const sessionId = 'test-disconnect-' + Date.now();
+        
+        sock.on('ssh-connected', () => {
+          log('SSH connected, requesting disconnect...', 'info');
+          setTimeout(() => {
+            sock.emit('ssh-disconnect', { sessionId });
+          }, 500);
+        });
+        
+        sock.on('ssh-disconnected', () => {
+          log('Session disconnected cleanly', 'success');
+          sock.disconnect();
+          resolve();
+        });
+        
+        sock.on('ssh-error', (data) => {
+          sock.disconnect();
+          reject(new Error(data.message));
+        });
+        
+        sock.on('connect', () => {
+          sock.emit('ssh-connect', {
+            sessionId,
+            host: config.host,
+            port: config.port,
+            username: config.username,
+            password: config.password,
+            cols: 80,
+            rows: 24
+          });
+        });
+        
+        setTimeout(() => {
+          sock.disconnect();
+          reject(new Error('Disconnect test timeout'));
+        }, 15000);
+      });
+    }
+  </script>
+</body>
+</html>

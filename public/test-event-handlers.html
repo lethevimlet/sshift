@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings Modal Event Handler Test</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; background: #1a1a1a; color: #e0e0e0; }
+    .test { margin: 10px 0; padding: 10px; border-radius: 4px; }
+    .pass { background: #2e7d32; }
+    .fail { background: #c62828; }
+    .info { background: #1565c0; }
+    button { background: #4CAF50; color: white; border: none; padding: 10px 20px; cursor: pointer; margin: 5px; }
+    button:hover { background: #45a049; }
+  </style>
+</head>
+<body>
+  <h1>Settings Modal Event Handler Test</h1>
+  <div id="results"></div>
+  
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/app.js"></script>
+  <script>
+    window.addEventListener('load', () => {
+      const results = document.getElementById('results');
+      
+      function addResult(message, type) {
+        const div = document.createElement('div');
+        div.className = `test ${type}`;
+        div.textContent = message;
+        results.appendChild(div);
+      }
+      
+      setTimeout(() => {
+        addResult('Testing event handlers...', 'info');
+        
+        // Test 1: Check if app instance exists
+        if (window.app) {
+          addResult('✓ App instance exists', 'pass');
+        } else {
+          addResult('✗ App instance not found', 'fail');
+          return;
+        }
+        
+        // Test 2: Check if settingsBtn exists
+        const settingsBtn = document.getElementById('settingsBtn');
+        if (settingsBtn) {
+          addResult('✓ Settings button found', 'pass');
+          
+          // Check if event listener is attached
+          const listeners = getEventListeners(settingsBtn);
+          if (listeners && listeners.click && listeners.click.length > 0) {
+            addResult(`✓ Settings button has ${listeners.click.length} click listener(s)`, 'pass');
+          } else {
+            addResult('✗ Settings button has no click listeners', 'fail');
+          }
+        } else {
+          addResult('✗ Settings button not found', 'fail');
+        }
+        
+        // Test 3: Check if settingsModal exists
+        const settingsModal = document.getElementById('settingsModal');
+        if (settingsModal) {
+          addResult('✓ Settings modal found', 'pass');
+        } else {
+          addResult('✗ Settings modal not found', 'fail');
+        }
+        
+        // Test 4: Check if closeSettingsModal button exists
+        const closeBtn = document.getElementById('closeSettingsModal');
+        if (closeBtn) {
+          addResult('✓ Close button (X) found', 'pass');
+          
+          const listeners = getEventListeners(closeBtn);
+          if (listeners && listeners.click && listeners.click.length > 0) {
+            addResult(`✓ Close button has ${listeners.click.length} click listener(s)`, 'pass');
+          } else {
+            addResult('✗ Close button has no click listeners', 'fail');
+          }
+        } else {
+          addResult('✗ Close button not found', 'fail');
+        }
+        
+        // Test 5: Check if cancelSettings button exists
+        const cancelBtn = document.getElementById('cancelSettings');
+        if (cancelBtn) {
+          addResult('✓ Cancel button found', 'pass');
+          
+          const listeners = getEventListeners(cancelBtn);
+          if (listeners && listeners.click && listeners.click.length > 0) {
+            addResult(`✓ Cancel button has ${listeners.click.length} click listener(s)`, 'pass');
+          } else {
+            addResult('✗ Cancel button has no click listeners', 'fail');
+          }
+        } else {
+          addResult('✗ Cancel button not found', 'fail');
+        }
+        
+        // Test 6: Check if saveSettings button exists
+        const saveBtn = document.getElementById('saveSettings');
+        if (saveBtn) {
+          addResult('✓ Save button found', 'pass');
+          
+          const listeners = getEventListeners(saveBtn);
+          if (listeners && listeners.click && listeners.click.length > 0) {
+            addResult(`✓ Save button has ${listeners.click.length} click listener(s)`, 'pass');
+          } else {
+            addResult('✗ Save button has no click listeners', 'fail');
+          }
+        } else {
+          addResult('✗ Save button not found', 'fail');
+        }
+        
+        // Test 7: Check if stickyToggle exists
+        const stickyToggle = document.getElementById('stickyToggle');
+        if (stickyToggle) {
+          addResult('✓ Sticky toggle found', 'pass');
+        } else {
+          addResult('✗ Sticky toggle not found', 'fail');
+        }
+        
+        // Test 8: Check if openSettingsModal method exists
+        if (typeof window.app.openSettingsModal === 'function') {
+          addResult('✓ openSettingsModal method exists', 'pass');
+        } else {
+          addResult('✗ openSettingsModal method not found', 'fail');
+        }
+        
+        // Test 9: Check if initSettingsModalHandlers method exists
+        if (typeof window.app.initSettingsModalHandlers === 'function') {
+          addResult('✓ initSettingsModalHandlers method exists', 'pass');
+        } else {
+          addResult('✗ initSettingsModalHandlers method not found', 'fail');
+        }
+        
+        // Test 10: Check if saveStickyConfig method exists
+        if (typeof window.app.saveStickyConfig === 'function') {
+          addResult('✓ saveStickyConfig method exists', 'pass');
+        } else {
+          addResult('✗ saveStickyConfig method not found', 'fail');
+        }
+        
+        addResult('========================================', 'info');
+        addResult('Manual Test: Click the Settings button (gear icon) to test the modal', 'info');
+        
+      }, 1000);
+    });
+  </script>
+</body>
+</html>
