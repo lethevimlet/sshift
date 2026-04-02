@@ -5,7 +5,7 @@
 
 A modern, responsive web-based SSH and SFTP terminal client built with Node.js, Express, and xterm.js. Features excellent TUI support, tabbed sessions, bookmarks, and mobile-friendly design.
 
-![SSHIFT Interface](https://via.placeholder.com/800x400?text=SSHIFT+Web+Interface)
+![SSHIFT Logo](logo.jpg)
 
 ## ✨ Features
 
