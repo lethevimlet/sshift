@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Mobile Scroll Fix Test</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      height: 100vh;
+      overflow: hidden;
+    }
+    
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 50px;
+      padding: 0 12px;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      position: sticky;
+      top: 0;
+      transition: transform 0.3s ease;
+      z-index: 100;
+    }
+    
+    .header.hidden {
+      transform: translateY(-100%);
+    }
+    
+    .tabs-container {
+      display: flex;
+      align-items: center;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      min-height: 40px;
+      position: sticky;
+      top: 50px;
+      transition: transform 0.3s ease;
+      z-index: 99;
+    }
+    
+    .tabs-container.hidden {
+      transform: translateY(-100%);
+    }
+    
+    .tab {
+      padding: 8px 16px;
+      background: #21262d;
+      border-right: 1px solid #30363d;
+      color: #8b949e;
+    }
+    
+    .tab.active {
+      background: #0d1117;
+      color: #e6edf3;
+    }
+    
+    .content {
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 16px;
+    }
+    
+    .terminal-output {
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    
+    .mobile-keys-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #161b22;
+      border-top: 1px solid #30363d;
+      padding: 8px;
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      z-index: 1000;
+      transition: bottom 0.3s ease;
+    }
+    
+    .mobile-keys-bar button {
+      padding: 12px 16px;
+      background: #21262d;
+      border: 1px solid #30363d;
+      border-radius: 4px;
+      color: #e6edf3;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    
+    .mobile-keys-bar button:active {
+      background: #30363d;
+    }
+    
+    .status {
+      position: fixed;
+      top: 100px;
+      right: 16px;
+      background: rgba(22, 27, 34, 0.95);
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 12px;
+      z-index: 1001;
+      max-width: 250px;
+    }
+    
+    .status-item {
+      margin-bottom: 4px;
+    }
+    
+    .status-label {
+      color: #8b949e;
+    }
+    
+    .status-value {
+      color: #3fb950;
+      font-weight: bold;
+    }
+    
+    .status-value.false {
+      color: #f85149;
+    }
+    
+    .instructions {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    
+    .instructions h2 {
+      margin-bottom: 12px;
+      color: #c10059;
+    }
+    
+    .instructions ul {
+      margin-left: 20px;
+    }
+    
+    .instructions li {
+      margin-bottom: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header" id="header">
+    <div class="logo">SSHIFT Mobile Scroll Test</div>
+    <div class="header-actions">
+      <button onclick="toggleHeader()">Toggle Header</button>
+    </div>
+  </div>
+  
+  <div class="tabs-container" id="tabsContainer">
+    <div class="tab active">Terminal 1</div>
+    <div class="tab">Terminal 2</div>
+  </div>
+  
+  <div class="content" id="content">
+    <div class="instructions">
+      <h2>Test Instructions</h2>
+      <ul>
+        <li><strong>Auto-scroll:</strong> When new output arrives, the terminal should auto-scroll to the bottom (if you're at the bottom)</li>
+        <li><strong>Scroll UP:</strong> Scroll up (away from bottom) - header and tabs should APPEAR</li>
+        <li><strong>Scroll DOWN:</strong> Scroll down (towards bottom) - header and tabs should HIDE</li>
+        <li><strong>Mobile keys bar:</strong> Should stay at bottom and not jump around during scrolling</li>
+      </ul>
+    </div>
+    
+    <div class="terminal-output" id="terminalOutput">
+Waiting for output...
+    </div>
+  </div>
+  
+  <div class="mobile-keys-bar" id="mobileKeysBar">
+    <button onclick="sendKey('Esc')">Esc</button>
+    <button onclick="sendKey('Tab')">Tab</button>
+    <button onclick="sendKey('Ctrl')">Ctrl</button>
+    <button onclick="sendKey('Alt')">Alt</button>
+    <button onclick="addOutput()">Add Output</button>
+  </div>
+  
+  <div class="status" id="status">
+    <div class="status-item">
+      <span class="status-label">At Bottom:</span>
+      <span class="status-value" id="atBottomStatus">true</span>
+    </div>
+    <div class="status-item">
+      <span class="status-label">Header Hidden:</span>
+      <span class="status-value" id="headerHiddenStatus">false</span>
+    </div>
+    <div class="status-item">
+      <span class="status-label">Tabs Hidden:</span>
+      <span class="status-value" id="tabsHiddenStatus">false</span>
+    </div>
+    <div class="status-item">
+      <span class="status-label">ydisp:</span>
+      <span class="status-value" id="ydispStatus">0</span>
+    </div>
+  </div>
+  
+  <script>
+    // State
+    let isAtBottom = true;
+    let headerHidden = false;
+    let tabsHidden = false;
+    let lastScrollTop = 0;
+    let outputCounter = 0;
+    
+    // Elements
+    const content = document.getElementById('content');
+    const terminalOutput = document.getElementById('terminalOutput');
+    const header = document.getElementById('header');
+    const tabsContainer = document.getElementById('tabsContainer');
+    const mobileKeysBar = document.getElementById('mobileKeysBar');
+    
+    // Status elements
+    const atBottomStatus = document.getElementById('atBottomStatus');
+    const headerHiddenStatus = document.getElementById('headerHiddenStatus');
+    const tabsHiddenStatus = document.getElementById('tabsHiddenStatus');
+    const ydispStatus = document.getElementById('ydispStatus');
+    
+    // Check if at bottom
+    function checkIfAtBottom() {
+      const scrollTop = content.scrollTop;
+      const scrollHeight = content.scrollHeight;
+      const clientHeight = content.clientHeight;
+      
+      // We're at the bottom if we're within 10px of the bottom
+      isAtBottom = scrollHeight - scrollTop - clientHeight < 10;
+      
+      updateStatus();
+    }
+    
+    // Handle scroll
+    function handleScroll() {
+      const scrollTop = content.scrollTop;
+      const scrollDiff = scrollTop - lastScrollTop;
+      
+      // In a normal div:
+      // - Scrolling DOWN increases scrollTop
+      // - Scrolling UP decreases scrollTop
+      
+      if (scrollDiff > 5) {
+        // Scrolling DOWN - hide header and tabs
+        hideHeaderAndTabs();
+      } else if (scrollDiff < -5) {
+        // Scrolling UP - show header and tabs
+        showHeaderAndTabs();
+      }
+      
+      lastScrollTop = scrollTop;
+      checkIfAtBottom();
+    }
+    
+    function hideHeaderAndTabs() {
+      if (headerHidden) return;
+      
+      header.classList.add('hidden');
+      tabsContainer.classList.add('hidden');
+      headerHidden = true;
+      tabsHidden = true;
+      
+      updateStatus();
+    }
+    
+    function showHeaderAndTabs() {
+      if (!headerHidden && !tabsHidden) return;
+      
+      header.classList.remove('hidden');
+      tabsContainer.classList.remove('hidden');
+      headerHidden = false;
+      tabsHidden = false;
+      
+      updateStatus();
+    }
+    
+    function toggleHeader() {
+      if (headerHidden) {
+        showHeaderAndTabs();
+      } else {
+        hideHeaderAndTabs();
+      }
+    }
+    
+    // Add output
+    function addOutput() {
+      outputCounter++;
+      const timestamp = new Date().toLocaleTimeString();
+      const line = `[${timestamp}] Output line ${outputCounter}: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.\n`;
+      
+      terminalOutput.textContent += line;
+      
+      // Auto-scroll to bottom if we're at the bottom
+      if (isAtBottom) {
+        content.scrollTop = content.scrollHeight;
+      }
+      
+      updateStatus();
+    }
+    
+    // Update status display
+    function updateStatus() {
+      atBottomStatus.textContent = isAtBottom;
+      atBottomStatus.className = 'status-value ' + isAtBottom;
+      
+      headerHiddenStatus.textContent = headerHidden;
+      headerHiddenStatus.className = 'status-value ' + !headerHidden;
+      
+      tabsHiddenStatus.textContent = tabsHidden;
+      tabsHiddenStatus.className = 'status-value ' + !tabsHidden;
+      
+      ydispStatus.textContent = Math.round(content.scrollTop);
+    }
+    
+    // Send key (placeholder)
+    function sendKey(key) {
+      console.log('Key pressed:', key);
+      addOutput();
+    }
+    
+    // Event listeners
+    content.addEventListener('scroll', handleScroll);
+    
+    // Initial status
+    updateStatus();
+    
+    // Auto-add output every 2 seconds
+    setInterval(() => {
+      if (Math.random() > 0.5) {
+        addOutput();
+      }
+    }, 2000);
+    
+    // Mobile keys bar keyboard handling
+    if (window.visualViewport) {
+      let lastKeyboardHeight = 0;
+      
+      const updatePosition = () => {
+        const viewportHeight = window.visualViewport.height;
+        const windowHeight = window.innerHeight;
+        const keyboardHeight = windowHeight - viewportHeight;
+        
+        // Only update if keyboard height changed significantly (more than 50px)
+        if (Math.abs(keyboardHeight - lastKeyboardHeight) > 50) {
+          lastKeyboardHeight = keyboardHeight;
+          
+          if (keyboardHeight > 50) {
+            // Keyboard is open - position keys bar above keyboard
+            mobileKeysBar.style.bottom = `${keyboardHeight}px`;
+          } else {
+            // Keyboard is closed - reset position
+            mobileKeysBar.style.bottom = '0px';
+          }
+        }
+      };
+      
+      window.visualViewport.addEventListener('resize', updatePosition);
+      updatePosition();
+    }
+  </script>
+</body>
+</html>

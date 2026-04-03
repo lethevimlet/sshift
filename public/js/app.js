@@ -32,6 +32,19 @@ class SSHIFTClient {
     this.terminalFgColor = '#e6edf3';
     this.terminalSelectionColor = '#264f78';
     
+    // Mobile scroll behavior
+    this.isMobile = window.innerWidth <= 768;
+    this.scrollTimeout = null;
+    this.headerHidden = false;
+    this.tabsHidden = false;
+    
+    // Mobile keys bar
+    this.mobileKeysBarEnabled = true; // Default to enabled
+    this.ctrlPressed = false; // Track Ctrl key state
+    this.altPressed = false; // Track Alt key state
+    
+    console.log('[SSHIFT] Mobile detection - isMobile:', this.isMobile, 'window width:', window.innerWidth);
+    
     this.init();
   }
 
@@ -44,14 +57,18 @@ class SSHIFTClient {
       // Load SSH keepalive settings from config
       this.sshKeepaliveInterval = config.sshKeepaliveInterval || 10000;
       this.sshKeepaliveCountMax = config.sshKeepaliveCountMax || 1000;
+      // Load mobile keys bar setting
+      this.mobileKeysBarEnabled = config.mobileKeysBarEnabled !== undefined ? config.mobileKeysBarEnabled : true;
       console.log('[SSHIFT] Sticky:', this.sticky ? 'enabled' : 'disabled',
                   'Keepalive Interval:', this.sshKeepaliveInterval,
-                  'Keepalive Count Max:', this.sshKeepaliveCountMax);
+                  'Keepalive Count Max:', this.sshKeepaliveCountMax,
+                  'Mobile Keys Bar:', this.mobileKeysBarEnabled ? 'enabled' : 'disabled');
     } catch (err) {
       console.error('[SSHIFT] Failed to load config:', err);
       this.sticky = true; // Default to true
       this.sshKeepaliveInterval = 10000;
       this.sshKeepaliveCountMax = 1000;
+      this.mobileKeysBarEnabled = true; // Default to true
     }
   }
 
@@ -580,6 +597,9 @@ class SSHIFTClient {
     // Initialize mobile tabs dropdown
     this.updateMobileTabsDropdown();
     
+    // Initialize mobile keys bar
+    this.initMobileKeysBar();
+    
     this.handleResize();
     console.log('[SSHIFT] Client initialized');
   }
@@ -590,6 +610,12 @@ class SSHIFTClient {
     const setViewportHeight = () => {
       const vh = window.innerHeight * 0.01;
       document.documentElement.style.setProperty('--vh', `${vh}px`);
+      
+      // Also set visual viewport height if available (for mobile keyboards)
+      if (window.visualViewport) {
+        const vvh = window.visualViewport.height * 0.01;
+        document.documentElement.style.setProperty('--vvh', `${vvh}px`);
+      }
     };
     
     // Set on load
@@ -605,6 +631,533 @@ class SSHIFTClient {
     // Update when virtual keyboard opens/closes on mobile
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', setViewportHeight);
+    }
+    
+    // Update mobile detection on resize
+    window.addEventListener('resize', () => {
+      this.isMobile = window.innerWidth <= 768;
+    });
+  }
+
+  // Mobile scroll behavior - hide/show header and tabs
+  setupMobileScrollBehavior(sessionId) {
+    if (!this.isMobile) return;
+    
+    const session = this.sessions.get(sessionId);
+    if (!session || !session.terminal) return;
+    
+    const terminal = session.terminal;
+    
+    console.log('[SSHIFT] Setting up mobile scroll behavior for session:', sessionId);
+    
+    // Initialize scroll position tracking for this session
+    session.lastScrollTop = 0;
+    session.lastTouchY = 0;
+    session.isScrolling = false;
+    session.isAtBottom = true; // Start at bottom
+    
+    // Use xterm.js onScroll event to track scroll position
+    terminal.onScroll(() => {
+      console.log('[SSHIFT] xterm onScroll event fired');
+      this.handleMobileScroll(sessionId);
+      this.checkIfAtBottom(sessionId);
+    });
+    
+    // Also handle touch events on the terminal element for touch scrolling
+    const terminalElement = terminal.element;
+    if (terminalElement) {
+      console.log('[SSHIFT] Terminal element found, setting up touch handlers');
+      
+      // Try both the viewport and the main terminal element
+      const viewportElement = terminalElement.querySelector('.xterm-viewport');
+      const xtermScreen = terminalElement.querySelector('.xterm-screen');
+      
+      const setupTouchHandlers = (element, elementName) => {
+        if (!element) {
+          console.log(`[SSHIFT] ${elementName} not found`);
+          return;
+        }
+        
+        console.log(`[SSHIFT] Setting up touch handlers on ${elementName}`);
+        
+        // Touch start - record initial position
+        element.addEventListener('touchstart', (e) => {
+          if (e.touches.length === 1) {
+            session.lastTouchY = e.touches[0].clientY;
+            session.isScrolling = true;
+            console.log(`[SSHIFT] ${elementName} touchstart, Y:`, session.lastTouchY);
+          }
+        }, { passive: true });
+        
+        // Touch move - track scrolling
+        element.addEventListener('touchmove', (e) => {
+          if (!session.isScrolling || e.touches.length !== 1) return;
+          
+          const currentTouchY = e.touches[0].clientY;
+          const touchDiff = session.lastTouchY - currentTouchY;
+          
+          // Update last touch position
+          session.lastTouchY = currentTouchY;
+          
+          console.log(`[SSHIFT] ${elementName} touchmove, diff:`, touchDiff);
+        }, { passive: true });
+        
+        // Touch end - check if at bottom for auto-scroll
+        element.addEventListener('touchend', () => {
+          session.isScrolling = false;
+          console.log(`[SSHIFT] ${elementName} touchend`);
+          
+          // Check scroll position after touch ends
+          setTimeout(() => {
+            this.checkIfAtBottom(sessionId);
+          }, 100);
+        }, { passive: true });
+      };
+      
+      // Set up on both viewport and screen
+      setupTouchHandlers(viewportElement, 'viewport');
+      setupTouchHandlers(xtermScreen, 'screen');
+      
+      // Also set up on the main terminal element as fallback
+      setupTouchHandlers(terminalElement, 'terminal');
+    } else {
+      console.warn('[SSHIFT] Terminal element not found for touch handlers');
+    }
+  }
+  
+  // Check if terminal is scrolled to bottom
+  checkIfAtBottom(sessionId) {
+    if (!this.isMobile) return;
+    
+    const session = this.sessions.get(sessionId);
+    if (!session || !session.terminal) return;
+    
+    const terminal = session.terminal;
+    const buffer = terminal.buffer.active;
+    
+    // Check if we're at the bottom
+    // ydisp is the current scroll position (number of lines scrolled back from bottom)
+    // The terminal is at bottom if ydisp is 0 or very close to 0
+    const maxYDisp = buffer.length - terminal.rows;
+    const currentYDisp = terminal.buffer.ydisp;
+    
+    // We're at the bottom if we're within 2 lines of the bottom
+    const isAtBottom = currentYDisp >= maxYDisp - 2;
+    
+    if (session.isAtBottom !== isAtBottom) {
+      session.isAtBottom = isAtBottom;
+      console.log('[SSHIFT] Terminal isAtBottom changed to:', isAtBottom, 'ydisp:', currentYDisp, 'maxYDisp:', maxYDisp);
+    }
+  }
+
+  handleMobileScroll(sessionId) {
+    if (!this.isMobile) return;
+    
+    const session = this.sessions.get(sessionId);
+    if (!session || !session.terminal) return;
+    
+    const terminal = session.terminal;
+    
+    // Get scroll position from xterm.js buffer
+    // ydisp is the scroll position (number of lines scrolled back from bottom)
+    // ydisp = 0 means we're at the bottom (most recent content)
+    // ydisp > 0 means we've scrolled up into the scrollback buffer (older content)
+    const buffer = terminal.buffer.active;
+    const scrollTop = buffer.ydisp;
+    
+    // Get scroll direction
+    const scrollDiff = scrollTop - session.lastScrollTop;
+    
+    // In xterm.js:
+    // - Scrolling UP (away from bottom, into scrollback) increases ydisp
+    // - Scrolling DOWN (towards bottom) decreases ydisp
+    // So: scrollDiff > 0 means scrolling UP into history, scrollDiff < 0 means scrolling DOWN
+    
+    // Hide/show header and tabs based on scroll direction
+    // When scrolling UP (into scrollback, scrollDiff > 0), show header/tabs for navigation
+    // When scrolling DOWN (towards bottom, scrollDiff < 0), hide header/tabs to maximize terminal space
+    if (scrollDiff > 2) {
+      // Scrolling UP (into scrollback history) - show header and tabs
+      this.showHeaderAndTabs();
+    } else if (scrollDiff < -2) {
+      // Scrolling DOWN (towards bottom) - hide header and tabs
+      this.hideHeaderAndTabs();
+    }
+    
+    // Update last scroll position
+    session.lastScrollTop = scrollTop;
+  }
+  
+  hideHeaderAndTabs() {
+    if (this.headerHidden) return;
+    
+    const header = document.querySelector('.header');
+    const tabsContainer = document.querySelector('.tabs-container');
+    const appContainer = document.querySelector('.app-container');
+    
+    if (header) {
+      header.classList.add('hidden');
+      this.headerHidden = true;
+    }
+    
+    if (tabsContainer) {
+      tabsContainer.classList.add('hidden');
+      this.tabsHidden = true;
+    }
+    
+    // Add classes to app-container for CSS styling
+    if (appContainer) {
+      appContainer.classList.add('header-hidden', 'tabs-hidden');
+    }
+    
+    // Refit terminal to use the new space
+    this.refitActiveTerminal();
+  }
+  
+  showHeaderAndTabs() {
+    if (!this.headerHidden && !this.tabsHidden) return;
+    
+    const header = document.querySelector('.header');
+    const tabsContainer = document.querySelector('.tabs-container');
+    const appContainer = document.querySelector('.app-container');
+    
+    if (header) {
+      header.classList.remove('hidden');
+      this.headerHidden = false;
+    }
+    
+    if (tabsContainer) {
+      tabsContainer.classList.remove('hidden');
+      this.tabsHidden = false;
+    }
+    
+    // Remove classes from app-container
+    if (appContainer) {
+      appContainer.classList.remove('header-hidden', 'tabs-hidden');
+    }
+    
+    // Refit terminal to use the new space
+    this.refitActiveTerminal();
+  }
+
+  refitActiveTerminal() {
+    // Refit the active terminal to fill the available space
+    if (this.activeSessionId) {
+      const session = this.sessions.get(this.activeSessionId);
+      if (session && session.fitAddon && session.terminal) {
+        // Small delay to allow CSS transitions to complete
+        setTimeout(() => {
+          try {
+            const terminalArea = document.querySelector('.terminal-area');
+            const terminalWrapper = document.querySelector('.terminal-wrapper.active');
+            console.log('[SSHIFT] Terminal dimensions before fit:', {
+              terminalAreaHeight: terminalArea?.offsetHeight,
+              terminalWrapperHeight: terminalWrapper?.offsetHeight,
+              terminalRows: session.terminal.rows,
+              terminalCols: session.terminal.cols
+            });
+            session.fitAddon.fit();
+            console.log('[SSHIFT] Terminal refitted after header/tabs change, rows:', session.terminal.rows);
+          } catch (e) {
+            console.warn('[SSHIFT] Could not refit terminal:', e.message);
+          }
+        }, 350); // Wait for CSS transition (300ms) + buffer
+      }
+    }
+  }
+
+  // Auto-scroll terminal to bottom on mobile when new data arrives
+  scrollTerminalToBottom(sessionId) {
+    if (!this.isMobile) return;
+    
+    const session = this.sessions.get(sessionId);
+    if (!session || !session.terminal) return;
+    
+    // Only auto-scroll if user is at the bottom
+    // This allows users to scroll up and read previous output without being interrupted
+    if (!session.isAtBottom) {
+      console.log('[SSHIFT] Not auto-scrolling - user has scrolled up');
+      return;
+    }
+    
+    const terminal = session.terminal;
+    
+    try {
+      // Use xterm.js scrollToBottom method
+      if (typeof terminal.scrollToBottom === 'function') {
+        terminal.scrollToBottom();
+        console.log('[SSHIFT] Auto-scrolled to bottom');
+      }
+    } catch (e) {
+      console.warn('[SSHIFT] Error scrolling terminal:', e.message);
+    }
+  }
+
+  // Mobile Keys Bar functionality
+  updateMobileKeysBar() {
+    const mobileKeysBar = document.querySelector('.mobile-keys-bar');
+    if (!mobileKeysBar) return;
+    
+    // Only show on mobile, when enabled, and when there's an active session
+    const shouldShow = this.isMobile && this.mobileKeysBarEnabled && this.activeSessionId;
+    
+    if (shouldShow) {
+      mobileKeysBar.classList.add('visible');
+      console.log('[SSHIFT] Mobile keys bar shown');
+    } else {
+      mobileKeysBar.classList.remove('visible');
+      console.log('[SSHIFT] Mobile keys bar hidden');
+    }
+  }
+
+  setupMobileKeysBarKeyboardHandling() {
+    if (!this.isMobile) return;
+    
+    const mobileKeysBar = document.querySelector('.mobile-keys-bar');
+    if (!mobileKeysBar) return;
+    
+    // Use Visual Viewport API to position keys bar above keyboard
+    if (window.visualViewport) {
+      let lastKeyboardHeight = -1; // Start at -1 so first call always runs
+      
+      const updatePosition = () => {
+        const viewportHeight = window.visualViewport.height;
+        const windowHeight = window.innerHeight;
+        const keyboardHeight = windowHeight - viewportHeight;
+        
+        // Only update if keyboard height changed significantly (more than 50px)
+        // This prevents the bar from jumping around during normal scrolling
+        // when browser UI shows/hides
+        // Always run on first call (lastKeyboardHeight === -1)
+        if (lastKeyboardHeight === -1 || Math.abs(keyboardHeight - lastKeyboardHeight) > 50) {
+          lastKeyboardHeight = keyboardHeight;
+          
+          if (keyboardHeight > 50) {
+            // Keyboard is open - position keys bar above keyboard
+            mobileKeysBar.style.bottom = `${keyboardHeight}px`;
+            
+            // Update terminal area height to account for keyboard
+            const terminalArea = document.querySelector('.terminal-area');
+            const terminalsContainer = document.querySelector('.terminals-container');
+            
+            if (terminalArea) {
+              // Calculate available height: viewport height minus header and tabs
+              const headerHeight = 35; // var(--header-height)
+              const headerBorder = 1; // border-bottom
+              const tabsHeight = 35; // min-height of tabs-container
+              const tabsBorder = 1; // border-bottom
+              // Mobile keys bar: 2px padding + 26px key + 2px margin + 26px key + 2px padding + 1px border = 59px
+              const mobileKeysBarHeight = 59;
+              const bufferHeight = 5; // Add small bottom margin when keyboard is visible
+              const availableHeight = viewportHeight - headerHeight - headerBorder - tabsHeight - tabsBorder - mobileKeysBarHeight - bufferHeight;
+              
+              terminalArea.style.height = `${Math.max(availableHeight, 100)}px`;
+              terminalArea.style.maxHeight = `${Math.max(availableHeight, 100)}px`;
+              
+              // Remove bottom padding from xterm element when keyboard is open
+              const activeWrapper = document.querySelector('.terminal-wrapper.active');
+              if (activeWrapper) {
+                const xtermElement = activeWrapper.querySelector('.xterm');
+                if (xtermElement) {
+                  xtermElement.style.paddingBottom = '0px';
+                }
+              }
+            }
+          } else {
+            // Keyboard is closed - reset position
+            mobileKeysBar.style.bottom = '0px';
+            
+            // Set terminal area height based on visualViewport to account for browser UI
+            const terminalArea = document.querySelector('.terminal-area');
+            
+            if (terminalArea) {
+              // Calculate available height accounting for all fixed elements
+              const headerHeight = 35; // var(--header-height)
+              const headerBorder = 1; // border-bottom
+              const tabsHeight = 35; // min-height of tabs-container
+              const tabsBorder = 1; // border-bottom
+              const mobileKeysBarHeight = 59; // includes border-top
+              
+              // Total fixed space at top and bottom
+              const fixedHeight = headerHeight + headerBorder + tabsHeight + tabsBorder + mobileKeysBarHeight;
+              const availableHeight = viewportHeight - fixedHeight;
+              
+              console.log('[SSHIFT] Keyboard closed - viewportHeight:', viewportHeight, 'fixedHeight:', fixedHeight, 'availableHeight:', availableHeight);
+              
+              // Set height slightly smaller to leave bottom margin
+              terminalArea.style.height = `${Math.max(availableHeight - 4, 100)}px`;
+              terminalArea.style.maxHeight = `${Math.max(availableHeight - 4, 100)}px`;
+            }
+          }
+          
+          // Refit the active terminal to use the new available space
+          // Delay to allow CSS changes to take effect
+          setTimeout(() => {
+            this.refitActiveTerminal();
+          }, 100);
+        }
+      };
+      
+      window.visualViewport.addEventListener('resize', updatePosition);
+      // Don't move bar on scroll - only on keyboard open/close
+      // window.visualViewport.addEventListener('scroll', updatePosition);
+      
+      // Initial update
+      updatePosition();
+    }
+  }
+
+  initMobileKeysBar() {
+    if (!this.isMobile) return;
+    
+    const mobileKeysBar = document.querySelector('.mobile-keys-bar');
+    if (!mobileKeysBar) {
+      console.log('[SSHIFT] Mobile keys bar element not found');
+      return;
+    }
+    
+    console.log('[SSHIFT] Initializing mobile keys bar handlers');
+    
+    // Setup keyboard handling
+    this.setupMobileKeysBarKeyboardHandling();
+    
+    // Get all key buttons
+    const keys = mobileKeysBar.querySelectorAll('.mobile-key');
+    
+    keys.forEach(key => {
+      const keyName = key.dataset.key;
+      if (!keyName) return;
+      
+      // Handle modifier keys (Ctrl, Alt) - toggle behavior
+      if (key.classList.contains('mobile-key-modifier')) {
+        key.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          if (keyName === 'ctrl') {
+            this.ctrlPressed = !this.ctrlPressed;
+            key.classList.toggle('active', this.ctrlPressed);
+            console.log('[SSHIFT] Ctrl', this.ctrlPressed ? 'pressed' : 'released');
+          } else if (keyName === 'alt') {
+            this.altPressed = !this.altPressed;
+            key.classList.toggle('active', this.altPressed);
+            console.log('[SSHIFT] Alt', this.altPressed ? 'pressed' : 'released');
+          }
+          
+          // Focus terminal after pressing modifier
+          this.focusTerminal();
+        });
+      } else {
+        // Regular keys - send on click/tap
+        key.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.sendMobileKey(keyName);
+        });
+      }
+    });
+    
+    // Initial visibility update
+    this.updateMobileKeysBar();
+  }
+
+  focusTerminal() {
+    // Focus the active terminal
+    if (this.activeSessionId) {
+      const session = this.sessions.get(this.activeSessionId);
+      if (session && session.terminal && session.terminal.textarea) {
+        session.terminal.textarea.focus();
+      }
+    }
+  }
+
+  sendMobileKey(keyName) {
+    if (!this.activeSessionId) {
+      console.log('[SSHIFT] No active session for mobile key');
+      return;
+    }
+    
+    const session = this.sessions.get(this.activeSessionId);
+    if (!session || !session.terminal) {
+      console.log('[SSHIFT] No terminal for mobile key');
+      return;
+    }
+    
+    const terminal = session.terminal;
+    
+    // Map key names to actual key codes
+    const keyMap = {
+      'esc': '\x1b',
+      'tab': '\t',
+      'up': '\x1b[A',
+      'down': '\x1b[B',
+      'right': '\x1b[C',
+      'left': '\x1b[D',
+      'home': '\x1b[H',
+      'end': '\x1b[F',
+      'pgup': '\x1b[5~',
+      'pgdn': '\x1b[6~',
+      'insert': '\x1b[2~',
+      'delete': '\x1b[3~',
+      'f1': '\x1bOP',
+      'f2': '\x1bOQ',
+      'f3': '\x1bOR',
+      'f4': '\x1bOS',
+      'f5': '\x1b[15~',
+      'f6': '\x1b[17~',
+      'f7': '\x1b[18~',
+      'f8': '\x1b[19~',
+      'f9': '\x1b[20~',
+      'f10': '\x1b[21~',
+      'f11': '\x1b[23~',
+      'f12': '\x1b[24~',
+      '/': '/',
+      '-': '-'
+    };
+    
+    let keySequence = keyMap[keyName.toLowerCase()];
+    
+    if (!keySequence) {
+      console.log('[SSHIFT] Unknown mobile key:', keyName);
+      return;
+    }
+    
+    // Apply modifiers
+    if (this.ctrlPressed) {
+      // For Ctrl, we need to send the control character
+      // This is a simplified version - real implementation would need proper Ctrl mapping
+      if (keyName.toLowerCase() === 'c') {
+        keySequence = '\x03'; // Ctrl+C
+      } else if (keyName.toLowerCase() === 'd') {
+        keySequence = '\x04'; // Ctrl+D
+      } else if (keyName.toLowerCase() === 'z') {
+        keySequence = '\x1a'; // Ctrl+Z
+      }
+      // For other keys, Ctrl doesn't make sense, just send the key as-is
+      // Reset Ctrl after use
+      this.ctrlPressed = false;
+      const ctrlKey = document.querySelector('.mobile-key[data-key="ctrl"]');
+      if (ctrlKey) ctrlKey.classList.remove('active');
+    }
+    
+    if (this.altPressed) {
+      // Prepend ESC for Alt
+      keySequence = '\x1b' + keySequence;
+      // Reset Alt after use
+      this.altPressed = false;
+      const altKey = document.querySelector('.mobile-key[data-key="alt"]');
+      if (altKey) altKey.classList.remove('active');
+    }
+    
+    // Send to terminal
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('ssh-data', { sessionId: this.activeSessionId, data: keySequence });
+      console.log('[SSHIFT] Sent mobile key:', keyName, 'sequence:', keySequence);
+    }
+    
+    // Focus terminal after sending key
+    if (terminal.textarea) {
+      terminal.textarea.focus();
     }
   }
 
@@ -1363,6 +1916,12 @@ class SSHIFTClient {
       keepaliveCountMaxInput.value = this.sshKeepaliveCountMax;
     }
     
+    // Load current mobile keys bar setting
+    const mobileKeysBarToggle = document.getElementById('mobileKeysBarToggle');
+    if (mobileKeysBarToggle) {
+      mobileKeysBarToggle.checked = this.mobileKeysBarEnabled;
+    }
+    
     this.openModal('settingsModal');
   }
 
@@ -1397,6 +1956,12 @@ class SSHIFTClient {
           keepaliveCountMaxInput.value = this.sshKeepaliveCountMax;
         }
         
+        // Revert mobile keys bar setting
+        const mobileKeysBarToggle = document.getElementById('mobileKeysBarToggle');
+        if (mobileKeysBarToggle) {
+          mobileKeysBarToggle.checked = this.mobileKeysBarEnabled;
+        }
+        
         this.closeModal('settingsModal');
       });
     }
@@ -1408,6 +1973,7 @@ class SSHIFTClient {
         const stickyToggle = document.getElementById('stickyToggle');
         const keepaliveIntervalInput = document.getElementById('sshKeepaliveInterval');
         const keepaliveCountMaxInput = document.getElementById('sshKeepaliveCountMax');
+        const mobileKeysBarToggle = document.getElementById('mobileKeysBarToggle');
         
         // Save sticky setting
         if (stickyToggle) {
@@ -1423,11 +1989,18 @@ class SSHIFTClient {
           this.sshKeepaliveCountMax = parseInt(keepaliveCountMaxInput.value) || 1000;
         }
         
+        // Save mobile keys bar setting
+        if (mobileKeysBarToggle) {
+          this.mobileKeysBarEnabled = mobileKeysBarToggle.checked;
+          this.updateMobileKeysBar();
+        }
+        
         // Save all settings to config
         this.saveStickyConfig();
         console.log('[SSHIFT] Settings saved - sticky:', this.sticky, 
                     'keepaliveInterval:', this.sshKeepaliveInterval,
-                    'keepaliveCountMax:', this.sshKeepaliveCountMax);
+                    'keepaliveCountMax:', this.sshKeepaliveCountMax,
+                    'mobileKeysBarEnabled:', this.mobileKeysBarEnabled);
         
         // Show toast notification
         this.showToast('Settings saved successfully', 'success');
@@ -1714,6 +2287,7 @@ class SSHIFTClient {
     localStorage.setItem('sticky', JSON.stringify(this.sticky));
     localStorage.setItem('sshKeepaliveInterval', this.sshKeepaliveInterval || 10000);
     localStorage.setItem('sshKeepaliveCountMax', this.sshKeepaliveCountMax || 1000);
+    localStorage.setItem('mobileKeysBarEnabled', JSON.stringify(this.mobileKeysBarEnabled));
     
     // Save to server config
     fetch('/api/config', {
@@ -1722,7 +2296,8 @@ class SSHIFTClient {
       body: JSON.stringify({ 
         sticky: this.sticky,
         sshKeepaliveInterval: this.sshKeepaliveInterval || 10000,
-        sshKeepaliveCountMax: this.sshKeepaliveCountMax || 1000
+        sshKeepaliveCountMax: this.sshKeepaliveCountMax || 1000,
+        mobileKeysBarEnabled: this.mobileKeysBarEnabled
       })
     }).then(response => {
       if (!response.ok) {
@@ -1904,7 +2479,8 @@ class SSHIFTClient {
       connecting: true,
       connected: false,
       connectionData, // Store for sticky sessions
-      isRestoring: !!restoreSessionId // Flag to indicate if this is a restored session
+      isRestoring: !!restoreSessionId, // Flag to indicate if this is a restored session
+      isAtBottom: true // Auto-scroll by default when new data arrives
     });
 
     // Switch to the new tab FIRST to make the container visible
@@ -2381,6 +2957,12 @@ class SSHIFTClient {
       session.terminal = terminal;
       session.fitAddon = fitAddon;
 
+      // Setup mobile scroll behavior after terminal is ready
+      // Use requestAnimationFrame to ensure terminal.element is available
+      requestAnimationFrame(() => {
+        this.setupMobileScrollBehavior(sessionId);
+      });
+
       console.log('[SSHIFT] Terminal initialized for session:', sessionId);
     } catch (error) {
       console.error('[SSHIFT] Failed to initialize terminal:', error);
@@ -2448,6 +3030,14 @@ class SSHIFTClient {
       
       try {
         session.terminal.write(data.data);
+        
+        // Auto-scroll to bottom on mobile when new data arrives
+        if (this.isMobile) {
+          // Use requestAnimationFrame to ensure scroll happens after render
+          requestAnimationFrame(() => {
+            this.scrollTerminalToBottom(data.sessionId);
+          });
+        }
       } catch (e) {
         console.error('[SSHIFT] Error writing to terminal:', e.message);
       }
@@ -2816,6 +3406,9 @@ class SSHIFTClient {
     });
 
     this.activeSessionId = sessionId;
+    
+    // Update mobile keys bar visibility
+    this.updateMobileKeysBar();
 
     // Fit terminal if SSH and focus it
     const session = this.sessions.get(sessionId);
@@ -2878,6 +3471,8 @@ class SSHIFTClient {
       } else {
         this.activeSessionId = null;
         this.showEmptyState();
+        // Update mobile keys bar visibility when no active session
+        this.updateMobileKeysBar();
       }
     }
     
@@ -2942,6 +3537,8 @@ class SSHIFTClient {
       } else {
         this.activeSessionId = null;
         this.showEmptyState();
+        // Update mobile keys bar visibility when no active session
+        this.updateMobileKeysBar();
       }
     }
     
@@ -3629,8 +4226,8 @@ class SSHIFTClient {
         if (isMobile) {
           const sidebar = document.getElementById('sidebar');
           const sidebarOverlay = document.getElementById('sidebarOverlay');
-          if (sidebar) sidebar.classList.remove('show');
-          if (sidebarOverlay) sidebarOverlay.classList.remove('show');
+          if (sidebar) sidebar.classList.remove('open');
+          if (sidebarOverlay) sidebarOverlay.classList.remove('active');
         }
       });
     });
@@ -4273,6 +4870,15 @@ class SSHIFTClient {
   }
 
   connectFromBookmark(bookmark) {
+    // Close sidebar on mobile when connecting
+    const isMobile = window.innerWidth <= 768;
+    if (isMobile) {
+      const sidebar = document.getElementById('sidebar');
+      const sidebarOverlay = document.getElementById('sidebarOverlay');
+      if (sidebar) sidebar.classList.remove('open');
+      if (sidebarOverlay) sidebarOverlay.classList.remove('active');
+    }
+    
     // Connect directly using bookmark credentials
     const connectionData = {
       name: bookmark.name,
@@ -4297,6 +4903,15 @@ class SSHIFTClient {
   }
 
   openSFTPFromBookmark(bookmark) {
+    // Close sidebar on mobile when opening SFTP
+    const isMobile = window.innerWidth <= 768;
+    if (isMobile) {
+      const sidebar = document.getElementById('sidebar');
+      const sidebarOverlay = document.getElementById('sidebarOverlay');
+      if (sidebar) sidebar.classList.remove('open');
+      if (sidebarOverlay) sidebarOverlay.classList.remove('active');
+    }
+    
     // Open SFTP connection using SSH bookmark credentials
     const connectionData = {
       name: `${bookmark.name} (SFTP)`,

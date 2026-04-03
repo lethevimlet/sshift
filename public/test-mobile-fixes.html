@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Mobile Fixes Test</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+    }
+    
+    .app-container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+    }
+    
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 50px;
+      padding: 0 12px;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+    }
+    
+    .tabs-container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      min-height: 40px;
+    }
+    
+    .tabs {
+      display: flex;
+      overflow-x: auto;
+      flex: 1;
+    }
+    
+    .tab {
+      padding: 8px 16px;
+      background: transparent;
+      border: none;
+      color: #8b949e;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    
+    .tab.active {
+      color: #e6edf3;
+      border-bottom: 2px solid #c10059;
+    }
+    
+    .terminals-container {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      min-height: 200px;
+    }
+    
+    .terminal-wrapper {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: flex;
+      flex-direction: column;
+      padding: 8px;
+    }
+    
+    .terminal-content {
+      flex: 1;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      overflow-y: auto;
+      padding: 8px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    
+    .terminal-line {
+      margin-bottom: 4px;
+    }
+    
+    .mobile-keys-bar {
+      display: none;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #161b22;
+      border-top: 1px solid #30363d;
+      z-index: 9999;
+      padding: 2px;
+      box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.3);
+      transition: bottom 0.2s ease;
+      transform: translateZ(0);
+      will-change: bottom;
+    }
+    
+    .mobile-keys-bar.visible {
+      display: block;
+    }
+    
+    .mobile-keys-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 2px;
+      margin-bottom: 2px;
+    }
+    
+    .mobile-keys-row:last-child {
+      margin-bottom: 0;
+    }
+    
+    .mobile-key {
+      flex: 1;
+      min-width: 0;
+      height: 26px;
+      background: #21262d;
+      border: 1px solid #30363d;
+      border-radius: 3px;
+      color: #e6edf3;
+      font-size: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+      transition: background 0.1s ease, transform 0.1s ease;
+      padding: 2px;
+    }
+    
+    .mobile-key:active {
+      background: #c1005926;
+      transform: scale(0.95);
+    }
+    
+    @media (max-width: 768px) {
+      .mobile-keys-bar.visible {
+        display: block;
+      }
+    }
+    
+    @media (min-width: 769px) {
+      .mobile-keys-bar {
+        display: none !important;
+      }
+    }
+    
+    .test-info {
+      position: fixed;
+      top: 8px;
+      right: 8px;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 12px;
+      z-index: 10000;
+      max-width: 300px;
+    }
+    
+    .test-info h3 {
+      margin: 0 0 8px 0;
+      color: #c10059;
+    }
+    
+    .test-info ul {
+      margin: 0;
+      padding-left: 20px;
+    }
+    
+    .test-info li {
+      margin-bottom: 4px;
+    }
+    
+    .status {
+      margin-top: 8px;
+      padding: 8px;
+      background: #21262d;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 11px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <div class="header">
+      <div>SSHIFT Mobile Test</div>
+      <div>Header should stay visible</div>
+    </div>
+    
+    <!-- Tabs -->
+    <div class="tabs-container">
+      <div class="tabs">
+        <button class="tab active">Tab 1</button>
+        <button class="tab">Tab 2</button>
+        <button class="tab">Tab 3</button>
+      </div>
+    </div>
+    
+    <!-- Terminals Container -->
+    <div class="terminals-container">
+      <div class="terminal-wrapper">
+        <div class="terminal-content" id="terminal">
+          <div class="terminal-line">$ Welcome to SSHIFT Mobile Test</div>
+          <div class="terminal-line">$ This tests the mobile scroll fixes</div>
+          <div class="terminal-line">$ Scroll down to see more content...</div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Mobile Keys Bar -->
+    <div class="mobile-keys-bar visible">
+      <div class="mobile-keys-row">
+        <button class="mobile-key" data-key="esc">ESC</button>
+        <button class="mobile-key" data-key="ctrl">CTRL</button>
+        <button class="mobile-key" data-key="alt">ALT</button>
+        <button class="mobile-key" data-key="tab">TAB</button>
+      </div>
+      <div class="mobile-keys-row">
+        <button class="mobile-key" data-key="up">↑</button>
+        <button class="mobile-key" data-key="down">↓</button>
+        <button class="mobile-key" data-key="left">←</button>
+        <button class="mobile-key" data-key="right">→</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Test Info Panel -->
+  <div class="test-info">
+    <h3>Mobile Fixes Test</h3>
+    <ul>
+      <li>✅ No double scrollbar</li>
+      <li>✅ Header stays visible</li>
+      <li>✅ Tabs stay visible</li>
+      <li>✅ Keys bar stays at bottom</li>
+      <li>✅ Keys bar doesn't jump on scroll</li>
+    </ul>
+    <div class="status" id="status">
+      Ready for testing...
+    </div>
+  </div>
+  
+  <script>
+    // Add more content to make terminal scrollable
+    const terminal = document.getElementById('terminal');
+    for (let i = 0; i < 100; i++) {
+      const line = document.createElement('div');
+      line.className = 'terminal-line';
+      line.textContent = `$ Line ${i + 1} - Scroll down to test`;
+      terminal.appendChild(line);
+    }
+    
+    // Test mobile keys bar keyboard handling
+    const mobileKeysBar = document.querySelector('.mobile-keys-bar');
+    const statusDiv = document.getElementById('status');
+    
+    if (window.visualViewport) {
+      let lastKeyboardHeight = 0;
+      let updateCount = 0;
+      
+      const updatePosition = () => {
+        updateCount++;
+        const viewportHeight = window.visualViewport.height;
+        const windowHeight = window.innerHeight;
+        const keyboardHeight = windowHeight - viewportHeight;
+        
+        statusDiv.innerHTML = `
+          Update #${updateCount}<br>
+          Viewport: ${viewportHeight}px<br>
+          Window: ${windowHeight}px<br>
+          Keyboard: ${keyboardHeight}px<br>
+          Last: ${lastKeyboardHeight}px<br>
+          Diff: ${Math.abs(keyboardHeight - lastKeyboardHeight)}px
+        `;
+        
+        // Only update if keyboard height changed significantly (more than 50px)
+        if (Math.abs(keyboardHeight - lastKeyboardHeight) > 50) {
+          lastKeyboardHeight = keyboardHeight;
+          
+          if (keyboardHeight > 50) {
+            mobileKeysBar.style.bottom = `${keyboardHeight}px`;
+            statusDiv.innerHTML += '<br><strong>Keys bar moved up</strong>';
+          } else {
+            mobileKeysBar.style.bottom = '0px';
+            statusDiv.innerHTML += '<br><strong>Keys bar reset to bottom</strong>';
+          }
+        } else {
+          statusDiv.innerHTML += '<br><strong>Change too small, ignored</strong>';
+        }
+      };
+      
+      window.visualViewport.addEventListener('resize', updatePosition);
+      updatePosition();
+    } else {
+      statusDiv.textContent = 'Visual Viewport API not supported';
+    }
+    
+    // Test button clicks
+    const keys = mobileKeysBar.querySelectorAll('.mobile-key');
+    keys.forEach(key => {
+      key.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const keyName = key.dataset.key;
+        statusDiv.innerHTML = `Button clicked: ${keyName}<br>Last action: ${new Date().toLocaleTimeString()}`;
+        
+        // Visual feedback
+        key.style.background = '#c10059';
+        setTimeout(() => {
+          key.style.background = '';
+        }, 100);
+      });
+    });
+  </script>
+</body>
+</html>

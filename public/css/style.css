@@ -26,7 +26,7 @@
   --transition-normal: 250ms ease;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-  --header-height: 50px;
+  --header-height: 42px;
   --sidebar-width: 260px;
   --sidebar-collapsed-width: 50px;
 }
@@ -92,98 +92,98 @@
 /* Accent Colors - Dark Theme */
 [data-accent="fuchsia"] {
   --accent-primary: #c10059;
-  --accent-secondary: #a00045;
+  --accent-secondary: #e84a8a;
   --accent-hover: #d9106a;
 }
 
 [data-accent="green"] {
   --accent-primary: #2ea043;
-  --accent-secondary: #238636;
+  --accent-secondary: #5cd46f;
   --accent-hover: #3fb950;
 }
 
 [data-accent="purple"] {
   --accent-primary: #a371f2;
-  --accent-secondary: #8957e5;
+  --accent-secondary: #c9a8f7;
   --accent-hover: #b279f7;
 }
 
 [data-accent="orange"] {
   --accent-primary: #d18616;
-  --accent-secondary: #b06a0e;
+  --accent-secondary: #f0a842;
   --accent-hover: #e09b2d;
 }
 
 [data-accent="red"] {
   --accent-primary: #da3633;
-  --accent-secondary: #b62324;
+  --accent-secondary: #f06b6b;
   --accent-hover: #f85149;
 }
 
 [data-accent="cyan"] {
   --accent-primary: #1f6feb;
-  --accent-secondary: #1958c7;
+  --accent-secondary: #5a9ff5;
   --accent-hover: #388bfd;
 }
 
 [data-accent="blue"] {
   --accent-primary: #58a6ff;
-  --accent-secondary: #388bfd;
+  --accent-secondary: #90c5ff;
   --accent-hover: #79b8ff;
 }
 
 [data-accent="yellow"] {
   --accent-primary: #d29922;
-  --accent-secondary: #b08800;
+  --accent-secondary: #f0b842;
   --accent-hover: #e3b341;
 }
 
 /* Accent Colors - Light Theme (adjusted for visibility) */
 [data-theme="light"][data-accent="fuchsia"] {
   --accent-primary: #c10059;
-  --accent-secondary: #a00045;
+  --accent-secondary: #d9447a;
   --accent-hover: #9d0047;
 }
 
 [data-theme="light"][data-accent="green"] {
   --accent-primary: #1a7f37;
-  --accent-secondary: #116329;
+  --accent-secondary: #3fb950;
   --accent-hover: #2da44e;
 }
 
 [data-theme="light"][data-accent="purple"] {
   --accent-primary: #8250df;
-  --accent-secondary: #6e40c9;
+  --accent-secondary: #a371f2;
   --accent-hover: #9649e4;
 }
 
 [data-theme="light"][data-accent="orange"] {
   --accent-primary: #bf8700;
-  --accent-secondary: #956700;
+  --accent-secondary: #f0a842;
   --accent-hover: #d4a72c;
 }
 
 [data-theme="light"][data-accent="red"] {
   --accent-primary: #cf222e;
-  --accent-secondary: #a40e26;
+  --accent-secondary: #f06b6b;
   --accent-hover: #da3633;
 }
 
 [data-theme="light"][data-accent="cyan"] {
   --accent-primary: #0550ae;
-  --accent-secondary: #0349a4;
+  --accent-secondary: #388bfd;
   --accent-hover: #0969da;
 }
 
 [data-theme="light"][data-accent="blue"] {
   --accent-primary: #0969da;
-  --accent-secondary: #0550ae;
+  --accent-secondary: #58a6ff;
   --accent-hover: #218bff;
 }
 
 [data-theme="light"][data-accent="yellow"] {
   --accent-primary: #9a6700;
-  --accent-secondary: #7d5900;
+  --accent-secondary: #d29922;
   --accent-hover: #bf8700;
 }
 
@@ -262,6 +262,12 @@ body {
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   z-index: 100;
+  position: relative;
+  transition: transform 0.3s ease;
+}
+
+.header.hidden {
+  transform: translateY(-100%);
 }
 
 .header-left, .header-right {
@@ -284,14 +290,10 @@ body {
 }
 
 .menu-btn {
-  display: none;
-  background: none;
-  border: none;
+  display: none !important;
   color: var(--text-secondary);
   font-size: 20px;
   cursor: pointer;
-  padding: 8px;
-  border-radius: var(--radius-sm);
   transition: var(--transition-fast);
 }
 
@@ -515,7 +517,7 @@ body {
 }
 
 .mobile-tab-option .tab-icon.sftp {
-  color: var(--accent-purple);
+  color: var(--accent-secondary);
 }
 
 .mobile-tab-option .tab-name {
@@ -861,6 +863,43 @@ body {
   padding: 8px 8px;
 }
 
+/* Mobile-specific button sizing */
+@media (max-width: 768px) {
+  .btn-icon {
+    padding: 0 !important;
+    min-width: 24px !important;
+    min-height: 24px !important;
+    max-width: 24px !important;
+    max-height: 24px !important;
+    font-size: 14px !important;
+    line-height: 1 !important;
+    border-width: 1px !important;
+  }
+  
+  .btn-icon i {
+    font-size: 14px !important;
+  }
+  
+  .menu-btn {
+    display: flex !important;
+    padding: 0 !important;
+    min-width: 24px !important;
+    min-height: 24px !important;
+    max-width: 24px !important;
+    max-height: 24px !important;
+    font-size: 14px !important;
+    line-height: 1 !important;
+  }
+  
+  .logo {
+    margin-left: 8px;
+  }
+  
+  .header-left, .header-right {
+    gap: 2px !important;
+  }
+}
+
 .btn-icon.inactive {
   opacity: 0.5;
 }
@@ -1035,8 +1074,8 @@ body {
 }
 
 .bookmark-icon.sftp {
-  background: rgba(163, 113, 242, 0.15);
-  color: var(--accent-purple);
+  background: var(--bg-active);
+  color: var(--accent-secondary);
 }
 
 .bookmark-info {
@@ -1540,7 +1579,13 @@ body {
   justify-content: space-between;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
-  min-height: 40px;
+  min-height: 35px;
+  z-index: 10;
+  transition: transform 0.3s ease;
+}
+
+.tabs-container.hidden {
+  transform: translateY(-100%);
 }
 
 .tabs {
@@ -1589,7 +1634,7 @@ body {
 }
 
 .tab-icon.sftp {
-  color: var(--accent-purple);
+  color: var(--accent-secondary);
 }
 
 .tab-close {
@@ -1621,7 +1666,7 @@ body {
 
 /* Special keys button should match mobile tabs dropdown height */
 .tabs-actions .btn-sm {
-  min-height: 34px;
+  min-height: 32px;
 }
 
 /* Terminals Container */
@@ -2394,29 +2439,25 @@ body {
 @media (max-width: 768px) {
   :root {
     --sidebar-width: 100%;
-    --header-height: 56px;
+    --header-height: 35px;
   }
 
   .header {
-    padding: 0 8px;
+    padding: 0 4px;
   }
 
   .logo {
-    font-size: 16px;
-    gap: 6px;
+    font-size: 14px;
+    gap: 4px;
   }
 
   .logo i {
-    font-size: 14px;
+    font-size: 12px;
   }
 
   .logo-text {
     display: inline;
-    font-size: 14px;
-  }
-
-  .menu-btn {
-    display: flex;
+    font-size: 12px;
   }
 
   /* Show bookmark icon on mobile, hamburger on desktop */
@@ -2453,8 +2494,8 @@ body {
     display: none;
   }
 
-  .btn-icon {
-    padding: 8px;
+  .header-left, .header-right {
+    gap: 4px;
   }
 
   .sidebar {
@@ -2579,9 +2620,9 @@ body {
     min-width: 44px;
   }
   
-  /* Keep tabs-actions buttons at 34px for consistency */
+  /* Keep tabs-actions buttons at 32px for consistency */
   .tabs-actions .btn-sm {
-    min-height: 34px;
+    min-height: 32px;
   }
 
   .tab {
@@ -2791,12 +2832,232 @@ body {
   transform: translateX(20px);
 }
 
+/* Mobile Keys Bar */
+.mobile-keys-bar {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+  z-index: 40;
+  padding: 2px;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.3);
+  transition: bottom 0.2s ease;
+  /* Prevent scrolling from moving the bar */
+  transform: translateZ(0);
+  will-change: bottom;
+}
+
+.mobile-keys-bar.visible {
+  display: block;
+}
+
+.mobile-keys-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 2px;
+}
+
+.mobile-keys-row:last-child {
+  margin-bottom: 0;
+}
+
+.mobile-key {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background 0.1s ease, transform 0.1s ease;
+  padding: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  outline: none;
+  /* Ensure button is clickable */
+  pointer-events: auto;
+}
+
+.mobile-key:active {
+  background: var(--bg-active);
+  transform: scale(0.95);
+}
+
+.mobile-key.mobile-key-modifier {
+  background: var(--bg-tertiary);
+  border-color: var(--accent-primary);
+  color: var(--text-secondary);
+}
+
+.mobile-key.mobile-key-modifier.active {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+}
+
+.mobile-key.mobile-key-arrow {
+  font-size: 12px;
+}
+
+/* Mobile-only: Show keys bar */
+@media (max-width: 768px) {
+  .mobile-keys-bar.visible {
+    display: block;
+  }
+  
+  /* Prevent native vertical scroll on mobile - but allow xterm to scroll */
+  html, body {
+    overflow: hidden !important;
+    position: fixed;
+    width: 100%;
+    height: 100%;
+    overscroll-behavior: none;
+  }
+  
+  .app-container {
+    overflow: hidden !important;
+    max-height: 100vh;
+    max-height: 100svh;
+    overscroll-behavior: none;
+  }
+  
+  .main-content {
+    overflow: hidden !important;
+    /* Account for mobile-keys-bar (59px) at bottom */
+    /* Header (35px + 1px border) and tabs (35px + 1px border) are handled by padding-top */
+    max-height: calc(100vh - 59px);
+    max-height: calc(100svh - 59px);
+    overscroll-behavior: none;
+  }
+  
+  .terminal-area {
+    overflow: hidden !important;
+    max-height: 100%;
+    overscroll-behavior: none;
+  }
+  
+  /* Mobile header/tabs hide/show on scroll */
+  .header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+  }
+  
+  .header.hidden {
+    transform: translateY(-100%);
+  }
+  
+  .tabs-container {
+    position: fixed;
+    top: var(--header-height);
+    left: 0;
+    right: 0;
+    z-index: 45; /* Lower than sidebar (z-index: 50) so sidebar appears on top */
+  }
+  
+  .tabs-container.hidden {
+    transform: translateY(-100%);
+  }
+  
+  /* Add padding to main-content to account for fixed header and tabs */
+  .main-content {
+    /* Header: 35px + 1px border, Tabs: 35px + 1px border = 72px total */
+    padding-top: 72px;
+  }
+  
+  /* When header is hidden, move tabs to top and adjust padding */
+  .app-container.header-hidden .tabs-container {
+    top: 0;
+  }
+  
+  .app-container.header-hidden .main-content {
+    /* Only tabs: 35px + 1px border = 36px */
+    padding-top: 36px;
+  }
+  
+  /* When both header and tabs are hidden, remove all padding */
+  .app-container.header-hidden.tabs-hidden .main-content {
+    padding-top: 0;
+  }
+}
+
+/* Desktop: Hide mobile keys bar completely */
+@media (min-width: 769px) {
+  .mobile-keys-bar {
+    display: none !important;
+  }
+}
+
+/* Mobile-specific xterm styles to prevent native scroll interference */
+@media (max-width: 768px) {
+  .terminal-container {
+    overflow: hidden !important;
+    overscroll-behavior: none;
+    touch-action: pan-y; /* Allow vertical scrolling */
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  .terminal-container .xterm {
+    overflow: hidden !important;
+    touch-action: pan-y; /* Allow vertical scrolling */
+  }
+  
+  .terminal-container .xterm-viewport {
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+  }
+  
+  .terminal-wrapper {
+    overflow: hidden !important;
+    max-height: 100%;
+    padding: 0; /* Remove padding on mobile to maximize terminal space */
+  }
+  
+  /* Add bottom margin when keyboard is hidden */
+  .terminal-wrapper.keyboard-hidden {
+    padding-bottom: 4px;
+  }
+  
+  .terminals-container {
+    overflow: hidden !important;
+    max-height: 100%;
+  }
+  
+  /* Add bottom margin when keyboard is hidden */
+  .terminals-container.keyboard-hidden {
+    padding-bottom: 4px;
+  }
+}
+
 /* Print styles */
 @media print {
   .sidebar,
   .header,
   .tabs-container,
-  .modal {
+  .modal,
+  .mobile-keys-bar {
     display: none !important;
   }
 

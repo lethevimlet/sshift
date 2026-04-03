@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mobile Keys Bar Click Test</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-sans);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+        
+        .test-container {
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+            padding-bottom: 100px;
+        }
+        
+        .test-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        .test-output {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 15px;
+            margin: 10px 0;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .key-pressed {
+            background: var(--accent-primary);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            margin: 5px;
+            display: inline-block;
+        }
+        
+        .status {
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-weight: 600;
+        }
+        
+        .status.success {
+            background: #238636;
+            color: white;
+        }
+        
+        .status.error {
+            background: #da3633;
+            color: white;
+        }
+        
+        .status.info {
+            background: #1f6feb;
+            color: white;
+        }
+        
+        .instructions {
+            background: var(--bg-tertiary);
+            border-left: 4px solid var(--accent-primary);
+            padding: 15px;
+            margin: 10px 0;
+        }
+        
+        .instructions ul {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        
+        .instructions li {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>🧪 Mobile Keys Bar Click Test</h1>
+        
+        <div class="status info" id="status">
+            Click the mobile keys below to test if they're working...
+        </div>
+        
+        <div class="test-section">
+            <h2>Test Instructions</h2>
+            <div class="instructions">
+                <ul>
+                    <li>Click each key in the mobile keys bar below</li>
+                    <li>Each key should show a "Key pressed: [KEY]" message</li>
+                    <li>Keys should be clickable and responsive</li>
+                    <li>Modifier keys (CTRL, ALT) should toggle on/off</li>
+                    <li>On mobile, keyboard should NOT collapse when pressing keys</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="test-section">
+            <h2>Key Press Log</h2>
+            <div class="test-output" id="keyLog">
+                Waiting for key presses...
+            </div>
+            <button onclick="clearLog()" style="margin-top: 10px; padding: 8px 16px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary); cursor: pointer;">
+                Clear Log
+            </button>
+        </div>
+        
+        <div class="test-section">
+            <h2>Test Results</h2>
+            <div id="testResults">
+                <p>Tests will appear here after clicking keys...</p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Mobile Keys Bar -->
+    <div class="mobile-keys-bar visible" id="mobileKeysBar">
+        <div class="mobile-keys-row">
+            <button class="mobile-key" data-key="esc" title="Escape">ESC</button>
+            <button class="mobile-key" data-key="/" title="Slash">/</button>
+            <button class="mobile-key" data-key="-" title="Minus">-</button>
+            <button class="mobile-key" data-key="home" title="Home">HOME</button>
+            <button class="mobile-key mobile-key-arrow mobile-key-up" data-key="up" title="Up">▲</button>
+            <button class="mobile-key" data-key="end" title="End">END</button>
+            <button class="mobile-key" data-key="pgup" title="Page Up">PGUP</button>
+        </div>
+        <div class="mobile-keys-row">
+            <button class="mobile-key" data-key="tab" title="Tab">⇥</button>
+            <button class="mobile-key mobile-key-modifier" data-key="ctrl" title="Control">CTRL</button>
+            <button class="mobile-key mobile-key-modifier" data-key="alt" title="Alt">ALT</button>
+            <button class="mobile-key mobile-key-arrow mobile-key-left" data-key="left" title="Left">◀</button>
+            <button class="mobile-key mobile-key-arrow mobile-key-down" data-key="down" title="Down">▼</button>
+            <button class="mobile-key mobile-key-arrow mobile-key-right" data-key="right" title="Right">▶</button>
+            <button class="mobile-key" data-key="pgdn" title="Page Down">PGDN</button>
+        </div>
+    </div>
+    
+    <script>
+        const keyLog = document.getElementById('keyLog');
+        const testResults = document.getElementById('testResults');
+        const status = document.getElementById('status');
+        const mobileKeysBar = document.getElementById('mobileKeysBar');
+        
+        const pressedKeys = new Set();
+        const expectedKeys = [
+            'esc', '/', '-', 'home', 'up', 'end', 'pgup',
+            'tab', 'ctrl', 'alt', 'left', 'down', 'right', 'pgdn'
+        ];
+        
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.innerHTML = `<span style="color: var(--text-secondary)">[${timestamp}]</span> ${message}`;
+            keyLog.appendChild(logEntry);
+            keyLog.scrollTop = keyLog.scrollHeight;
+            console.log(message);
+        }
+        
+        function clearLog() {
+            keyLog.innerHTML = 'Log cleared. Waiting for key presses...';
+            pressedKeys.clear();
+            updateTestResults();
+        }
+        
+        function updateTestResults() {
+            const total = expectedKeys.length;
+            const pressed = pressedKeys.size;
+            const percentage = Math.round((pressed / total) * 100);
+            
+            let html = `<p><strong>Keys pressed:</strong> ${pressed}/${total} (${percentage}%)</p>`;
+            html += '<div style="display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px;">';
+            
+            expectedKeys.forEach(key => {
+                const isPressed = pressedKeys.has(key);
+                const bgColor = isPressed ? 'var(--accent-primary)' : 'var(--bg-tertiary)';
+                const textColor = isPressed ? 'white' : 'var(--text-secondary)';
+                html += `<span style="background: ${bgColor}; color: ${textColor}; padding: 5px 10px; border-radius: 4px; font-size: 12px;">${key.toUpperCase()}</span>`;
+            });
+            
+            html += '</div>';
+            
+            if (pressed === total) {
+                html += '<p style="color: #238636; font-weight: bold; margin-top: 15px;">✓ All keys are working!</p>';
+                status.className = 'status success';
+                status.textContent = 'All keys are working correctly!';
+            } else {
+                status.className = 'status info';
+                status.textContent = `Pressed ${pressed}/${total} keys. Keep clicking to test all keys...`;
+            }
+            
+            testResults.innerHTML = html;
+        }
+        
+        // Initialize mobile keys bar handlers
+        function initMobileKeysBar() {
+            const keys = mobileKeysBar.querySelectorAll('.mobile-key');
+            
+            keys.forEach(key => {
+                const keyName = key.dataset.key;
+                if (!keyName) return;
+                
+                // Handle modifier keys (Ctrl, Alt) - toggle behavior
+                if (key.classList.contains('mobile-key-modifier')) {
+                    key.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        
+                        const isActive = key.classList.toggle('active');
+                        log(`<span class="key-pressed">${keyName.toUpperCase()}</span> ${isActive ? 'activated' : 'deactivated'}`);
+                        pressedKeys.add(keyName);
+                        updateTestResults();
+                    });
+                } else {
+                    // Regular keys - send on click/tap
+                    key.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        
+                        log(`<span class="key-pressed">${keyName.toUpperCase()}</span> clicked`);
+                        pressedKeys.add(keyName);
+                        updateTestResults();
+                    });
+                }
+            });
+            
+            log('Mobile keys bar initialized');
+            log('Click any key to test...');
+        }
+        
+        // Test Visual Viewport API
+        function testVisualViewport() {
+            if (window.visualViewport) {
+                log('✓ Visual Viewport API supported');
+                
+                window.visualViewport.addEventListener('resize', () => {
+                    const keyboardHeight = window.innerHeight - window.visualViewport.height;
+                    if (keyboardHeight > 0) {
+                        log(`Keyboard opened: ${keyboardHeight}px`);
+                        mobileKeysBar.style.bottom = `${keyboardHeight}px`;
+                    } else {
+                        log('Keyboard closed');
+                        mobileKeysBar.style.bottom = '0px';
+                    }
+                });
+            } else {
+                log('✗ Visual Viewport API not supported');
+            }
+        }
+        
+        // Initialize on load
+        window.addEventListener('load', () => {
+            initMobileKeysBar();
+            testVisualViewport();
+            updateTestResults();
+        });
+    </script>
+</body>
+</html>

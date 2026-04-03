@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Mobile Scroll Behavior - Complete Test</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      height: 100vh;
+      overflow: hidden;
+    }
+    
+    .app-container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 50px;
+      padding: 0 12px;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      transition: transform 0.3s ease;
+      z-index: 100;
+    }
+    
+    .header.hidden {
+      transform: translateY(-100%);
+    }
+    
+    .tabs-container {
+      display: flex;
+      align-items: center;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      min-height: 40px;
+      transition: transform 0.3s ease;
+      z-index: 45;
+    }
+    
+    .tabs-container.hidden {
+      transform: translateY(-100%);
+    }
+    
+    .tab {
+      padding: 8px 16px;
+      background: #21262d;
+      border-right: 1px solid #30363d;
+      color: #8b949e;
+      cursor: pointer;
+    }
+    
+    .tab.active {
+      background: #0d1117;
+      color: #e6edf3;
+    }
+    
+    .main-content {
+      flex: 1;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .terminal-area {
+      flex: 1;
+      overflow: hidden;
+      background: #0d1117;
+      padding: 8px;
+    }
+    
+    .terminal-output {
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      height: 100%;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    
+    .mobile-keys-bar {
+      display: none;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #161b22;
+      border-top: 1px solid #30363d;
+      padding: 8px;
+      z-index: 9999;
+      box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.3);
+      transition: bottom 0.2s ease;
+      transform: translateZ(0);
+      will-change: bottom;
+    }
+    
+    .mobile-keys-bar.visible {
+      display: block;
+    }
+    
+    .mobile-keys-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 4px;
+      margin-bottom: 4px;
+    }
+    
+    .mobile-keys-row:last-child {
+      margin-bottom: 0;
+    }
+    
+    .mobile-key {
+      flex: 1;
+      min-width: 0;
+      height: 36px;
+      background: #21262d;
+      border: 1px solid #30363d;
+      border-radius: 4px;
+      color: #e6edf3;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+    }
+    
+    .mobile-key:active {
+      background: #30363d;
+      transform: scale(0.95);
+    }
+    
+    .status {
+      position: fixed;
+      top: 100px;
+      right: 16px;
+      background: rgba(22, 27, 34, 0.95);
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 11px;
+      z-index: 10000;
+      max-width: 200px;
+    }
+    
+    .status-item {
+      margin-bottom: 4px;
+      display: flex;
+      justify-content: space-between;
+    }
+    
+    .status-label {
+      color: #8b949e;
+    }
+    
+    .status-value {
+      color: #3fb950;
+      font-weight: bold;
+    }
+    
+    .status-value.false {
+      color: #f85149;
+    }
+    
+    .instructions {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    
+    .instructions h2 {
+      margin-bottom: 8px;
+      color: #c10059;
+      font-size: 14px;
+    }
+    
+    .instructions ul {
+      margin-left: 16px;
+      font-size: 12px;
+    }
+    
+    .instructions li {
+      margin-bottom: 4px;
+    }
+    
+    /* Mobile-specific styles */
+    @media (max-width: 768px) {
+      .header {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+      }
+      
+      .tabs-container {
+        position: fixed;
+        top: 50px;
+        left: 0;
+        right: 0;
+      }
+      
+      .main-content {
+        padding-top: 90px; /* header + tabs */
+      }
+      
+      .app-container.header-hidden .tabs-container {
+        top: 0;
+      }
+      
+      .app-container.header-hidden .main-content {
+        padding-top: 40px; /* only tabs */
+      }
+      
+      .app-container.header-hidden.tabs-hidden .main-content {
+        padding-top: 0;
+      }
+      
+      .mobile-keys-bar.visible {
+        display: block;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container" id="appContainer">
+    <div class="header" id="header">
+      <div class="logo">SSHIFT Mobile Test</div>
+      <div class="header-actions">
+        <button onclick="toggleHeader()">Toggle Header</button>
+      </div>
+    </div>
+    
+    <div class="tabs-container" id="tabsContainer">
+      <div class="tab active">Terminal 1</div>
+      <div class="tab">Terminal 2</div>
+    </div>
+    
+    <div class="main-content">
+      <div class="terminal-area">
+        <div class="terminal-output" id="terminalOutput">
+          <div class="instructions">
+            <h2>✅ Test Checklist</h2>
+            <ul>
+              <li><strong>Auto-scroll:</strong> When new output arrives, terminal should auto-scroll to bottom (if at bottom)</li>
+              <li><strong>Scroll UP:</strong> Scroll up (away from bottom) - header and tabs should APPEAR</li>
+              <li><strong>Scroll DOWN:</strong> Scroll down (towards bottom) - header and tabs should HIDE</li>
+              <li><strong>Mobile keys bar:</strong> Should stay at bottom and not jump during scrolling</li>
+              <li><strong>Keyboard:</strong> Mobile keys bar should move above keyboard when it opens</li>
+            </ul>
+          </div>
+          Waiting for output...
+        </div>
+      </div>
+    </div>
+    
+    <div class="mobile-keys-bar" id="mobileKeysBar">
+      <div class="mobile-keys-row">
+        <button class="mobile-key" onclick="sendKey('Esc')">Esc</button>
+        <button class="mobile-key" onclick="sendKey('Tab')">Tab</button>
+        <button class="mobile-key" onclick="sendKey('Ctrl')">Ctrl</button>
+        <button class="mobile-key" onclick="sendKey('Alt')">Alt</button>
+      </div>
+      <div class="mobile-keys-row">
+        <button class="mobile-key" onclick="addOutput()">Add Output</button>
+        <button class="mobile-key" onclick="scrollToTop()">Scroll Top</button>
+        <button class="mobile-key" onclick="scrollToBottom()">Scroll Bottom</button>
+      </div>
+    </div>
+  </div>
+  
+  <div class="status" id="status">
+    <div class="status-item">
+      <span class="status-label">At Bottom:</span>
+      <span class="status-value" id="atBottomStatus">true</span>
+    </div>
+    <div class="status-item">
+      <span class="status-label">Header Hidden:</span>
+      <span class="status-value" id="headerHiddenStatus">false</span>
+    </div>
+    <div class="status-item">
+      <span class="status-label">Tabs Hidden:</span>
+      <span class="status-value" id="tabsHiddenStatus">false</span>
+    </div>
+    <div class="status-item">
+      <span class="status-label">Scroll Pos:</span>
+      <span class="status-value" id="scrollPos">0</span>
+    </div>
+    <div class="status-item">
+      <span class="status-label">isMobile:</span>
+      <span class="status-value" id="isMobileStatus">false</span>
+    </div>
+  </div>
+  
+  <script>
+    // State
+    let isAtBottom = true;
+    let headerHidden = false;
+    let tabsHidden = false;
+    let lastScrollTop = 0;
+    let outputCounter = 0;
+    const isMobile = window.innerWidth <= 768;
+    
+    // Elements
+    const terminalOutput = document.getElementById('terminalOutput');
+    const header = document.getElementById('header');
+    const tabsContainer = document.getElementById('tabsContainer');
+    const appContainer = document.getElementById('appContainer');
+    const mobileKeysBar = document.getElementById('mobileKeysBar');
+    
+    // Status elements
+    const atBottomStatus = document.getElementById('atBottomStatus');
+    const headerHiddenStatus = document.getElementById('headerHiddenStatus');
+    const tabsHiddenStatus = document.getElementById('tabsHiddenStatus');
+    const scrollPos = document.getElementById('scrollPos');
+    const isMobileStatus = document.getElementById('isMobileStatus');
+    
+    // Initialize
+    isMobileStatus.textContent = isMobile;
+    if (isMobile) {
+      mobileKeysBar.classList.add('visible');
+    }
+    
+    // Check if at bottom
+    function checkIfAtBottom() {
+      const scrollTop = terminalOutput.scrollTop;
+      const scrollHeight = terminalOutput.scrollHeight;
+      const clientHeight = terminalOutput.clientHeight;
+      
+      // We're at the bottom if we're within 10px of the bottom
+      isAtBottom = scrollHeight - scrollTop - clientHeight < 10;
+      
+      updateStatus();
+    }
+    
+    // Handle scroll
+    function handleScroll() {
+      const scrollTop = terminalOutput.scrollTop;
+      const scrollDiff = scrollTop - lastScrollTop;
+      
+      // In a normal div:
+      // - Scrolling DOWN increases scrollTop
+      // - Scrolling UP decreases scrollTop
+      
+      if (isMobile) {
+        if (scrollDiff > 5) {
+          // Scrolling DOWN - hide header and tabs
+          hideHeaderAndTabs();
+        } else if (scrollDiff < -5) {
+          // Scrolling UP - show header and tabs
+          showHeaderAndTabs();
+        }
+      }
+      
+      lastScrollTop = scrollTop;
+      checkIfAtBottom();
+    }
+    
+    function hideHeaderAndTabs() {
+      if (headerHidden) return;
+      
+      header.classList.add('hidden');
+      tabsContainer.classList.add('hidden');
+      appContainer.classList.add('header-hidden', 'tabs-hidden');
+      headerHidden = true;
+      tabsHidden = true;
+      
+      updateStatus();
+    }
+    
+    function showHeaderAndTabs() {
+      if (!headerHidden && !tabsHidden) return;
+      
+      header.classList.remove('hidden');
+      tabsContainer.classList.remove('hidden');
+      appContainer.classList.remove('header-hidden', 'tabs-hidden');
+      headerHidden = false;
+      tabsHidden = false;
+      
+      updateStatus();
+    }
+    
+    function toggleHeader() {
+      if (headerHidden) {
+        showHeaderAndTabs();
+      } else {
+        hideHeaderAndTabs();
+      }
+    }
+    
+    // Add output
+    function addOutput() {
+      outputCounter++;
+      const timestamp = new Date().toLocaleTimeString();
+      const line = `[${timestamp}] Output line ${outputCounter}: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.\n`;
+      
+      terminalOutput.textContent += line;
+      
+      // Auto-scroll to bottom if we're at the bottom
+      if (isAtBottom) {
+        terminalOutput.scrollTop = terminalOutput.scrollHeight;
+      }
+      
+      updateStatus();
+    }
+    
+    function scrollToTop() {
+      terminalOutput.scrollTop = 0;
+      checkIfAtBottom();
+    }
+    
+    function scrollToBottom() {
+      terminalOutput.scrollTop = terminalOutput.scrollHeight;
+      checkIfAtBottom();
+    }
+    
+    // Update status display
+    function updateStatus() {
+      atBottomStatus.textContent = isAtBottom;
+      atBottomStatus.className = 'status-value ' + isAtBottom;
+      
+      headerHiddenStatus.textContent = headerHidden;
+      headerHiddenStatus.className = 'status-value ' + !headerHidden;
+      
+      tabsHiddenStatus.textContent = tabsHidden;
+      tabsHiddenStatus.className = 'status-value ' + !tabsHidden;
+      
+      scrollPos.textContent = Math.round(terminalOutput.scrollTop);
+    }
+    
+    // Send key (placeholder)
+    function sendKey(key) {
+      console.log('Key pressed:', key);
+      addOutput();
+    }
+    
+    // Event listeners
+    terminalOutput.addEventListener('scroll', handleScroll);
+    
+    // Initial status
+    updateStatus();
+    
+    // Auto-add output every 2 seconds
+    setInterval(() => {
+      if (Math.random() > 0.5) {
+        addOutput();
+      }
+    }, 2000);
+    
+    // Mobile keys bar keyboard handling
+    if (window.visualViewport) {
+      let lastKeyboardHeight = 0;
+      
+      const updatePosition = () => {
+        const viewportHeight = window.visualViewport.height;
+        const windowHeight = window.innerHeight;
+        const keyboardHeight = windowHeight - viewportHeight;
+        
+        // Only update if keyboard height changed significantly (more than 50px)
+        if (Math.abs(keyboardHeight - lastKeyboardHeight) > 50) {
+          lastKeyboardHeight = keyboardHeight;
+          
+          if (keyboardHeight > 50) {
+            // Keyboard is open - position keys bar above keyboard
+            mobileKeysBar.style.bottom = `${keyboardHeight}px`;
+          } else {
+            // Keyboard is closed - reset position
+            mobileKeysBar.style.bottom = '0px';
+          }
+        }
+      };
+      
+      window.visualViewport.addEventListener('resize', updatePosition);
+      updatePosition();
+    }
+    
+    // Handle window resize
+    window.addEventListener('resize', () => {
+      const newIsMobile = window.innerWidth <= 768;
+      if (newIsMobile !== isMobile) {
+        location.reload();
+      }
+    });
+  </script>
+</body>
+</html>

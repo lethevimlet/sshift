@@ -15,7 +15,7 @@
     <!-- Header -->
     <header class="header">
       <div class="header-left">
-        <button class="menu-btn" id="menuBtn" title="Toggle Sidebar">
+        <button class="btn btn-icon menu-btn" id="menuBtn" title="Toggle Sidebar">
           <i class="fas fa-bars desktop-menu-icon"></i>
           <i class="fas fa-bookmark mobile-menu-icon"></i>
         </button>
@@ -689,6 +689,24 @@
             </div>
           </div>
         </div>
+        
+        <!-- Mobile Keys Bar Setting -->
+        <div class="setting-group">
+          <div class="setting-item">
+            <label class="setting-label">
+              <i class="fas fa-keyboard"></i> Mobile Keys Bar
+            </label>
+            <div class="setting-description">
+              Show a fixed keyboard bar at the bottom on mobile devices with special keys like ESC, Tab, Ctrl, Alt, and arrow keys for easier terminal input.
+            </div>
+            <div class="setting-control">
+              <label class="toggle-switch">
+                <input type="checkbox" id="mobileKeysBarToggle" checked>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn" id="cancelSettings">Cancel</button>
@@ -696,6 +714,28 @@
           <i class="fas fa-save"></i> Save
         </button>
       </div>
+    </div>
+  </div>
+
+  <!-- Mobile Keys Bar -->
+  <div class="mobile-keys-bar" id="mobileKeysBar">
+    <div class="mobile-keys-row">
+      <button class="mobile-key" data-key="esc" title="Escape">ESC</button>
+      <button class="mobile-key" data-key="/" title="Slash">/</button>
+      <button class="mobile-key" data-key="-" title="Minus">-</button>
+      <button class="mobile-key" data-key="home" title="Home">HOME</button>
+      <button class="mobile-key mobile-key-arrow mobile-key-up" data-key="up" title="Up">▲</button>
+      <button class="mobile-key" data-key="end" title="End">END</button>
+      <button class="mobile-key" data-key="pgup" title="Page Up">PGUP</button>
+    </div>
+    <div class="mobile-keys-row">
+      <button class="mobile-key" data-key="tab" title="Tab">⇥</button>
+      <button class="mobile-key mobile-key-modifier" data-key="ctrl" title="Control">CTRL</button>
+      <button class="mobile-key mobile-key-modifier" data-key="alt" title="Alt">ALT</button>
+      <button class="mobile-key mobile-key-arrow mobile-key-left" data-key="left" title="Left">◀</button>
+      <button class="mobile-key mobile-key-arrow mobile-key-down" data-key="down" title="Down">▼</button>
+      <button class="mobile-key mobile-key-arrow mobile-key-right" data-key="right" title="Right">▶</button>
+      <button class="mobile-key" data-key="pgdn" title="Page Down">PGDN</button>
     </div>
   </div>
 

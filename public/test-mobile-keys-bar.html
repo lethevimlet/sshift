@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mobile Keys Bar Test</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-sans);
+        }
+        
+        .test-container {
+            padding: 20px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        
+        .test-output {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 10px;
+            margin: 10px 0;
+            font-family: monospace;
+            min-height: 100px;
+        }
+        
+        .test-buttons {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+        }
+        
+        .test-buttons button {
+            padding: 10px 20px;
+            background: var(--accent-primary);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .test-buttons button:hover {
+            background: var(--accent-hover);
+        }
+        
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        
+        .status.success {
+            background: #238636;
+            color: white;
+        }
+        
+        .status.error {
+            background: #da3633;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>Mobile Keys Bar Test</h1>
+        
+        <div class="status success" id="status">
+            Testing mobile keys bar functionality...
+        </div>
+        
+        <div class="test-output" id="output">
+            Waiting for test results...
+        </div>
+        
+        <div class="test-buttons">
+            <button onclick="testVisibility()">Test Visibility</button>
+            <button onclick="testKeyMapping()">Test Key Mapping</button>
+            <button onclick="testTheming()">Test Theming</button>
+        </div>
+        
+        <h2>Mobile Keys Bar Preview</h2>
+        <p>The mobile keys bar should appear below (on mobile or when simulated):</p>
+    </div>
+    
+    <!-- Mobile Keys Bar -->
+    <div class="mobile-keys-bar visible" id="mobileKeysBar">
+        <div class="mobile-keys-row">
+            <button class="mobile-key" data-key="esc" title="Escape">ESC</button>
+            <button class="mobile-key" data-key="/" title="Slash">/</button>
+            <button class="mobile-key" data-key="-" title="Minus">-</button>
+            <button class="mobile-key" data-key="home" title="Home">HOME</button>
+            <button class="mobile-key mobile-key-arrow mobile-key-up" data-key="up" title="Up">▲</button>
+            <button class="mobile-key" data-key="end" title="End">END</button>
+            <button class="mobile-key" data-key="pgup" title="Page Up">PGUP</button>
+        </div>
+        <div class="mobile-keys-row">
+            <button class="mobile-key" data-key="tab" title="Tab">⇥</button>
+            <button class="mobile-key mobile-key-modifier" data-key="ctrl" title="Control">CTRL</button>
+            <button class="mobile-key mobile-key-modifier" data-key="alt" title="Alt">ALT</button>
+            <button class="mobile-key mobile-key-arrow mobile-key-left" data-key="left" title="Left">◀</button>
+            <button class="mobile-key mobile-key-arrow mobile-key-down" data-key="down" title="Down">▼</button>
+            <button class="mobile-key mobile-key-arrow mobile-key-right" data-key="right" title="Right">▶</button>
+            <button class="mobile-key" data-key="pgdn" title="Page Down">PGDN</button>
+        </div>
+    </div>
+    
+    <script>
+        const output = document.getElementById('output');
+        const status = document.getElementById('status');
+        
+        function log(message) {
+            output.innerHTML += message + '<br>';
+            console.log(message);
+        }
+        
+        function testVisibility() {
+            output.innerHTML = '';
+            log('Testing mobile keys bar visibility...');
+            
+            const mobileKeysBar = document.getElementById('mobileKeysBar');
+            
+            if (!mobileKeysBar) {
+                status.className = 'status error';
+                status.textContent = 'ERROR: Mobile keys bar element not found';
+                log('❌ Mobile keys bar element not found in DOM');
+                return;
+            }
+            
+            log('✓ Mobile keys bar element found');
+            
+            // Test visibility classes
+            mobileKeysBar.classList.remove('visible');
+            log('✓ Removed visible class');
+            
+            setTimeout(() => {
+                mobileKeysBar.classList.add('visible');
+                log('✓ Added visible class');
+                
+                const computedStyle = window.getComputedStyle(mobileKeysBar);
+                const display = computedStyle.display;
+                log(`✓ Display style: ${display}`);
+                
+                status.className = 'status success';
+                status.textContent = 'Visibility test passed!';
+            }, 100);
+        }
+        
+        function testKeyMapping() {
+            output.innerHTML = '';
+            log('Testing key mapping...');
+            
+            const keyMap = {
+                'esc': '\x1b',
+                'tab': '\t',
+                'up': '\x1b[A',
+                'down': '\x1b[B',
+                'right': '\x1b[C',
+                'left': '\x1b[D',
+                'home': '\x1b[H',
+                'end': '\x1b[F',
+                'pgup': '\x1b[5~',
+                'pgdn': '\x1b[6~',
+                '/': '/',
+                '-': '-'
+            };
+            
+            let passed = 0;
+            let total = Object.keys(keyMap).length;
+            
+            for (const [key, sequence] of Object.entries(keyMap)) {
+                if (sequence) {
+                    log(`✓ ${key}: ${JSON.stringify(sequence)}`);
+                    passed++;
+                } else {
+                    log(`❌ ${key}: missing sequence`);
+                }
+            }
+            
+            status.className = passed === total ? 'status success' : 'status error';
+            status.textContent = `Key mapping test: ${passed}/${total} passed`;
+        }
+        
+        function testTheming() {
+            output.innerHTML = '';
+            log('Testing theming...');
+            
+            const mobileKeysBar = document.getElementById('mobileKeysBar');
+            const keys = mobileKeysBar.querySelectorAll('.mobile-key');
+            
+            if (keys.length === 0) {
+                status.className = 'status error';
+                status.textContent = 'ERROR: No keys found';
+                log('❌ No mobile keys found');
+                return;
+            }
+            
+            log(`✓ Found ${keys.length} mobile keys`);
+            
+            // Check CSS variables
+            const root = document.documentElement;
+            const computedStyle = window.getComputedStyle(root);
+            
+            const cssVars = [
+                '--bg-secondary',
+                '--bg-tertiary',
+                '--bg-hover',
+                '--bg-active',
+                '--border-color',
+                '--text-primary',
+                '--text-secondary',
+                '--accent-primary'
+            ];
+            
+            let passed = 0;
+            
+            cssVars.forEach(varName => {
+                const value = computedStyle.getPropertyValue(varName);
+                if (value) {
+                    log(`✓ ${varName}: ${value}`);
+                    passed++;
+                } else {
+                    log(`❌ ${varName}: not defined`);
+                }
+            });
+            
+            // Check key dimensions
+            const firstKey = keys[0];
+            const keyStyle = window.getComputedStyle(firstKey);
+            const height = keyStyle.height;
+            
+            log(`✓ Key height: ${height}`);
+            
+            status.className = passed === cssVars.length ? 'status success' : 'status error';
+            status.textContent = `Theming test: ${passed}/${cssVars.length} CSS variables found`;
+        }
+        
+        // Run all tests on load
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                testVisibility();
+                setTimeout(() => {
+                    testKeyMapping();
+                    setTimeout(() => {
+                        testTheming();
+                    }, 500);
+                }, 500);
+            }, 500);
+        });
+    </script>
+</body>
+</html>

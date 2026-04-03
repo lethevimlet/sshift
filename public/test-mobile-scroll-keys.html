@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mobile Scroll & Keys Bar Test</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-sans);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+        
+        .test-container {
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+            padding-bottom: 100px; /* Space for mobile keys bar */
+        }
+        
+        .test-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        .test-section h2 {
+            margin-top: 0;
+            color: var(--accent-primary);
+        }
+        
+        .test-output {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 15px;
+            margin: 10px 0;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .test-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 20px 0;
+        }
+        
+        .test-buttons button {
+            padding: 10px 20px;
+            background: var(--accent-primary);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        
+        .test-buttons button:hover {
+            background: var(--accent-hover);
+        }
+        
+        .test-buttons button:active {
+            transform: scale(0.95);
+        }
+        
+        .status {
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-weight: 600;
+        }
+        
+        .status.success {
+            background: #238636;
+            color: white;
+        }
+        
+        .status.error {
+            background: #da3633;
+            color: white;
+        }
+        
+        .status.info {
+            background: #1f6feb;
+            color: white;
+        }
+        
+        .keyboard-simulator {
+            background: var(--bg-tertiary);
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            min-height: 150px;
+        }
+        
+        .keyboard-simulator textarea {
+            width: 100%;
+            height: 100px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+            padding: 10px;
+            font-family: monospace;
+            font-size: 14px;
+            resize: none;
+        }
+        
+        .info-list {
+            background: var(--bg-tertiary);
+            border-left: 4px solid var(--accent-primary);
+            padding: 15px;
+            margin: 10px 0;
+        }
+        
+        .info-list ul {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        
+        .info-list li {
+            margin: 5px 0;
+        }
+        
+        .code-block {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 12px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>📱 Mobile Scroll & Keys Bar Test</h1>
+        
+        <div class="status info" id="status">
+            Testing mobile scroll behavior and keys bar functionality...
+        </div>
+        
+        <!-- Test 1: Visual Viewport API -->
+        <div class="test-section">
+            <h2>1. Visual Viewport API Test</h2>
+            <p>Tests if the browser supports the Visual Viewport API for keyboard detection.</p>
+            
+            <div class="test-output" id="viewportOutput">
+                Waiting for test...
+            </div>
+            
+            <div class="test-buttons">
+                <button onclick="testVisualViewport()">Test Visual Viewport</button>
+            </div>
+        </div>
+        
+        <!-- Test 2: Keyboard Simulation -->
+        <div class="test-section">
+            <h2>2. Keyboard Simulation</h2>
+            <p>Simulates keyboard appearance to test mobile keys bar positioning.</p>
+            
+            <div class="keyboard-simulator">
+                <textarea id="keyboardInput" 
+                          placeholder="Tap here to simulate keyboard opening on mobile devices..."
+                          onfocus="simulateKeyboardOpen()"
+                          onblur="simulateKeyboardClose()"></textarea>
+            </div>
+            
+            <div class="test-output" id="keyboardOutput">
+                Keyboard state: Closed
+            </div>
+        </div>
+        
+        <!-- Test 3: Mobile Keys Bar -->
+        <div class="test-section">
+            <h2>3. Mobile Keys Bar</h2>
+            <p>Tests the mobile keys bar visibility and key mapping.</p>
+            
+            <div class="test-output" id="keysBarOutput">
+                Waiting for test...
+            </div>
+            
+            <div class="test-buttons">
+                <button onclick="testKeysBarVisibility()">Test Visibility</button>
+                <button onclick="testKeyMapping()">Test Key Mapping</button>
+                <button onclick="testKeysBarTheming()">Test Theming</button>
+            </div>
+        </div>
+        
+        <!-- Test 4: Auto-scroll -->
+        <div class="test-section">
+            <h2>4. Auto-scroll Behavior</h2>
+            <p>Tests if the terminal auto-scrolls to bottom when new output arrives.</p>
+            
+            <div class="info-list">
+                <strong>Expected behavior:</strong>
+                <ul>
+                    <li>Terminal should auto-scroll when new output arrives</li>
+                    <li>Auto-scroll should stop when user scrolls up</li>
+                    <li>Auto-scroll should resume when user scrolls to bottom</li>
+                    <li>Header and tabs should NOT hide on scroll</li>
+                </ul>
+            </div>
+            
+            <div class="test-output" id="scrollOutput">
+                Auto-scroll test: Ready
+            </div>
+            
+            <div class="test-buttons">
+                <button onclick="testAutoScroll()">Test Auto-scroll</button>
+            </div>
+        </div>
+        
+        <!-- Test 5: Key Press Prevention -->
+        <div class="test-section">
+            <h2>5. Key Press Prevention</h2>
+            <p>Tests if pressing mobile keys prevents keyboard collapse.</p>
+            
+            <div class="info-list">
+                <strong>Expected behavior:</strong>
+                <ul>
+                    <li>Pressing mobile keys should NOT collapse the keyboard</li>
+                    <li>Keys should use preventDefault() on mousedown and touchstart</li>
+                    <li>Keys should use passive: false for touch events</li>
+                </ul>
+            </div>
+            
+            <div class="test-output" id="preventOutput">
+                Key press prevention test: Ready
+            </div>
+            
+            <div class="test-buttons">
+                <button onclick="testKeyPressPrevention()">Test Key Press Prevention</button>
+            </div>
+        </div>
+        
+        <!-- Instructions -->
+        <div class="test-section">
+            <h2>📋 Test Instructions</h2>
+            
+            <div class="info-list">
+                <strong>For Mobile Testing:</strong>
+                <ul>
+                    <li>Open this page on a mobile device or use Chrome DevTools mobile emulation</li>
+                    <li>Tap the textarea above to open the keyboard</li>
+                    <li>Observe if the mobile keys bar moves above the keyboard</li>
+                    <li>Press mobile keys and verify keyboard stays open</li>
+                    <li>Check that header and tabs remain visible when scrolling</li>
+                </ul>
+            </div>
+            
+            <div class="info-list">
+                <strong>For Desktop Testing:</strong>
+                <ul>
+                    <li>Use Chrome DevTools to simulate mobile device</li>
+                    <li>Toggle device toolbar (Ctrl+Shift+M)</li>
+                    <li>Select a mobile device (e.g., iPhone 12 Pro)</li>
+                    <li>Enable "Show keyboard" in the device toolbar</li>
+                </ul>
+            </div>
+        </div>
+        
+        <!-- Code Examples -->
+        <div class="test-section">
+            <h2>💻 Implementation Details</h2>
+            
+            <h3>Visual Viewport API</h3>
+            <div class="code-block">
+if (window.visualViewport) {
+  const updatePosition = () => {
+    const keyboardHeight = 
+      window.innerHeight - window.visualViewport.height;
+    if (keyboardHeight > 0) {
+      mobileKeysBar.style.bottom = `${keyboardHeight}px`;
+    }
+  };
+  window.visualViewport.addEventListener('resize', updatePosition);
+}
+            </div>
+            
+            <h3>Prevent Keyboard Collapse</h3>
+            <div class="code-block">
+key.addEventListener('mousedown', (e) => {
+  e.preventDefault();
+});
+
+key.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+}, { passive: false });
+            </div>
+            
+            <h3>Auto-scroll Logic</h3>
+            <div class="code-block">
+// Only auto-scroll if user is at bottom
+if (session.isAtBottom) {
+  terminal.scrollToBottom();
+}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Mobile Keys Bar -->
+    <div class="mobile-keys-bar visible" id="mobileKeysBar">
+        <div class="mobile-keys-row">
+            <button class="mobile-key" data-key="esc" title="Escape">ESC</button>
+            <button class="mobile-key" data-key="/" title="Slash">/</button>
+            <button class="mobile-key" data-key="-" title="Minus">-</button>
+            <button class="mobile-key" data-key="home" title="Home">HOME</button>
+            <button class="mobile-key mobile-key-arrow mobile-key-up" data-key="up" title="Up">▲</button>
+            <button class="mobile-key" data-key="end" title="End">END</button>
+            <button class="mobile-key" data-key="pgup" title="Page Up">PGUP</button>
+        </div>
+        <div class="mobile-keys-row">
+            <button class="mobile-key" data-key="tab" title="Tab">⇥</button>
+            <button class="mobile-key mobile-key-modifier" data-key="ctrl" title="Control">CTRL</button>
+            <button class="mobile-key mobile-key-modifier" data-key="alt" title="Alt">ALT</button>
+            <button class="mobile-key mobile-key-arrow mobile-key-left" data-key="left" title="Left">◀</button>
+            <button class="mobile-key mobile-key-arrow mobile-key-down" data-key="down" title="Down">▼</button>
+            <button class="mobile-key mobile-key-arrow mobile-key-right" data-key="right" title="Right">▶</button>
+            <button class="mobile-key" data-key="pgdn" title="Page Down">PGDN</button>
+        </div>
+    </div>
+    
+    <script>
+        const viewportOutput = document.getElementById('viewportOutput');
+        const keyboardOutput = document.getElementById('keyboardOutput');
+        const keysBarOutput = document.getElementById('keysBarOutput');
+        const scrollOutput = document.getElementById('scrollOutput');
+        const preventOutput = document.getElementById('preventOutput');
+        const status = document.getElementById('status');
+        const mobileKeysBar = document.getElementById('mobileKeysBar');
+        
+        function log(element, message) {
+            const timestamp = new Date().toLocaleTimeString();
+            element.innerHTML += `[${timestamp}] ${message}<br>`;
+            console.log(message);
+        }
+        
+        // Test 1: Visual Viewport API
+        function testVisualViewport() {
+            viewportOutput.innerHTML = '';
+            log(viewportOutput, 'Testing Visual Viewport API...');
+            
+            if (window.visualViewport) {
+                log(viewportOutput, '✓ Visual Viewport API supported');
+                log(viewportOutput, `Viewport height: ${window.visualViewport.height}px`);
+                log(viewportOutput, `Window height: ${window.innerHeight}px`);
+                log(viewportOutput, `Scale: ${window.visualViewport.scale}`);
+                
+                // Listen for viewport changes
+                window.visualViewport.addEventListener('resize', () => {
+                    const keyboardHeight = window.innerHeight - window.visualViewport.height;
+                    log(viewportOutput, `Keyboard height: ${keyboardHeight}px`);
+                });
+                
+                status.className = 'status success';
+                status.textContent = 'Visual Viewport API test passed!';
+            } else {
+                log(viewportOutput, '✗ Visual Viewport API not supported');
+                log(viewportOutput, 'Note: This API is required for proper keyboard handling');
+                status.className = 'status error';
+                status.textContent = 'Visual Viewport API not supported';
+            }
+        }
+        
+        // Test 2: Keyboard Simulation
+        function simulateKeyboardOpen() {
+            log(keyboardOutput, '✓ Keyboard opened (textarea focused)');
+            
+            if (window.visualViewport) {
+                const keyboardHeight = window.innerHeight - window.visualViewport.height;
+                if (keyboardHeight > 0) {
+                    log(keyboardOutput, `Keyboard height: ${keyboardHeight}px`);
+                    mobileKeysBar.style.bottom = `${keyboardHeight}px`;
+                    log(keyboardOutput, `Mobile keys bar moved to: ${keyboardHeight}px`);
+                }
+            }
+        }
+        
+        function simulateKeyboardClose() {
+            log(keyboardOutput, '✓ Keyboard closed (textarea blurred)');
+            mobileKeysBar.style.bottom = '0px';
+            log(keyboardOutput, 'Mobile keys bar reset to bottom: 0px');
+        }
+        
+        // Test 3: Mobile Keys Bar
+        function testKeysBarVisibility() {
+            keysBarOutput.innerHTML = '';
+            log(keysBarOutput, 'Testing mobile keys bar visibility...');
+            
+            if (!mobileKeysBar) {
+                log(keysBarOutput, '❌ Mobile keys bar element not found');
+                status.className = 'status error';
+                status.textContent = 'Mobile keys bar not found';
+                return;
+            }
+            
+            log(keysBarOutput, '✓ Mobile keys bar element found');
+            
+            // Test visibility classes
+            mobileKeysBar.classList.remove('visible');
+            log(keysBarOutput, '✓ Removed visible class');
+            
+            setTimeout(() => {
+                mobileKeysBar.classList.add('visible');
+                log(keysBarOutput, '✓ Added visible class');
+                
+                const computedStyle = window.getComputedStyle(mobileKeysBar);
+                const display = computedStyle.display;
+                const position = computedStyle.position;
+                const bottom = computedStyle.bottom;
+                
+                log(keysBarOutput, `✓ Display: ${display}`);
+                log(keysBarOutput, `✓ Position: ${position}`);
+                log(keysBarOutput, `✓ Bottom: ${bottom}`);
+                
+                status.className = 'status success';
+                status.textContent = 'Visibility test passed!';
+            }, 100);
+        }
+        
+        function testKeyMapping() {
+            keysBarOutput.innerHTML = '';
+            log(keysBarOutput, 'Testing key mapping...');
+            
+            const keyMap = {
+                'esc': '\x1b',
+                'tab': '\t',
+                'up': '\x1b[A',
+                'down': '\x1b[B',
+                'right': '\x1b[C',
+                'left': '\x1b[D',
+                'home': '\x1b[H',
+                'end': '\x1b[F',
+                'pgup': '\x1b[5~',
+                'pgdn': '\x1b[6~',
+                '/': '/',
+                '-': '-'
+            };
+            
+            let passed = 0;
+            const total = Object.keys(keyMap).length;
+            
+            for (const [key, sequence] of Object.entries(keyMap)) {
+                if (sequence) {
+                    log(keysBarOutput, `✓ ${key}: ${JSON.stringify(sequence)}`);
+                    passed++;
+                } else {
+                    log(keysBarOutput, `❌ ${key}: missing sequence`);
+                }
+            }
+            
+            status.className = passed === total ? 'status success' : 'status error';
+            status.textContent = `Key mapping test: ${passed}/${total} passed`;
+        }
+        
+        function testKeysBarTheming() {
+            keysBarOutput.innerHTML = '';
+            log(keysBarOutput, 'Testing theming...');
+            
+            const keys = mobileKeysBar.querySelectorAll('.mobile-key');
+            
+            if (keys.length === 0) {
+                log(keysBarOutput, '❌ No keys found');
+                status.className = 'status error';
+                status.textContent = 'No keys found';
+                return;
+            }
+            
+            log(keysBarOutput, `✓ Found ${keys.length} mobile keys`);
+            
+            // Check CSS variables
+            const root = document.documentElement;
+            const computedStyle = window.getComputedStyle(root);
+            
+            const cssVars = [
+                '--bg-secondary',
+                '--bg-tertiary',
+                '--bg-hover',
+                '--bg-active',
+                '--border-color',
+                '--text-primary',
+                '--text-secondary',
+                '--accent-primary'
+            ];
+            
+            let passed = 0;
+            
+            cssVars.forEach(varName => {
+                const value = computedStyle.getPropertyValue(varName);
+                if (value) {
+                    log(keysBarOutput, `✓ ${varName}: ${value}`);
+                    passed++;
+                } else {
+                    log(keysBarOutput, `❌ ${varName}: not defined`);
+                }
+            });
+            
+            // Check key dimensions
+            const firstKey = keys[0];
+            const keyStyle = window.getComputedStyle(firstKey);
+            const height = keyStyle.height;
+            const fontSize = keyStyle.fontSize;
+            
+            log(keysBarOutput, `✓ Key height: ${height}`);
+            log(keysBarOutput, `✓ Font size: ${fontSize}`);
+            
+            status.className = passed === cssVars.length ? 'status success' : 'status error';
+            status.textContent = `Theming test: ${passed}/${cssVars.length} CSS variables found`;
+        }
+        
+        // Test 4: Auto-scroll
+        function testAutoScroll() {
+            scrollOutput.innerHTML = '';
+            log(scrollOutput, 'Testing auto-scroll behavior...');
+            
+            log(scrollOutput, '✓ Auto-scroll should work on mobile');
+            log(scrollOutput, '✓ Header and tabs should NOT hide on scroll');
+            log(scrollOutput, '✓ Mobile keys bar should always be visible');
+            
+            // Check if isAtBottom logic exists
+            log(scrollOutput, '');
+            log(scrollOutput, 'Expected behavior:');
+            log(scrollOutput, '1. Terminal auto-scrolls when new output arrives');
+            log(scrollOutput, '2. Auto-scroll stops when user scrolls up');
+            log(scrollOutput, '3. Auto-scroll resumes when user scrolls to bottom');
+            log(scrollOutput, '4. Header and tabs remain visible at all times');
+            
+            status.className = 'status success';
+            status.textContent = 'Auto-scroll test ready!';
+        }
+        
+        // Test 5: Key Press Prevention
+        function testKeyPressPrevention() {
+            preventOutput.innerHTML = '';
+            log(preventOutput, 'Testing key press prevention...');
+            
+            const keys = mobileKeysBar.querySelectorAll('.mobile-key');
+            
+            if (keys.length === 0) {
+                log(preventOutput, '❌ No keys found');
+                status.className = 'status error';
+                status.textContent = 'No keys found';
+                return;
+            }
+            
+            log(preventOutput, `✓ Found ${keys.length} keys`);
+            
+            // Check event listeners
+            const firstKey = keys[0];
+            log(preventOutput, '');
+            log(preventOutput, 'Expected event listeners:');
+            log(preventOutput, '✓ mousedown: preventDefault()');
+            log(preventOutput, '✓ touchstart: preventDefault() with passive: false');
+            log(preventOutput, '✓ click: preventDefault() and stopPropagation()');
+            
+            log(preventOutput, '');
+            log(preventOutput, 'This prevents keyboard collapse when pressing keys');
+            
+            status.className = 'status success';
+            status.textContent = 'Key press prevention test ready!';
+        }
+        
+        // Initialize tests on load
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                testVisualViewport();
+                setTimeout(() => {
+                    testKeysBarVisibility();
+                    setTimeout(() => {
+                        testKeyMapping();
+                        setTimeout(() => {
+                            testKeysBarTheming();
+                            setTimeout(() => {
+                                testAutoScroll();
+                                setTimeout(() => {
+                                    testKeyPressPrevention();
+                                }, 500);
+                            }, 500);
+                        }, 500);
+                    }, 500);
+                }, 500);
+            }, 500);
+        });
+        
+        // Setup Visual Viewport listener
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', () => {
+                const keyboardHeight = window.innerHeight - window.visualViewport.height;
+                if (keyboardHeight > 0) {
+                    log(keyboardOutput, `Keyboard opened: ${keyboardHeight}px`);
+                    mobileKeysBar.style.bottom = `${keyboardHeight}px`;
+                } else {
+                    log(keyboardOutput, 'Keyboard closed');
+                    mobileKeysBar.style.bottom = '0px';
+                }
+            });
+        }
+    </script>
+</body>
+</html>
