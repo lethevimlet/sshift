@@ -2842,8 +2842,51 @@ class SSHIFTClient {
       // Handle terminal input
       terminal.onData((data) => {
         const sess = this.sessions.get(sessionId);
-        console.log('[SSHIFT] Terminal input received, session:', sessionId, 'connected:', sess?.connected, 'connecting:', sess?.connecting);
+        console.log('[SSHIFT] Terminal input received, session:', sessionId, 'connected:', sess?.connected, 'connecting:', sess?.connecting, 'data:', JSON.stringify(data), 'ctrlPressed:', this.ctrlPressed, 'altPressed:', this.altPressed);
+        
+        // Handle mobile Ctrl/Alt modifiers for physical keyboard input
+        // When mobile Ctrl or Alt is active, modify the input
         if (sess && sess.connected) {
+          // Check if this is a single character input (from physical keyboard on mobile)
+          if (data.length === 1 && (this.ctrlPressed || this.altPressed)) {
+            const char = data.toLowerCase();
+            const charCode = data.charCodeAt(0);
+            
+            // Only process printable ASCII characters (letters, numbers, symbols)
+            if (charCode >= 32 && charCode <= 126) {
+              if (this.ctrlPressed && /[a-z]/.test(char)) {
+                // Send Ctrl+key sequence
+                const ctrlSequences = {
+                  'a': '\x01', 'b': '\x02', 'c': '\x03', 'd': '\x04', 'e': '\x05',
+                  'f': '\x06', 'g': '\x07', 'h': '\x08', 'i': '\x09', 'j': '\x0a',
+                  'k': '\x0b', 'l': '\x0c', 'm': '\x0d', 'n': '\x0e', 'o': '\x0f',
+                  'p': '\x10', 'q': '\x11', 'r': '\x12', 's': '\x13', 't': '\x14',
+                  'u': '\x15', 'v': '\x16', 'w': '\x17', 'x': '\x18', 'y': '\x19',
+                  'z': '\x1a'
+                };
+                const sequence = ctrlSequences[char];
+                if (sequence) {
+                  console.log('[SSHIFT] Mobile Ctrl+' + char + ' via onData, sending:', sequence.charCodeAt(0));
+                  this.socket.emit('ssh-data', { sessionId, data: sequence });
+                  // Reset Ctrl after use
+                  this.ctrlPressed = false;
+                  const ctrlKey = document.querySelector('.mobile-key[data-key="ctrl"]');
+                  if (ctrlKey) ctrlKey.classList.remove('active');
+                  return; // Don't send the original character
+                }
+              } else if (this.altPressed) {
+                // Send ESC + key for Alt
+                console.log('[SSHIFT] Mobile Alt+' + char + ' via onData');
+                this.socket.emit('ssh-data', { sessionId, data: '\x1b' + data });
+                // Reset Alt after use
+                this.altPressed = false;
+                const altKey = document.querySelector('.mobile-key[data-key="alt"]');
+                if (altKey) altKey.classList.remove('active');
+                return; // Don't send the original character
+              }
+            }
+          }
+          
           console.log('[SSHIFT] Sending input to server, sessionId:', sessionId);
           this.socket.emit('ssh-data', { sessionId, data });
         } else if (sess && sess.connecting) {
