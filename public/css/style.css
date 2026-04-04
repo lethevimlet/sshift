@@ -867,27 +867,27 @@ body {
 @media (max-width: 768px) {
   .btn-icon {
     padding: 0 !important;
-    min-width: 24px !important;
-    min-height: 24px !important;
-    max-width: 24px !important;
-    max-height: 24px !important;
-    font-size: 14px !important;
+    min-width: 32px !important;
+    min-height: 32px !important;
+    max-width: 32px !important;
+    max-height: 32px !important;
+    font-size: 16px !important;
     line-height: 1 !important;
     border-width: 1px !important;
   }
   
   .btn-icon i {
-    font-size: 14px !important;
+    font-size: 16px !important;
   }
   
   .menu-btn {
     display: flex !important;
     padding: 0 !important;
-    min-width: 24px !important;
-    min-height: 24px !important;
-    max-width: 24px !important;
-    max-height: 24px !important;
-    font-size: 14px !important;
+    min-width: 32px !important;
+    min-height: 32px !important;
+    max-width: 32px !important;
+    max-height: 32px !important;
+    font-size: 16px !important;
     line-height: 1 !important;
   }
   
@@ -896,7 +896,7 @@ body {
   }
   
   .header-left, .header-right {
-    gap: 2px !important;
+    gap: 4px !important;
   }
 }
 
@@ -2439,25 +2439,25 @@ body {
 @media (max-width: 768px) {
   :root {
     --sidebar-width: 100%;
-    --header-height: 35px;
+    --header-height: 43px;
   }
 
   .header {
-    padding: 0 4px;
+    padding: 0 6px;
   }
 
   .logo {
-    font-size: 14px;
-    gap: 4px;
+    font-size: 16px;
+    gap: 6px;
   }
 
   .logo i {
-    font-size: 12px;
+    font-size: 14px;
   }
 
   .logo-text {
     display: inline;
-    font-size: 12px;
+    font-size: 14px;
   }
 
   /* Show bookmark icon on mobile, hamburger on desktop */
@@ -2487,7 +2487,16 @@ body {
   /* Show mobile tabs dropdown on mobile */
   .mobile-tabs-dropdown {
     display: flex;
-    margin-left: 8px;
+    margin-left: 4px;
+  }
+
+  .mobile-tabs-toggle {
+    min-height: 32px;
+    padding: 6px 10px;
+  }
+
+  .tabs-actions {
+    padding: 0 4px;
   }
 
   .btn-text {
@@ -2869,12 +2878,12 @@ body {
 .mobile-key {
   flex: 1;
   min-width: 0;
-  height: 26px;
+  height: 34px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   border-radius: 3px;
   color: var(--text-primary);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   font-family: var(--font-sans);
   cursor: pointer;
@@ -2913,7 +2922,7 @@ body {
 }
 
 .mobile-key.mobile-key-arrow {
-  font-size: 12px;
+  font-size: 14px;
 }
 
 /* Mobile-only: Show keys bar */
@@ -2940,10 +2949,10 @@ body {
   
   .main-content {
     overflow: hidden !important;
-    /* Account for mobile-keys-bar (59px) at bottom */
-    /* Header (35px + 1px border) and tabs (35px + 1px border) are handled by padding-top */
-    max-height: calc(100vh - 59px);
-    max-height: calc(100svh - 59px);
+    /* Account for mobile-keys-bar (75px) at bottom */
+    /* Header (43px + 1px border) and tabs (35px + 1px border) are handled by padding-top */
+    max-height: calc(100vh - 75px);
+    max-height: calc(100svh - 75px);
     overscroll-behavior: none;
   }
   
@@ -2980,8 +2989,8 @@ body {
   
   /* Add padding to main-content to account for fixed header and tabs */
   .main-content {
-    /* Header: 35px + 1px border, Tabs: 35px + 1px border = 72px total */
-    padding-top: 72px;
+    /* Header: 43px + 1px border, Tabs: 35px + 1px border = 80px total */
+    padding-top: 80px;
   }
   
   /* When header is hidden, move tabs to top and adjust padding */

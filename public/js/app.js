@@ -910,6 +910,38 @@ class SSHIFTClient {
     }
   }
 
+  // Helper to get actual element heights from computed styles
+  getComputedHeight(selector, defaultHeight) {
+    const element = document.querySelector(selector);
+    if (!element) return defaultHeight;
+    
+    const style = window.getComputedStyle(element);
+    const height = parseFloat(style.height) || 0;
+    const marginTop = parseFloat(style.marginTop) || 0;
+    const marginBottom = parseFloat(style.marginBottom) || 0;
+    const paddingTop = parseFloat(style.paddingTop) || 0;
+    const paddingBottom = parseFloat(style.paddingBottom) || 0;
+    const borderTop = parseFloat(style.borderTopWidth) || 0;
+    const borderBottom = parseFloat(style.borderBottomWidth) || 0;
+    
+    // Return total occupied height
+    return height + marginTop + marginBottom + paddingTop + paddingBottom + borderTop + borderBottom;
+  }
+
+  // Calculate all fixed UI element heights dynamically
+  getFixedUIHeights() {
+    const headerHeight = this.getComputedHeight('.header', 43);
+    const tabsHeight = this.getComputedHeight('.tabs-container', 35);
+    const mobileKeysBarHeight = this.getComputedHeight('.mobile-keys-bar', 75);
+    
+    return {
+      header: headerHeight,
+      tabs: tabsHeight,
+      mobileKeysBar: mobileKeysBarHeight,
+      total: headerHeight + tabsHeight + mobileKeysBarHeight
+    };
+  }
+
   setupMobileKeysBarKeyboardHandling() {
     if (!this.isMobile) return;
     
@@ -932,24 +964,20 @@ class SSHIFTClient {
         if (lastKeyboardHeight === -1 || Math.abs(keyboardHeight - lastKeyboardHeight) > 50) {
           lastKeyboardHeight = keyboardHeight;
           
+          // Get heights dynamically
+          const heights = this.getFixedUIHeights();
+          const bufferHeight = 5; // Add small bottom margin when keyboard is visible
+          
           if (keyboardHeight > 50) {
             // Keyboard is open - position keys bar above keyboard
             mobileKeysBar.style.bottom = `${keyboardHeight}px`;
             
             // Update terminal area height to account for keyboard
             const terminalArea = document.querySelector('.terminal-area');
-            const terminalsContainer = document.querySelector('.terminals-container');
             
             if (terminalArea) {
-              // Calculate available height: viewport height minus header and tabs
-              const headerHeight = 35; // var(--header-height)
-              const headerBorder = 1; // border-bottom
-              const tabsHeight = 35; // min-height of tabs-container
-              const tabsBorder = 1; // border-bottom
-              // Mobile keys bar: 2px padding + 26px key + 2px margin + 26px key + 2px padding + 1px border = 59px
-              const mobileKeysBarHeight = 59;
-              const bufferHeight = 5; // Add small bottom margin when keyboard is visible
-              const availableHeight = viewportHeight - headerHeight - headerBorder - tabsHeight - tabsBorder - mobileKeysBarHeight - bufferHeight;
+              // Calculate available height: viewport height minus fixed elements
+              const availableHeight = viewportHeight - heights.total - bufferHeight;
               
               terminalArea.style.height = `${Math.max(availableHeight, 100)}px`;
               terminalArea.style.maxHeight = `${Math.max(availableHeight, 100)}px`;
@@ -972,17 +1000,9 @@ class SSHIFTClient {
             
             if (terminalArea) {
               // Calculate available height accounting for all fixed elements
-              const headerHeight = 35; // var(--header-height)
-              const headerBorder = 1; // border-bottom
-              const tabsHeight = 35; // min-height of tabs-container
-              const tabsBorder = 1; // border-bottom
-              const mobileKeysBarHeight = 59; // includes border-top
+              const availableHeight = viewportHeight - heights.total;
               
-              // Total fixed space at top and bottom
-              const fixedHeight = headerHeight + headerBorder + tabsHeight + tabsBorder + mobileKeysBarHeight;
-              const availableHeight = viewportHeight - fixedHeight;
-              
-              console.log('[SSHIFT] Keyboard closed - viewportHeight:', viewportHeight, 'fixedHeight:', fixedHeight, 'availableHeight:', availableHeight);
+              console.log('[SSHIFT] Keyboard closed - viewportHeight:', viewportHeight, 'fixedHeight:', heights.total, 'availableHeight:', availableHeight);
               
               // Set height slightly smaller to leave bottom margin
               terminalArea.style.height = `${Math.max(availableHeight - 4, 100)}px`;
@@ -2845,6 +2865,56 @@ class SSHIFTClient {
       // Handle copy/paste keyboard shortcuts
       terminal.attachCustomKeyEventHandler((event) => {
         console.log('[SSHIFT] Key event:', event.type, event.key, 'ctrl:', event.ctrlKey, 'shift:', event.shiftKey, 'hasSelection:', terminal.hasSelection());
+        
+        // Handle mobile Ctrl modifier - apply to physical keyboard input
+        // When mobile Ctrl is active and user types a key, send Ctrl+key
+        if (event.type === 'keydown' && this.ctrlPressed && !event.ctrlKey) {
+          const key = event.key.toLowerCase();
+          // Only apply Ctrl to single character keys (letters, numbers)
+          if (key.length === 1 && /[a-z0-9]/.test(key)) {
+            console.log('[SSHIFT] Mobile Ctrl active, sending Ctrl+' + key);
+            // Send Ctrl+key sequence
+            const ctrlSequences = {
+              'a': '\x01', 'b': '\x02', 'c': '\x03', 'd': '\x04', 'e': '\x05',
+              'f': '\x06', 'g': '\x07', 'h': '\x08', 'i': '\x09', 'j': '\x0a',
+              'k': '\x0b', 'l': '\x0c', 'm': '\x0d', 'n': '\x0e', 'o': '\x0f',
+              'p': '\x10', 'q': '\x11', 'r': '\x12', 's': '\x13', 't': '\x14',
+              'u': '\x15', 'v': '\x16', 'w': '\x17', 'x': '\x18', 'y': '\x19',
+              'z': '\x1a'
+            };
+            const sequence = ctrlSequences[key];
+            const sess = this.sessions.get(sessionId);
+            if (sequence && sess && sess.connected) {
+              this.socket.emit('ssh-data', { sessionId, data: sequence });
+              console.log('[SSHIFT] Sent Ctrl+' + key + ' sequence');
+            }
+            // Reset Ctrl after use
+            this.ctrlPressed = false;
+            const ctrlKey = document.querySelector('.mobile-key[data-key="ctrl"]');
+            if (ctrlKey) ctrlKey.classList.remove('active');
+            return false; // Prevent default
+          }
+        }
+        
+        // Handle mobile Alt modifier - apply to physical keyboard input
+        if (event.type === 'keydown' && this.altPressed && !event.altKey) {
+          const key = event.key;
+          // Only apply Alt to single character keys
+          if (key.length === 1) {
+            console.log('[SSHIFT] Mobile Alt active, sending Alt+' + key);
+            // Send ESC + key for Alt
+            const sess = this.sessions.get(sessionId);
+            if (sess && sess.connected) {
+              this.socket.emit('ssh-data', { sessionId, data: '\x1b' + key });
+              console.log('[SSHIFT] Sent Alt+' + key + ' sequence');
+            }
+            // Reset Alt after use
+            this.altPressed = false;
+            const altKey = document.querySelector('.mobile-key[data-key="alt"]');
+            if (altKey) altKey.classList.remove('active');
+            return false; // Prevent default
+          }
+        }
         
         // Ctrl+C - Copy if there's a selection, otherwise send to terminal
         if (event.ctrlKey && event.key === 'c' && terminal.hasSelection()) {
