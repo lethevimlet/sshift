@@ -1810,9 +1810,34 @@ class SSHIFTClient {
     // These event listeners are no longer needed but kept for reference
     // SFTP is now opened in tabs instead of modal
 
+    // Tabs scroll arrows
+    const scrollLeftBtn = document.getElementById('scrollLeftBtn');
+    const scrollRightBtn = document.getElementById('scrollRightBtn');
+    
+    if (scrollLeftBtn) {
+      scrollLeftBtn.addEventListener('click', () => {
+        this.scrollTabs(-150);
+      });
+    }
+    
+    if (scrollRightBtn) {
+      scrollRightBtn.addEventListener('click', () => {
+        this.scrollTabs(150);
+      });
+    }
+    
+    // Update scroll arrows when tabs container is scrolled
+    const tabsContainer = document.getElementById('tabs');
+    if (tabsContainer) {
+      tabsContainer.addEventListener('scroll', () => {
+        this.updateTabsScrollArrows();
+      });
+    }
+
     // Window resize
     window.addEventListener('resize', () => {
       this.handleResize();
+      this.updateTabsScrollArrows();
     });
 
     // Click outside modal to close
@@ -2302,6 +2327,52 @@ class SSHIFTClient {
     mobileTabsLabel.textContent = activeTabName;
   }
 
+  // Scroll tabs left or right
+  scrollTabs(amount) {
+    const tabsContainer = document.getElementById('tabs');
+    if (!tabsContainer) return;
+    
+    tabsContainer.scrollBy({
+      left: amount,
+      behavior: 'smooth'
+    });
+  }
+
+  // Update scroll arrows visibility based on tabs overflow
+  updateTabsScrollArrows() {
+    const tabsContainer = document.getElementById('tabs');
+    const scrollArrows = document.getElementById('tabsScrollArrows');
+    const scrollLeftBtn = document.getElementById('scrollLeftBtn');
+    const scrollRightBtn = document.getElementById('scrollRightBtn');
+    
+    if (!tabsContainer || !scrollArrows) return;
+    
+    // Only show arrows on desktop (width > 768px)
+    const isDesktop = window.innerWidth > 768;
+    if (!isDesktop) {
+      scrollArrows.classList.remove('visible');
+      return;
+    }
+    
+    // Check if tabs overflow the container
+    const hasOverflow = tabsContainer.scrollWidth > tabsContainer.clientWidth;
+    
+    if (hasOverflow) {
+      scrollArrows.classList.add('visible');
+      
+      // Update arrow states based on scroll position
+      if (scrollLeftBtn) {
+        scrollLeftBtn.disabled = tabsContainer.scrollLeft <= 0;
+      }
+      if (scrollRightBtn) {
+        const maxScrollLeft = tabsContainer.scrollWidth - tabsContainer.clientWidth;
+        scrollRightBtn.disabled = tabsContainer.scrollLeft >= maxScrollLeft - 1; // -1 for rounding
+      }
+    } else {
+      scrollArrows.classList.remove('visible');
+    }
+  }
+
   saveStickyConfig() {
     // Save to localStorage
     localStorage.setItem('sticky', JSON.stringify(this.sticky));
@@ -2489,6 +2560,9 @@ class SSHIFTClient {
 
     document.getElementById('tabs').appendChild(tab);
     document.getElementById('terminalsContainer').appendChild(terminalWrapper);
+    
+    // Update scroll arrows visibility
+    this.updateTabsScrollArrows();
 
     this.sessions.set(sessionId, {
       id: sessionId,
@@ -2591,6 +2665,15 @@ class SSHIFTClient {
           this.openModal('specialKeysModal');
         }
         this.switchTab(sessionId);
+      }
+    });
+
+    // Middle-click (mouse button 3/wheel) to close tab
+    tab.addEventListener('auxclick', (e) => {
+      // Button 1 is the middle mouse button
+      if (e.button === 1) {
+        e.preventDefault();
+        this.closeTab(sessionId);
       }
     });
 
@@ -3172,6 +3255,9 @@ class SSHIFTClient {
     const sftpContent = this.createSFTPContentElement(sessionId);
     console.log('[SSHIFT] SFTP content element created:', sftpContent.id);
     document.getElementById('terminalsContainer').appendChild(sftpContent);
+    
+    // Update scroll arrows visibility
+    this.updateTabsScrollArrows();
 
     this.sftpSessions.set(sessionId, {
       id: sessionId,
@@ -3575,6 +3661,9 @@ class SSHIFTClient {
     
     if (tab) tab.remove();
     if (wrapper) wrapper.remove();
+
+    // Update scroll arrows visibility
+    this.updateTabsScrollArrows();
 
     // Switch to another tab or show empty state
     if (this.activeSessionId === sessionId) {

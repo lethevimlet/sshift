@@ -1669,6 +1669,47 @@ body {
   min-height: 32px;
 }
 
+/* Tabs scroll arrows - desktop only */
+.tabs-scroll-arrows {
+  display: none;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+}
+
+.tabs-scroll-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 28px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  font-size: 12px;
+}
+
+.tabs-scroll-arrow:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.tabs-scroll-arrow:active {
+  background: var(--bg-tertiary);
+}
+
+.tabs-scroll-arrow:disabled {
+  opacity: 0.3;
+}
+
+/* Show scroll arrows on desktop when tabs overflow */
+.tabs-scroll-arrows.visible {
+  display: flex;
+}
+
 /* Terminals Container */
 .terminals-container {
   flex: 1;
