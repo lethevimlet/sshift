@@ -1,6 +1,6 @@
 {
   "name": "sshift",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Web-based SSH + SFTP terminal client with tabs and bookmarks",
   "main": "server.js",
   "bin": {
