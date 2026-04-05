@@ -1060,6 +1060,83 @@ body {
   padding: 8px;
 }
 
+.sidebar-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-primary);
+}
+
+.version-info {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.version-label {
+  font-weight: 500;
+}
+
+.version-number {
+  font-family: monospace;
+  color: var(--text-primary);
+}
+
+.update-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.check-updates {
+  font-size: 12px;
+  color: var(--accent-primary);
+  cursor: pointer;
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+.check-updates:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+.btn-update {
+  font-size: 11px;
+  padding: 4px 10px !important;
+  background: var(--accent-primary);
+  color: white;
+  border: none;
+  gap: 4px;
+}
+
+.btn-update:hover {
+  background: var(--accent-hover);
+}
+
+.sidebar.collapsed .sidebar-footer {
+  padding: 8px;
+  text-align: center;
+}
+
+.sidebar.collapsed .version-info {
+  font-size: 10px;
+}
+
+.sidebar.collapsed .update-info {
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sidebar.collapsed .check-updates {
+  font-size: 10px;
+}
+
+.sidebar.collapsed .btn-update {
+  font-size: 10px;
+  padding: 3px 6px !important;
+}
+
 .bookmark-item {
   display: flex;
   align-items: center;
@@ -3037,6 +3114,32 @@ body {
     overscroll-behavior: none;
   }
   
+  /* When mobile keys bar is hidden (e.g., for SFTP tabs), use full height */
+  body.mobile-keys-bar-hidden .main-content {
+    max-height: 100vh !important;
+    max-height: 100svh !important;
+  }
+  
+  /* Ensure all containers fill the space when mobile keys bar is hidden */
+  body.mobile-keys-bar-hidden .terminal-area {
+    height: 100% !important;
+    max-height: 100% !important;
+  }
+  
+  body.mobile-keys-bar-hidden .terminals-container {
+    height: 100% !important;
+    max-height: 100% !important;
+  }
+  
+  body.mobile-keys-bar-hidden .terminal-wrapper.active {
+    height: 100% !important;
+  }
+  
+  body.mobile-keys-bar-hidden .sftp-container {
+    height: 100% !important;
+    min-height: 100% !important;
+  }
+  
   .terminal-area {
     overflow: hidden !important;
     max-height: 100%;
@@ -3138,6 +3241,12 @@ body {
   /* Add bottom margin when keyboard is hidden */
   .terminals-container.keyboard-hidden {
     padding-bottom: 4px;
+  }
+  
+  /* SFTP container should fill available space on mobile */
+  .sftp-container {
+    height: 100%;
+    min-height: 100%;
   }
 }
 

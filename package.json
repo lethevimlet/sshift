@@ -1,11 +1,14 @@
 {
-  "name": "web-ssh-sftp-client",
-  "version": "0.0.1",
+  "name": "sshift",
+  "version": "0.0.2",
   "description": "Web-based SSH + SFTP terminal client with tabs and bookmarks",
   "main": "server.js",
+  "bin": {
+    "sshift": "./sshift"
+  },
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js",
+    "start": "node sshift",
+    "dev": "NODE_ENV=development node sshift",
     "test": "node test/test-client.js",
     "test:server": "node server.js & sleep 2 && node test/test-client.js"
   },

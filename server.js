@@ -36,8 +36,6 @@ const io = socketIO(server, {
   pingInterval: 25000 // 25 seconds (default)
 });
 
-const PORT = process.env.PORT || 3000;
-
 // Config paths - try .env/config.json first, then fall back to root config.json
 const ENV_CONFIG_PATH = path.join(__dirname, '.env', 'config.json');
 const ROOT_CONFIG_PATH = path.join(__dirname, 'config.json');
@@ -52,6 +50,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // Default config structure
 const defaultConfig = {
+  port: 8022,
+  devPort: 3000,
+  bind: '0.0.0.0',
   sticky: true,
   sshKeepaliveInterval: 10000,
   sshKeepaliveCountMax: 1000,
@@ -94,6 +95,43 @@ function saveConfig(config) {
     return false;
   }
 }
+
+// Determine port with priority: PORT env var > config > defaults
+function getPort() {
+  // Priority 1: PORT environment variable (highest priority)
+  if (process.env.PORT) {
+    return parseInt(process.env.PORT, 10);
+  }
+  
+  // Priority 2: Check if running in dev mode
+  const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('dev');
+  
+  // Priority 3: Load from config
+  const config = loadConfig();
+  
+  if (isDev) {
+    return config.devPort || 3000;
+  }
+  
+  return config.port || 8022;
+}
+
+// Determine bind address with priority: BIND env var > config > defaults
+function getBindAddress() {
+  // Priority 1: BIND environment variable (highest priority)
+  if (process.env.BIND) {
+    return process.env.BIND;
+  }
+  
+  // Priority 2: Load from config
+  const config = loadConfig();
+  
+  // Priority 3: Default
+  return config.bind || '0.0.0.0';
+}
+
+const PORT = getPort();
+const BIND = getBindAddress();
 
 // Routes
 app.get('/', (req, res) => {
@@ -447,6 +485,148 @@ app.post('/api/folders/expanded', (req, res) => {
 app.get('/api/folders/expanded', (req, res) => {
   const config = loadConfig();
   res.json(config.folderExpandedStates || {});
+});
+
+// API: Get version
+app.get('/api/version', (req, res) => {
+  try {
+    const packagePath = path.join(__dirname, 'package.json');
+    const packageData = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+    res.json({ version: packageData.version });
+  } catch (err) {
+    console.error('Error reading version:', err);
+    res.status(500).json({ error: 'Failed to read version' });
+  }
+});
+
+// API: Check for updates
+app.get('/api/check-update', async (req, res) => {
+  try {
+    const https = require('https');
+    
+    // Get local version
+    const packagePath = path.join(__dirname, 'package.json');
+    const packageData = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+    const localVersion = packageData.version;
+    
+    // Get remote version from GitHub
+    const options = {
+      hostname: 'api.github.com',
+      path: '/repos/lethevimlet/sshift/contents/package.json',
+      method: 'GET',
+      headers: {
+        'User-Agent': 'sshift-update-checker',
+        'Accept': 'application/vnd.github.v3+json'
+      }
+    };
+    
+    const githubRequest = https.request(options, (githubResponse) => {
+      let data = '';
+      
+      githubResponse.on('data', (chunk) => {
+        data += chunk;
+      });
+      
+      githubResponse.on('end', () => {
+        try {
+          if (githubResponse.statusCode !== 200) {
+            console.error('GitHub API error:', githubResponse.statusCode, data);
+            res.status(500).json({ error: 'Failed to check for updates' });
+            return;
+          }
+          
+          const response = JSON.parse(data);
+          const content = Buffer.from(response.content, 'base64').toString('utf8');
+          const remotePackage = JSON.parse(content);
+          const remoteVersion = remotePackage.version;
+          
+          // Compare versions
+          const compareVersions = (v1, v2) => {
+            const parts1 = v1.split('.').map(Number);
+            const parts2 = v2.split('.').map(Number);
+            
+            for (let i = 0; i < 3; i++) {
+              if (parts1[i] < parts2[i]) return -1;
+              if (parts1[i] > parts2[i]) return 1;
+            }
+            return 0;
+          };
+          
+          const comparison = compareVersions(localVersion, remoteVersion);
+          const updateAvailable = comparison < 0;
+          
+          res.json({
+            localVersion,
+            remoteVersion,
+            updateAvailable,
+            checkedAt: new Date().toISOString()
+          });
+        } catch (err) {
+          console.error('Error parsing GitHub response:', err);
+          res.status(500).json({ error: 'Failed to parse update information' });
+        }
+      });
+    });
+    
+    githubRequest.on('error', (err) => {
+      console.error('Error checking for updates:', err);
+      res.status(500).json({ error: 'Failed to check for updates' });
+    });
+    
+    githubRequest.end();
+  } catch (err) {
+    console.error('Error in check-update:', err);
+    res.status(500).json({ error: 'Failed to check for updates' });
+  }
+});
+
+// API: Trigger update
+app.post('/api/update', async (req, res) => {
+  try {
+    const { exec } = require('child_process');
+    const platform = process.platform;
+    
+    // Determine the install script based on platform
+    let installScript;
+    if (platform === 'win32') {
+      installScript = path.join(__dirname, 'install.ps1');
+    } else {
+      installScript = path.join(__dirname, 'install.sh');
+    }
+    
+    // Check if install script exists
+    if (!fs.existsSync(installScript)) {
+      res.status(500).json({ error: 'Install script not found' });
+      return;
+    }
+    
+    // Send response immediately, then update in background
+    res.json({ message: 'Update started. Server will restart automatically.' });
+    
+    // Execute update script with --update flag
+    const updateCommand = platform === 'win32' 
+      ? `powershell.exe -ExecutionPolicy Bypass -File "${installScript}" --update`
+      : `"${installScript}" --update`;
+    
+    console.log('[UPDATE] Starting update process...');
+    exec(updateCommand, { cwd: __dirname }, (error, stdout, stderr) => {
+      if (error) {
+        console.error('[UPDATE] Update failed:', error);
+        console.error('[UPDATE] stderr:', stderr);
+        return;
+      }
+      console.log('[UPDATE] Update completed:', stdout);
+      
+      // Exit the process to allow the update script to restart it
+      setTimeout(() => {
+        console.log('[UPDATE] Exiting for restart...');
+        process.exit(0);
+      }, 1000);
+    });
+  } catch (err) {
+    console.error('Error triggering update:', err);
+    res.status(500).json({ error: 'Failed to trigger update' });
+  }
 });
 
 // Socket.IO connection handling
@@ -887,8 +1067,13 @@ io.on('connection', (socket) => {
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`Web SSH/SFTP Client running at http://localhost:${PORT}`);
+server.listen(PORT, BIND, () => {
+  const address = BIND === '0.0.0.0' || BIND === '::' ? 'localhost' : BIND;
+  console.log(`Web SSH/SFTP Client running at http://${address}:${PORT}`);
+  // OSC 8 hyperlink: ESC ] 8 ; ; URL BEL text ESC ] 8 ; ; BEL
+  const ESC = '\x1b';
+  const BEL = '\x07';
+  console.log(`Click to open: ${ESC}]8;;http://localhost:${PORT}${BEL}http://localhost:${PORT}${ESC}]8;;${BEL}`);
 });
 
 // Export io for use in managers
