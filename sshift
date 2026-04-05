@@ -1,0 +1,62 @@
+#!/usr/bin/env node
+
+/**
+ * sshift - Web-based SSH & SFTP Terminal Client
+ * 
+ * This is the main entry point for the sshift application.
+ * Run this file to start the server.
+ * 
+ * Usage:
+ *   ./sshift              # Start server on default port (8022, or from config.json)
+ *   PORT=8080 ./sshift    # Start server on custom port (overrides config)
+ *   NODE_ENV=development ./sshift  # Start in dev mode (port 3000, or from config)
+ *   node sshift           # Alternative way to start
+ * 
+ * Port Priority:
+ *   1. PORT environment variable (highest priority)
+ *   2. config.json port/devPort based on NODE_ENV
+ *   3. Default: 8022 (production), 3000 (development)
+ */
+
+'use strict';
+
+const path = require('path');
+const fs = require('fs');
+
+// Get the directory where this script is located
+const scriptDir = __dirname;
+const serverPath = path.join(scriptDir, 'server.js');
+
+// Check if server.js exists
+if (!fs.existsSync(serverPath)) {
+  console.error('Error: server.js not found');
+  console.error('Make sure you are running sshift from the installation directory');
+  process.exit(1);
+}
+
+// Change to the script's directory to ensure relative paths work correctly
+process.chdir(scriptDir);
+
+// Load environment variables from .env files
+// Priority: .env/.env.local > .env.local > .env/.env > .env
+const envPaths = [
+  path.join(scriptDir, '.env', '.env.local'),
+  path.join(scriptDir, '.env.local'),
+  path.join(scriptDir, '.env', '.env'),
+  path.join(scriptDir, '.env')
+];
+
+// Load dotenv if available
+try {
+  const dotenv = require('dotenv');
+  envPaths.forEach(envPath => {
+    if (fs.existsSync(envPath)) {
+      dotenv.config({ path: envPath });
+    }
+  });
+} catch (e) {
+  // dotenv not available, environment variables will be loaded by server.js
+}
+
+// Start the server
+require(serverPath);

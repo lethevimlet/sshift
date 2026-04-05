@@ -36,8 +36,6 @@ const io = socketIO(server, {
   pingInterval: 25000 // 25 seconds (default)
 });
 
-const PORT = process.env.PORT || 3000;
-
 // Config paths - try .env/config.json first, then fall back to root config.json
 const ENV_CONFIG_PATH = path.join(__dirname, '.env', 'config.json');
 const ROOT_CONFIG_PATH = path.join(__dirname, 'config.json');
@@ -52,6 +50,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // Default config structure
 const defaultConfig = {
+  port: 8022,
+  devPort: 3000,
+  bind: '0.0.0.0',
   sticky: true,
   sshKeepaliveInterval: 10000,
   sshKeepaliveCountMax: 1000,
@@ -94,6 +95,43 @@ function saveConfig(config) {
     return false;
   }
 }
+
+// Determine port with priority: PORT env var > config > defaults
+function getPort() {
+  // Priority 1: PORT environment variable (highest priority)
+  if (process.env.PORT) {
+    return parseInt(process.env.PORT, 10);
+  }
+  
+  // Priority 2: Check if running in dev mode
+  const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('dev');
+  
+  // Priority 3: Load from config
+  const config = loadConfig();
+  
+  if (isDev) {
+    return config.devPort || 3000;
+  }
+  
+  return config.port || 8022;
+}
+
+// Determine bind address with priority: BIND env var > config > defaults
+function getBindAddress() {
+  // Priority 1: BIND environment variable (highest priority)
+  if (process.env.BIND) {
+    return process.env.BIND;
+  }
+  
+  // Priority 2: Load from config
+  const config = loadConfig();
+  
+  // Priority 3: Default
+  return config.bind || '0.0.0.0';
+}
+
+const PORT = getPort();
+const BIND = getBindAddress();
 
 // Routes
 app.get('/', (req, res) => {
@@ -887,8 +925,13 @@ io.on('connection', (socket) => {
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`Web SSH/SFTP Client running at http://localhost:${PORT}`);
+server.listen(PORT, BIND, () => {
+  const address = BIND === '0.0.0.0' || BIND === '::' ? 'localhost' : BIND;
+  console.log(`Web SSH/SFTP Client running at http://${address}:${PORT}`);
+  // OSC 8 hyperlink: ESC ] 8 ; ; URL BEL text ESC ] 8 ; ; BEL
+  const ESC = '\x1b';
+  const BEL = '\x07';
+  console.log(`Click to open: ${ESC}]8;;http://localhost:${PORT}${BEL}http://localhost:${PORT}${ESC}]8;;${BEL}`);
 });
 
 // Export io for use in managers
