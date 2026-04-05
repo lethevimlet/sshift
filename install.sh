@@ -100,13 +100,15 @@ get_local_version() {
     fi
 }
 
-# Get remote version from GitHub API
+# Get remote version from GitHub raw file
 get_remote_version() {
     local version
+    local raw_url="https://raw.githubusercontent.com/lethevimlet/sshift/main/package.json"
+    
     if command_exists curl; then
-        version=$(curl -s "$REPO_API_URL" 2>/dev/null | grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+        version=$(curl -s "$raw_url" 2>/dev/null | grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | cut -d'"' -f4)
     elif command_exists wget; then
-        version=$(wget -qO- "$REPO_API_URL" 2>/dev/null | grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+        version=$(wget -qO- "$raw_url" 2>/dev/null | grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | cut -d'"' -f4)
     else
         warn "Neither curl nor wget available, cannot check remote version"
         echo "0.0.0"
