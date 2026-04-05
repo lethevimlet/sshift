@@ -1579,7 +1579,7 @@ body {
   justify-content: space-between;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
-  min-height: 35px;
+  min-height: 37px;
   z-index: 10;
   transition: transform 0.3s ease;
 }
@@ -2532,8 +2532,9 @@ body {
   }
 
   .mobile-tabs-toggle {
-    min-height: 32px;
-    padding: 6px 10px;
+    min-height: 28px;
+    padding: 4px 6px;
+    font-size: 12px;
   }
 
   .tabs-actions {
@@ -2672,7 +2673,10 @@ body {
   
   /* Keep tabs-actions buttons at 32px for consistency */
   .tabs-actions .btn-sm {
-    min-height: 32px;
+    min-height: 28px;
+    min-width: 28px;
+    padding: 4px 6px;
+    font-size: 12px;
   }
 
   .tab {

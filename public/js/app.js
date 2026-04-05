@@ -43,6 +43,11 @@ class SSHIFTClient {
     this.ctrlPressed = false; // Track Ctrl key state
     this.altPressed = false; // Track Alt key state
     
+    // Terminal font size (for pinch-to-zoom on mobile)
+    this.terminalFontSize = 14; // Default font size
+    this.minFontSize = 8; // Minimum font size
+    this.maxFontSize = 32; // Maximum font size
+    
     console.log('[SSHIFT] Mobile detection - isMobile:', this.isMobile, 'window width:', window.innerWidth);
     
     this.init();
@@ -209,6 +214,60 @@ class SSHIFTClient {
 
   saveAccent(accent) {
     localStorage.setItem('accent', accent);
+  }
+
+  // Terminal Font Size Management (for pinch-to-zoom and buttons)
+  loadTerminalFontSize() {
+    // Don't persist - always start with default
+    return 14; // Default font size
+  }
+
+  saveTerminalFontSize(size) {
+    // Don't persist - font size is session-only
+  }
+
+  setTerminalFontSize(size) {
+    // Clamp size to min/max bounds
+    size = Math.max(this.minFontSize, Math.min(this.maxFontSize, size));
+    
+    if (size === this.terminalFontSize) {
+      return; // No change needed
+    }
+    
+    this.terminalFontSize = size;
+    
+    // Update all active SSH terminals
+    this.sessions.forEach((session) => {
+      if (session.terminal) {
+        session.terminal.options.fontSize = size;
+        session.terminal.refresh(0, session.terminal.rows - 1);
+        // Refit the terminal to adjust dimensions
+        if (session.fitAddon) {
+          session.fitAddon.fit();
+        }
+      }
+    });
+    
+    // Update all active SFTP terminals
+    this.sftpSessions.forEach((session) => {
+      if (session.terminal) {
+        session.terminal.options.fontSize = size;
+        session.terminal.refresh(0, session.terminal.rows - 1);
+        if (session.fitAddon) {
+          session.fitAddon.fit();
+        }
+      }
+    });
+    
+    console.log('[SSHIFT] Terminal font size set to:', size);
+  }
+
+  increaseFontSize() {
+    this.setTerminalFontSize(this.terminalFontSize + 1);
+  }
+
+  decreaseFontSize() {
+    this.setTerminalFontSize(this.terminalFontSize - 1);
   }
 
   hexToRgba(hex, alpha = 0.5) {
@@ -586,6 +645,9 @@ class SSHIFTClient {
     this.applySidebarState();
     this.initThemeAndAccent(); // Initialize theme and accent
     
+    // Load terminal font size
+    this.terminalFontSize = this.loadTerminalFontSize();
+    
     // Update terminal color UI to reflect loaded settings
     this.updateTerminalColorOverrideUI();
     
@@ -656,6 +718,11 @@ class SSHIFTClient {
     session.isScrolling = false;
     session.isAtBottom = true; // Start at bottom
     
+    // Initialize pinch-to-zoom state
+    session.initialPinchDistance = 0;
+    session.lastPinchDistance = 0;
+    session.isPinching = false;
+    
     // Use xterm.js onScroll event to track scroll position
     terminal.onScroll(() => {
       console.log('[SSHIFT] xterm onScroll event fired');
@@ -663,7 +730,7 @@ class SSHIFTClient {
       this.checkIfAtBottom(sessionId);
     });
     
-    // Also handle touch events on the terminal element for touch scrolling
+    // Also handle touch events on the terminal element for touch scrolling and pinch-to-zoom
     const terminalElement = terminal.element;
     if (terminalElement) {
       console.log('[SSHIFT] Terminal element found, setting up touch handlers');
@@ -680,37 +747,80 @@ class SSHIFTClient {
         
         console.log(`[SSHIFT] Setting up touch handlers on ${elementName}`);
         
-        // Touch start - record initial position
+        // Touch start - record initial position for both scroll and pinch
         element.addEventListener('touchstart', (e) => {
           if (e.touches.length === 1) {
             session.lastTouchY = e.touches[0].clientY;
             session.isScrolling = true;
             console.log(`[SSHIFT] ${elementName} touchstart, Y:`, session.lastTouchY);
+          } else if (e.touches.length === 2) {
+            // Pinch gesture started
+            session.isPinching = true;
+            session.isScrolling = false;
+            session.initialPinchDistance = this.getPinchDistance(e.touches[0], e.touches[1]);
+            session.lastPinchDistance = session.initialPinchDistance;
+            console.log(`[SSHIFT] ${elementName} pinch start, distance:`, session.initialPinchDistance);
           }
         }, { passive: true });
         
-        // Touch move - track scrolling
+        // Touch move - track scrolling and pinch
         element.addEventListener('touchmove', (e) => {
-          if (!session.isScrolling || e.touches.length !== 1) return;
-          
-          const currentTouchY = e.touches[0].clientY;
-          const touchDiff = session.lastTouchY - currentTouchY;
-          
-          // Update last touch position
-          session.lastTouchY = currentTouchY;
-          
-          console.log(`[SSHIFT] ${elementName} touchmove, diff:`, touchDiff);
+          // Handle single-finger scroll
+          if (e.touches.length === 1 && session.isScrolling) {
+            const currentTouchY = e.touches[0].clientY;
+            const touchDiff = session.lastTouchY - currentTouchY;
+            
+            // Update last touch position
+            session.lastTouchY = currentTouchY;
+            
+            console.log(`[SSHIFT] ${elementName} touchmove, diff:`, touchDiff);
+          }
+          // Handle two-finger pinch
+          else if (e.touches.length === 2 && session.isPinching) {
+            const currentDistance = this.getPinchDistance(e.touches[0], e.touches[1]);
+            const distanceDiff = currentDistance - session.lastPinchDistance;
+            
+            // Calculate font size change based on pinch scale
+            // Scale factor: 1 pixel distance change = 0.1 font size change
+            const fontSizeChange = distanceDiff * 0.1;
+            
+            if (Math.abs(fontSizeChange) >= 0.5) {
+              const newFontSize = Math.round(this.terminalFontSize + fontSizeChange);
+              
+              if (newFontSize !== this.terminalFontSize) {
+                this.setTerminalFontSize(newFontSize);
+                console.log(`[SSHIFT] ${elementName} pinch zoom, font size:`, newFontSize);
+              }
+            }
+            
+            session.lastPinchDistance = currentDistance;
+          }
         }, { passive: true });
         
-        // Touch end - check if at bottom for auto-scroll
-        element.addEventListener('touchend', () => {
-          session.isScrolling = false;
-          console.log(`[SSHIFT] ${elementName} touchend`);
-          
-          // Check scroll position after touch ends
-          setTimeout(() => {
-            this.checkIfAtBottom(sessionId);
-          }, 100);
+        // Touch end - check if at bottom for auto-scroll and reset pinch state
+        element.addEventListener('touchend', (e) => {
+          // Reset pinch state when all fingers are lifted
+          if (e.touches.length === 0) {
+            if (session.isPinching) {
+              console.log(`[SSHIFT] ${elementName} pinch end, final font size:`, this.terminalFontSize);
+              session.isPinching = false;
+            }
+            session.isScrolling = false;
+            session.initialPinchDistance = 0;
+            session.lastPinchDistance = 0;
+            
+            // Check scroll position after touch ends
+            setTimeout(() => {
+              this.checkIfAtBottom(sessionId);
+            }, 100);
+          } else if (e.touches.length === 1) {
+            // Transitioned from pinch to single finger
+            session.isPinching = false;
+            session.initialPinchDistance = 0;
+            session.lastPinchDistance = 0;
+            session.lastTouchY = e.touches[0].clientY;
+            session.isScrolling = true;
+          }
         }, { passive: true });
       };
       
@@ -723,6 +833,13 @@ class SSHIFTClient {
     } else {
       console.warn('[SSHIFT] Terminal element not found for touch handlers');
     }
+  }
+  
+  // Calculate distance between two touch points
+  getPinchDistance(touch1, touch2) {
+    const dx = touch1.clientX - touch2.clientX;
+    const dy = touch1.clientY - touch2.clientY;
+    return Math.sqrt(dx * dx + dy * dy);
   }
   
   // Check if terminal is scrolled to bottom
@@ -1806,6 +1923,15 @@ class SSHIFTClient {
       });
     });
 
+    // Font size buttons
+    document.getElementById('increaseFontBtn').addEventListener('click', () => {
+      this.increaseFontSize();
+    });
+
+    document.getElementById('decreaseFontBtn').addEventListener('click', () => {
+      this.decreaseFontSize();
+    });
+
     // SFTP modal - now handled via tabs, keeping for backward compatibility
     // These event listeners are no longer needed but kept for reference
     // SFTP is now opened in tabs instead of modal
@@ -2834,7 +2960,7 @@ class SSHIFTClient {
       const terminal = new window.Terminal({
         theme: terminalTheme,
         fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', 'Courier New', monospace",
-        fontSize: 14,
+        fontSize: this.terminalFontSize,
         lineHeight: 1.2,
         cursorBlink: true,
         cursorStyle: 'block',
