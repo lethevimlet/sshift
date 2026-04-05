@@ -1044,6 +1044,7 @@ body {
   gap: 8px;
 }
 
+/* Reverse button order in collapsed state: folder before + */
 .sidebar.collapsed .sidebar-header-actions {
   flex-direction: column-reverse;
   width: 100%;
@@ -1135,6 +1136,11 @@ body {
 .sidebar.collapsed .btn-update {
   font-size: 10px;
   padding: 3px 6px !important;
+}
+
+/* Hide empty state message when sidebar is collapsed */
+.sidebar.collapsed .bookmarks-list > div[style*="text-align: center"] {
+  display: none;
 }
 
 .bookmark-item {
