@@ -3037,6 +3037,32 @@ body {
     overscroll-behavior: none;
   }
   
+  /* When mobile keys bar is hidden (e.g., for SFTP tabs), use full height */
+  body.mobile-keys-bar-hidden .main-content {
+    max-height: 100vh !important;
+    max-height: 100svh !important;
+  }
+  
+  /* Ensure all containers fill the space when mobile keys bar is hidden */
+  body.mobile-keys-bar-hidden .terminal-area {
+    height: 100% !important;
+    max-height: 100% !important;
+  }
+  
+  body.mobile-keys-bar-hidden .terminals-container {
+    height: 100% !important;
+    max-height: 100% !important;
+  }
+  
+  body.mobile-keys-bar-hidden .terminal-wrapper.active {
+    height: 100% !important;
+  }
+  
+  body.mobile-keys-bar-hidden .sftp-container {
+    height: 100% !important;
+    min-height: 100% !important;
+  }
+  
   .terminal-area {
     overflow: hidden !important;
     max-height: 100%;
@@ -3138,6 +3164,12 @@ body {
   /* Add bottom margin when keyboard is hidden */
   .terminals-container.keyboard-hidden {
     padding-bottom: 4px;
+  }
+  
+  /* SFTP container should fill available space on mobile */
+  .sftp-container {
+    height: 100%;
+    min-height: 100%;
   }
 }
 

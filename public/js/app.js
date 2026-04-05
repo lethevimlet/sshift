@@ -1024,7 +1024,36 @@ class SSHIFTClient {
     if (!mobileKeysBar) return;
     
     // Only show on mobile, when enabled, and when there's an active session
-    const shouldShow = this.isMobile && this.mobileKeysBarEnabled && this.activeSessionId;
+    let shouldShow = this.isMobile && this.mobileKeysBarEnabled && this.activeSessionId;
+    
+    // Hide mobile keys bar for SFTP tabs (SFTP doesn't need terminal input)
+    if (shouldShow && this.activeSessionId) {
+      const session = this.sessions.get(this.activeSessionId) || this.sftpSessions.get(this.activeSessionId);
+      if (session && session.type === 'sftp') {
+        shouldShow = false;
+        console.log('[SSHIFT] Mobile keys bar hidden for SFTP tab');
+      }
+    }
+    
+    // Add/remove class on body to adjust layout for mobile keys bar visibility
+    if (this.isMobile) {
+      const wasHidden = document.body.classList.contains('mobile-keys-bar-hidden');
+      const shouldHide = !shouldShow;
+      
+      if (shouldHide !== wasHidden) {
+        console.log('[SSHIFT] Updating body class, shouldHide:', shouldHide, 'wasHidden:', wasHidden);
+        if (shouldHide) {
+          document.body.classList.add('mobile-keys-bar-hidden');
+        } else {
+          document.body.classList.remove('mobile-keys-bar-hidden');
+        }
+        // Force layout recalculation
+        void document.body.offsetHeight;
+        
+        // Trigger resize event to recalculate terminal and SFTP container sizes
+        window.dispatchEvent(new Event('resize'));
+      }
+    }
     
     if (shouldShow) {
       mobileKeysBar.classList.add('visible');
@@ -1452,6 +1481,9 @@ class SSHIFTClient {
             nameSpan.textContent = this.escapeHtml(data.name);
           }
         }
+        
+        // Update mobile tabs dropdown
+        this.updateMobileTabsDropdown();
         
         // Save tabs if sticky is enabled
         this.saveTabs();
@@ -5380,6 +5412,9 @@ class SSHIFTClient {
           }
         }
         
+        // Update mobile tabs dropdown to reflect the name change
+        this.updateMobileTabsDropdown();
+        
         // Emit to server to sync with all sessions
         this.socket.emit('tab-rename', {
           sessionId: sessionId,
@@ -5420,6 +5455,9 @@ class SSHIFTClient {
         
         // Update tab display
         nameSpan.textContent = this.escapeHtml(newName);
+        
+        // Update mobile tabs dropdown to reflect the name change
+        this.updateMobileTabsDropdown();
         
         // Emit to server to sync with all sessions
         this.socket.emit('tab-rename', {
