@@ -432,11 +432,47 @@ io.on('connection', (socket) => {
 
   // SSH data (user input)
   socket.on('ssh-data', (data) => {
+    // Only allow input from the controller
+    if (!sshManager.isController(socket.id, data.sessionId)) {
+      console.log(`[SSH] Ignoring input from non-controller socket ${socket.id}`);
+      return;
+    }
     sshManager.write(data.sessionId, data.data);
+  });
+
+  // SSH take control
+  socket.on('ssh-take-control', (data) => {
+    console.log(`[SSH] Socket ${socket.id} requesting control of session ${data.sessionId}`);
+    const result = sshManager.takeControl(socket, data.sessionId);
+    
+    if (result.success) {
+      // Send success response to the requesting client with terminal dimensions
+      socket.emit('ssh-control-acquired', {
+        sessionId: data.sessionId,
+        cols: result.cols,
+        rows: result.rows
+      });
+    } else {
+      socket.emit('ssh-error', { 
+        sessionId: data.sessionId, 
+        message: result.error || 'Failed to take control' 
+      });
+    }
+  });
+
+  // SSH release control
+  socket.on('ssh-release-control', (data) => {
+    console.log(`[SSH] Socket ${socket.id} releasing control of session ${data.sessionId}`);
+    sshManager.releaseControl(socket, data.sessionId);
   });
 
   // SSH resize
   socket.on('ssh-resize', (data) => {
+    // Only allow resize from the controller
+    if (!sshManager.isController(socket.id, data.sessionId)) {
+      console.log(`[SSH] Ignoring resize from non-controller socket ${socket.id}`);
+      return;
+    }
     sshManager.resize(data.sessionId, data.cols, data.rows);
     
     // Broadcast resize to all other clients in the session
@@ -657,9 +693,14 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     console.log('Client disconnected:', socket.id);
     
-    // Remove this socket from all tabs
+    // Remove this socket from all tabs and handle controller reassignment
     for (const [sessionId, tab] of openTabs) {
       tab.activeSockets.delete(socket.id);
+      
+      // For SSH sessions, handle controller reassignment when a socket leaves
+      if (tab.type === 'ssh') {
+        sshManager.leaveSession(socket, sessionId);
+      }
       
       // If no more active sockets
       if (tab.activeSockets.size === 0) {

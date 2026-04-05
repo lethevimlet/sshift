@@ -3105,6 +3105,77 @@ body {
   }
 }
 
+/* Terminal Control Overlay */
+.terminal-control-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(13, 17, 23, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(2px);
+}
+
+.terminal-control-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 32px;
+  text-align: center;
+  max-width: 90%;
+}
+
+.terminal-control-icon {
+  font-size: 48px;
+  color: var(--text-secondary);
+  opacity: 0.8;
+}
+
+.terminal-control-text {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.terminal-control-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.terminal-control-subtitle {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.terminal-control-btn {
+  margin-top: 8px;
+  padding: 12px 24px;
+  font-size: 16px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.terminal-control-btn i {
+  font-size: 18px;
+}
+
+/* Light theme adjustments for control overlay */
+[data-theme="light"] .terminal-control-overlay {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+[data-theme="light"] .terminal-control-icon {
+  color: var(--text-secondary);
+}
+
 /* Print styles */
 @media print {
   .sidebar,

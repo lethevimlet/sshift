@@ -241,8 +241,9 @@ class SSHIFTClient {
       if (session.terminal) {
         session.terminal.options.fontSize = size;
         session.terminal.refresh(0, session.terminal.rows - 1);
-        // Refit the terminal to adjust dimensions
-        if (session.fitAddon) {
+        // Only refit if this client is the controller
+        // Non-controllers will receive resize sync from the controller
+        if (session.fitAddon && session.isController) {
           session.fitAddon.fit();
         }
       }
@@ -253,6 +254,7 @@ class SSHIFTClient {
       if (session.terminal) {
         session.terminal.options.fontSize = size;
         session.terminal.refresh(0, session.terminal.rows - 1);
+        // SFTP sessions don't have controller concept, always fit
         if (session.fitAddon) {
           session.fitAddon.fit();
         }
@@ -959,9 +961,10 @@ class SSHIFTClient {
 
   refitActiveTerminal() {
     // Refit the active terminal to fill the available space
+    // Only fit for controllers - non-controllers will receive resize sync
     if (this.activeSessionId) {
       const session = this.sessions.get(this.activeSessionId);
-      if (session && session.fitAddon && session.terminal) {
+      if (session && session.fitAddon && session.terminal && session.isController) {
         // Small delay to allow CSS transitions to complete
         setTimeout(() => {
           try {
@@ -1473,6 +1476,14 @@ class SSHIFTClient {
           session.syncing = false;
         }
         
+        // Handle controller status
+        session.isController = data.isController;
+        session.controllerSocket = data.controllerSocket;
+        console.log('[SSHIFT] Controller status:', data.isController ? 'in control' : 'observer', 'controller:', data.controllerSocket);
+        
+        // Show/hide control overlay based on controller status
+        this.updateControlOverlay(data.sessionId);
+        
         // Focus the terminal
         if (session.terminal) {
           session.terminal.focus();
@@ -1521,15 +1532,26 @@ class SSHIFTClient {
           session.syncing = false;
           
           // Resize terminal to match the session's dimensions if provided
+          // Note: We do NOT call fit() here because:
+          // 1. This client is joining an existing session and is not the controller
+          // 2. The controller determines the terminal dimensions
+          // 3. fit() would recalculate dimensions for the local container
+          // 4. This can cause resize feedback loops between clients
           if (data.cols && data.rows) {
             try {
+              // Set resyncing flag BEFORE calling resize to prevent resize feedback loop
+              session.isResyncing = true;
+              
               session.terminal.resize(data.cols, data.rows);
-              // Re-fit the terminal to the container
-              if (session.fitAddon) {
-                session.fitAddon.fit();
-              }
+              console.log('[SSHIFT] Terminal resized to match server dimensions:', data.cols, 'x', data.rows);
+              
+              // Clear the resyncing flag after a short delay
+              setTimeout(() => {
+                session.isResyncing = false;
+              }, 150);
             } catch (e) {
               console.warn('[SSHIFT] Error resizing terminal:', e.message);
+              session.isResyncing = false;
             }
           }
           
@@ -1551,21 +1573,103 @@ class SSHIFTClient {
           // Only resize if dimensions are different to avoid unnecessary updates
           if (session.terminal.cols !== data.cols || session.terminal.rows !== data.rows) {
             session.terminal.resize(data.cols, data.rows);
-            // Re-fit the terminal to the container
-            if (session.fitAddon) {
-              session.fitAddon.fit();
-            }
+            // Note: We do NOT call fit() here because:
+            // 1. Non-controllers should display at the server's dimensions
+            // 2. fit() would recalculate dimensions for the local container
+            // 3. This can cause resize feedback loops between clients
+            // The controller is responsible for determining terminal dimensions
             console.log('[SSHIFT] Terminal resized to match server dimensions');
           }
           
-          // Clear the syncing flag after a short delay
+          // Clear the syncing flag after a longer delay to ensure resize events settle
+          // Mobile browsers can have delayed resize events
           setTimeout(() => {
             session.isResyncing = false;
-          }, 50);
+          }, 200); // Increased from 50ms to 200ms
         } catch (e) {
           console.warn('[SSHIFT] Error resizing terminal:', e.message);
           session.isResyncing = false;
         }
+      }
+    });
+
+    // Handle control taken event (another client took control)
+    this.socket.on('ssh-control-taken', (data) => {
+      console.log('[SSHIFT] Control taken for session:', data.sessionId, 'by', data.controllerSocket);
+      const session = this.sessions.get(data.sessionId);
+      if (session) {
+        // Check if this client is now the controller
+        const wasController = session.isController;
+        session.isController = data.controllerSocket === this.socket.id;
+        session.controllerSocket = data.controllerSocket;
+        
+        // Update overlay visibility
+        this.updateControlOverlay(data.sessionId);
+        
+        // If this client became the controller and we have terminal dimensions, resize
+        if (session.isController && !wasController && session.terminal && data.cols && data.rows) {
+          try {
+            // Mark that we're syncing to prevent resize feedback loop
+            session.isResyncing = true;
+            session.terminal.resize(data.cols, data.rows);
+            if (session.fitAddon) {
+              session.fitAddon.fit();
+            }
+            console.log('[SSHIFT] Terminal resized to match server dimensions after control transfer');
+            setTimeout(() => {
+              session.isResyncing = false;
+            }, 50);
+          } catch (e) {
+            console.warn('[SSHIFT] Error resizing terminal after control transfer:', e.message);
+            session.isResyncing = false;
+          }
+        }
+        
+        // Show appropriate toast
+        if (session.isController && !wasController) {
+          // This client just became the controller
+          this.showToast('You are now in control (previous controller left)', 'info');
+        } else if (!session.isController) {
+          // Another client took control
+          this.showToast('Another device took control', 'info');
+        }
+      }
+    });
+
+    // Handle control released event
+    this.socket.on('ssh-control-released', (data) => {
+      console.log('[SSHIFT] Control released for session:', data.sessionId, 'new controller:', data.controllerSocket);
+      const session = this.sessions.get(data.sessionId);
+      if (session) {
+        // Update controller info
+        session.controllerSocket = data.controllerSocket || null;
+        session.isController = data.controllerSocket === this.socket.id;
+        this.updateControlOverlay(data.sessionId);
+      }
+    });
+
+    // Handle successful take control response
+    this.socket.on('ssh-control-acquired', (data) => {
+      console.log('[SSHIFT] Successfully took control of session:', data.sessionId);
+      const session = this.sessions.get(data.sessionId);
+      if (session) {
+        session.isController = true;
+        session.controllerSocket = this.socket.id;
+        this.updateControlOverlay(data.sessionId);
+        
+        // Resize terminal to our dimensions
+        if (session.terminal && data.cols && data.rows) {
+          try {
+            session.terminal.resize(data.cols, data.rows);
+            if (session.fitAddon) {
+              session.fitAddon.fit();
+            }
+          } catch (e) {
+            console.warn('[SSHIFT] Error resizing terminal after taking control:', e.message);
+          }
+        }
+        
+        this.showToast('You are now in control', 'success');
       }
     });
 
@@ -1972,10 +2076,15 @@ class SSHIFTClient {
       });
     }
 
-    // Window resize
+    // Window resize with debouncing to prevent resize storms
+    // Mobile browsers fire many resize events (orientation, keyboard, etc.)
+    let windowResizeTimeout;
     window.addEventListener('resize', () => {
-      this.handleResize();
-      this.updateTabsScrollArrows();
+      clearTimeout(windowResizeTimeout);
+      windowResizeTimeout = setTimeout(() => {
+        this.handleResize();
+        this.updateTabsScrollArrows();
+      }, 100); // 100ms debounce
     });
 
     // Click outside modal to close
@@ -2056,9 +2165,10 @@ class SSHIFTClient {
       this.saveSidebarState();
       
       // Resize terminals after sidebar toggle
+      // Only fit for controllers - non-controllers will receive resize sync
       setTimeout(() => {
         this.sessions.forEach(session => {
-          if (session.terminal && session.fitAddon) {
+          if (session.terminal && session.fitAddon && session.isController) {
             try {
               session.fitAddon.fit();
             } catch (e) {
@@ -2712,7 +2822,9 @@ class SSHIFTClient {
       connected: false,
       connectionData, // Store for sticky sessions
       isRestoring: !!restoreSessionId, // Flag to indicate if this is a restored session
-      isAtBottom: true // Auto-scroll by default when new data arrives
+      isAtBottom: true, // Auto-scroll by default when new data arrives
+      isController: false, // Default to observer - will be set to true for session creator or when taking control
+      syncing: false // Flag to prevent data writes during screen sync
     });
 
     // Switch to the new tab FIRST to make the container visible
@@ -2905,6 +3017,42 @@ class SSHIFTClient {
     terminalContainer.id = `terminal-${sessionId}`;
     
     wrapper.appendChild(terminalContainer);
+    
+    // Create control overlay (hidden by default)
+    const controlOverlay = document.createElement('div');
+    controlOverlay.className = 'terminal-control-overlay';
+    controlOverlay.id = `control-overlay-${sessionId}`;
+    controlOverlay.style.display = 'none'; // Hidden by default
+    
+    const controlContent = document.createElement('div');
+    controlContent.className = 'terminal-control-content';
+    
+    const controlIcon = document.createElement('i');
+    controlIcon.className = 'fas fa-eye terminal-control-icon';
+    
+    const controlText = document.createElement('div');
+    controlText.className = 'terminal-control-text';
+    controlText.innerHTML = `
+      <div class="terminal-control-title">View Only</div>
+      <div class="terminal-control-subtitle">Another device is controlling this terminal</div>
+    `;
+    
+    const takeControlBtn = document.createElement('button');
+    takeControlBtn.className = 'btn btn-primary terminal-control-btn';
+    takeControlBtn.id = `take-control-btn-${sessionId}`;
+    takeControlBtn.innerHTML = '<i class="fas fa-hand-pointer"></i> Take Control';
+    takeControlBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.requestTakeControl(sessionId);
+    });
+    
+    controlContent.appendChild(controlIcon);
+    controlContent.appendChild(controlText);
+    controlContent.appendChild(takeControlBtn);
+    controlOverlay.appendChild(controlContent);
+    wrapper.appendChild(controlOverlay);
+    
     return wrapper;
   }
 
@@ -3065,6 +3213,12 @@ class SSHIFTClient {
         const sess = this.sessions.get(sessionId);
         console.log('[SSHIFT] Terminal input received, session:', sessionId, 'connected:', sess?.connected, 'connecting:', sess?.connecting, 'data:', JSON.stringify(data), 'ctrlPressed:', this.ctrlPressed, 'altPressed:', this.altPressed);
         
+        // Only allow input if this client is the controller
+        if (sess && !sess.isController) {
+          console.log('[SSHIFT] Ignoring input - not in control of session');
+          return;
+        }
+        
         // Handle mobile Ctrl/Alt modifiers for physical keyboard input
         // When mobile Ctrl or Alt is active, modify the input
         if (sess && sess.connected) {
@@ -3122,6 +3276,11 @@ class SSHIFTClient {
       terminal.onResize(({ cols, rows }) => {
         const sess = this.sessions.get(sessionId);
         if (sess && sess.connected) {
+          // Only allow resize if this client is the controller
+          if (!sess.isController) {
+            return;
+          }
+          
           // Skip if we're currently syncing from another client's resize
           // This prevents resize feedback loops between clients
           if (sess.isResyncing) {
@@ -3329,6 +3488,15 @@ class SSHIFTClient {
       session.connecting = false;
       session.connected = true;
       session.isRestoring = false; // Clear restoring flag
+      
+      // The client that creates the session is the controller
+      session.isController = true;
+      session.controllerSocket = this.socket.id;
+      console.log('[SSHIFT] Client is controller for new session');
+      
+      // Update control overlay (should be hidden since we're controller)
+      this.updateControlOverlay(data.sessionId);
+      
       this.showToast('SSH connection established', 'success');
       console.log('[SSHIFT] Session marked as connected, terminal exists:', !!session.terminal);
       
@@ -3378,10 +3546,16 @@ class SSHIFTClient {
         session.terminal.write(data.data);
         
         // Auto-scroll to bottom on mobile when new data arrives
+        // Rate-limited to prevent performance issues with multiple clients
         if (this.isMobile) {
           // Use requestAnimationFrame to ensure scroll happens after render
-          requestAnimationFrame(() => {
+          // and cancel any pending scroll to prevent scroll storms
+          if (session.scrollRAF) {
+            cancelAnimationFrame(session.scrollRAF);
+          }
+          session.scrollRAF = requestAnimationFrame(() => {
             this.scrollTerminalToBottom(data.sessionId);
+            session.scrollRAF = null;
           });
         }
       } catch (e) {
@@ -3760,8 +3934,9 @@ class SSHIFTClient {
     this.updateMobileKeysBar();
 
     // Fit terminal if SSH and focus it
+    // Only fit for controllers - non-controllers will receive resize sync
     const session = this.sessions.get(sessionId);
-    if (session && session.terminal && session.fitAddon) {
+    if (session && session.terminal && session.fitAddon && session.isController) {
       setTimeout(() => {
         session.fitAddon.fit();
         // Focus the terminal so user can type
@@ -3777,6 +3952,9 @@ class SSHIFTClient {
           this.requestScreenSync(sessionId);
         }
       }, 100);
+    } else if (session && session.terminal) {
+      // For non-controllers, just focus the terminal
+      session.terminal.focus();
     }
     
     // Update mobile tabs dropdown
@@ -5502,9 +5680,42 @@ class SSHIFTClient {
   handleResize() {
     this.sessions.forEach((session) => {
       if (session.terminal && session.fitAddon) {
-        session.fitAddon.fit();
+        // Only fit if this client is the controller
+        // Non-controllers will receive resize sync from the controller
+        // This prevents resize feedback loops between multiple clients
+        if (session.isController) {
+          session.fitAddon.fit();
+        }
       }
     });
+  }
+
+  // Control Overlay Management
+  updateControlOverlay(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    
+    const overlay = document.getElementById(`control-overlay-${sessionId}`);
+    if (!overlay) return;
+    
+    // Show overlay if not in control (isController is false or undefined)
+    // Hide overlay if in control (isController is true)
+    if (session.isController === true) {
+      overlay.style.display = 'none';
+    } else {
+      overlay.style.display = 'flex';
+    }
+  }
+
+  requestTakeControl(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session || !session.connected) {
+      this.showToast('Session not connected', 'error');
+      return;
+    }
+    
+    console.log('[SSHIFT] Requesting control for session:', sessionId);
+    this.socket.emit('ssh-take-control', { sessionId });
   }
 
   // Toast Notifications

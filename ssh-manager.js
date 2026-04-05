@@ -37,6 +37,7 @@ class SSHManager {
         stream: null,
         socket: socket,
         sockets: new Set([socket.id]), // Track all connected sockets for this session
+        controllerSocket: socket.id, // The socket that has control (first client gets control)
         cols: cols,
         rows: rows,
         terminal: terminal, // Headless terminal for state management
@@ -306,9 +307,12 @@ class SSHManager {
     console.log(`[SSH] Socket ${socket.id} joined session ${sessionId}`);
     
     // Notify client that they've joined, including whether terminal state was sent
+    // and who is the current controller
     socket.emit('ssh-joined', {
       sessionId: sessionId,
-      noTerminalState: !hasTerminalState
+      noTerminalState: !hasTerminalState,
+      controllerSocket: session.controllerSocket, // Tell client who is in control
+      isController: session.controllerSocket === socket.id // Tell client if they are in control
     });
     
     return true;
@@ -317,11 +321,104 @@ class SSHManager {
   // Leave a session
   leaveSession(socket, sessionId) {
     const session = this.sessions.get(sessionId);
-    if (session) {
-      session.sockets.delete(socket.id);
-      socket.leave(`session-${sessionId}`);
-      console.log(`[SSH] Socket ${socket.id} left session ${sessionId}`);
+    if (!session) return;
+    
+    const wasController = session.controllerSocket === socket.id;
+    session.sockets.delete(socket.id);
+    socket.leave(`session-${sessionId}`);
+    console.log(`[SSH] Socket ${socket.id} left session ${sessionId}`);
+    
+    // If the controller left, assign control to another socket
+    if (wasController) {
+      const remainingSockets = Array.from(session.sockets);
+      if (remainingSockets.length > 0) {
+        // Assign control to the first remaining socket
+        session.controllerSocket = remainingSockets[0];
+        console.log(`[SSH] Controller left, reassigning control to ${session.controllerSocket}`);
+        
+        // Notify the new controller and remaining clients about the new controller
+        // Include terminal dimensions so the new controller can resize if needed
+        const io = require('./server').io;
+        if (io) {
+          // Broadcast to all clients in the session about the new controller
+          io.to(`session-${sessionId}`).emit('ssh-control-taken', {
+            sessionId,
+            controllerSocket: session.controllerSocket,
+            cols: session.cols,
+            rows: session.rows
+          });
+        }
+      } else {
+        session.controllerSocket = null;
+      }
     }
+  }
+
+  // Take control of a session
+  takeControl(socket, sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      console.log(`[SSH] Cannot take control: session ${sessionId} not found`);
+      return { success: false, error: 'Session not found' };
+    }
+    
+    const previousController = session.controllerSocket;
+    session.controllerSocket = socket.id;
+    console.log(`[SSH] Socket ${socket.id} took control of session ${sessionId} (was ${previousController})`);
+    
+    // Notify other clients that control was taken
+    const io = require('./server').io;
+    if (io) {
+      // Broadcast to all OTHER clients that control was taken
+      socket.to(`session-${sessionId}`).emit('ssh-control-taken', {
+        sessionId,
+        controllerSocket: socket.id
+      });
+    }
+    
+    return { 
+      success: true, 
+      cols: session.cols, 
+      rows: session.rows,
+      previousController: previousController
+    };
+  }
+
+  // Release control of a session (become observer)
+  releaseControl(socket, sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return { success: false, error: 'Session not found' };
+    }
+    
+    if (session.controllerSocket !== socket.id) {
+      return { success: false, error: 'Not the controller' };
+    }
+    
+    // Find another socket to give control to
+    const remainingSockets = Array.from(session.sockets).filter(id => id !== socket.id);
+    if (remainingSockets.length > 0) {
+      session.controllerSocket = remainingSockets[0];
+      console.log(`[SSH] Socket ${socket.id} released control, new controller: ${session.controllerSocket}`);
+      
+      const io = require('./server').io;
+      if (io) {
+        io.to(`session-${sessionId}`).emit('ssh-control-released', {
+          sessionId,
+          controllerSocket: session.controllerSocket
+        });
+      }
+    } else {
+      session.controllerSocket = null;
+    }
+    
+    return { success: true };
+  }
+
+  // Check if a socket is the controller
+  isController(socketId, sessionId) {
+    const session = this.sessions.get(sessionId);
+    return session && session.controllerSocket === socketId;
   }
 
   write(sessionId, data) {
