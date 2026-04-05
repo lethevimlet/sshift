@@ -161,11 +161,18 @@ app.post('/api/bookmarks', (req, res) => {
   const bookmark = {
     id: Date.now().toString(),
     name: req.body.name,
-    host: req.body.host,
-    port: req.body.port || 22,
-    username: req.body.username,
     type: req.body.type || 'ssh'
   };
+  
+  // Add type-specific fields
+  if (req.body.type === 'url') {
+    bookmark.url = req.body.url;
+  } else {
+    bookmark.host = req.body.host;
+    bookmark.port = req.body.port || 22;
+    bookmark.username = req.body.username;
+  }
+  
   // Add optional fields
   if (req.body.password) bookmark.password = req.body.password;
   if (req.body.privateKey) bookmark.privateKey = req.body.privateKey;
@@ -174,6 +181,8 @@ app.post('/api/bookmarks', (req, res) => {
   
   config.bookmarks.push(bookmark);
   if (saveConfig(config)) {
+    // Broadcast to all clients
+    io.emit('bookmark-added', bookmark);
     res.json(bookmark);
   } else {
     res.status(500).json({ error: 'Failed to save bookmark' });
@@ -185,6 +194,8 @@ app.delete('/api/bookmarks/:id', (req, res) => {
   const config = loadConfig();
   config.bookmarks = config.bookmarks.filter(b => b.id !== req.params.id);
   if (saveConfig(config)) {
+    // Broadcast to all clients
+    io.emit('bookmark-deleted', { id: req.params.id });
     res.json({ success: true });
   } else {
     res.status(500).json({ error: 'Failed to delete bookmark' });
@@ -202,6 +213,8 @@ app.put('/api/bookmarks/:id', (req, res) => {
       id: req.params.id
     };
     if (saveConfig(config)) {
+      // Broadcast to all clients
+      io.emit('bookmark-updated', config.bookmarks[index]);
       res.json(config.bookmarks[index]);
     } else {
       res.status(500).json({ error: 'Failed to update bookmark' });
@@ -326,6 +339,8 @@ app.post('/api/folders', (req, res) => {
   }
   config.folders.push(folder);
   if (saveConfig(config)) {
+    // Broadcast to all clients
+    io.emit('folder-added', folder);
     res.json(folder);
   } else {
     res.status(500).json({ error: 'Failed to save folder' });
@@ -346,6 +361,8 @@ app.put('/api/folders/:id', (req, res) => {
       id: req.params.id
     };
     if (saveConfig(config)) {
+      // Broadcast to all clients
+      io.emit('folder-updated', config.folders[index]);
       res.json(config.folders[index]);
     } else {
       res.status(500).json({ error: 'Failed to update folder' });
@@ -371,6 +388,8 @@ app.delete('/api/folders/:id', (req, res) => {
     return b;
   });
   if (saveConfig(config)) {
+    // Broadcast to all clients
+    io.emit('folder-deleted', { id: req.params.id });
     res.json({ success: true });
   } else {
     res.status(500).json({ error: 'Failed to delete folder' });
@@ -409,6 +428,25 @@ app.post('/api/folders/order', (req, res) => {
 app.get('/api/folders/order', (req, res) => {
   const config = loadConfig();
   res.json(config.folderOrder || []);
+});
+
+// API: Save folder expanded states
+app.post('/api/folders/expanded', (req, res) => {
+  const config = loadConfig();
+  config.folderExpandedStates = req.body.states;
+  if (saveConfig(config)) {
+    // Broadcast to all clients
+    io.emit('folder-expanded-states', { states: req.body.states });
+    res.json({ success: true });
+  } else {
+    res.status(500).json({ error: 'Failed to save folder expanded states' });
+  }
+});
+
+// API: Get folder expanded states
+app.get('/api/folders/expanded', (req, res) => {
+  const config = loadConfig();
+  res.json(config.folderExpandedStates || {});
 });
 
 // Socket.IO connection handling

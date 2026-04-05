@@ -1390,6 +1390,8 @@ class SSHIFTClient {
     this.socket.on('connect', () => {
       console.log('[SSHIFT] Connected to server, socket ID:', this.socket.id);
       this.showToast('Connected to server', 'success');
+      // Reload bookmarks to sync any changes that happened while disconnected
+      this.loadBookmarks();
     });
 
     this.socket.on('disconnect', (reason) => {
@@ -1815,6 +1817,70 @@ class SSHIFTClient {
       this.showToast(`File uploaded: ${data.path}`, 'success');
       this.refreshSFTP();
     });
+
+    // Bookmark sync events
+    this.socket.on('bookmark-added', (bookmark) => {
+      console.log('[SSHIFT] Bookmark added by another client:', bookmark.id);
+      this.bookmarks.push(bookmark);
+      this.renderBookmarks();
+    });
+
+    this.socket.on('bookmark-updated', (bookmark) => {
+      console.log('[SSHIFT] Bookmark updated by another client:', bookmark.id);
+      const index = this.bookmarks.findIndex(b => b.id === bookmark.id);
+      if (index !== -1) {
+        this.bookmarks[index] = bookmark;
+        this.renderBookmarks();
+      }
+    });
+
+    this.socket.on('bookmark-deleted', (data) => {
+      console.log('[SSHIFT] Bookmark deleted by another client:', data.id);
+      this.bookmarks = this.bookmarks.filter(b => b.id !== data.id);
+      this.renderBookmarks();
+    });
+
+    // Folder sync events
+    this.socket.on('folder-added', (folder) => {
+      console.log('[SSHIFT] Folder added by another client:', folder.id);
+      this.folders.push(folder);
+      this.renderBookmarks();
+    });
+
+    this.socket.on('folder-updated', (folder) => {
+      console.log('[SSHIFT] Folder updated by another client:', folder.id);
+      const index = this.folders.findIndex(f => f.id === folder.id);
+      if (index !== -1) {
+        this.folders[index] = folder;
+        this.renderBookmarks();
+      }
+    });
+
+    this.socket.on('folder-deleted', (data) => {
+      console.log('[SSHIFT] Folder deleted by another client:', data.id);
+      this.folders = this.folders.filter(f => f.id !== data.id);
+      // Move bookmarks from deleted folder to root
+      this.bookmarks.forEach(b => {
+        if (b.folderId === data.id) {
+          b.folderId = null;
+        }
+      });
+      this.renderBookmarks();
+    });
+
+    // Folder expanded states sync
+    this.socket.on('folder-expanded-states', (data) => {
+      console.log('[SSHIFT] Folder expanded states updated by another client');
+      // Update local folder expanded states
+      if (data.states) {
+        this.folders.forEach(folder => {
+          if (data.states.hasOwnProperty(folder.id)) {
+            folder.expanded = data.states[folder.id];
+          }
+        });
+        this.renderBookmarks();
+      }
+    });
   }
 
   // Event Listeners
@@ -2029,6 +2095,11 @@ class SSHIFTClient {
         input.type = 'password';
         icon.classList.replace('fa-eye-slash', 'fa-eye');
       }
+    });
+
+    // Toggle form fields based on bookmark type
+    document.getElementById('bookmarkType').addEventListener('change', (e) => {
+      this.toggleBookmarkTypeFields(e.target.value);
     });
 
     // Folder modal event listeners
@@ -4406,13 +4477,8 @@ class SSHIFTClient {
     const container = document.getElementById('bookmarksList');
     container.innerHTML = '';
 
-    // Load expanded states
-    const expandedStates = this.loadFolderExpandedStates();
-    this.folders.forEach(folder => {
-      if (expandedStates[folder.id] !== undefined) {
-        folder.expanded = expandedStates[folder.id];
-      }
-    });
+    // Apply expanded states from folders (already loaded in loadFolders)
+    // Note: expanded states are now loaded asynchronously in loadFolders()
 
     // Group bookmarks by folder
     const bookmarksByFolder = new Map();
@@ -4606,14 +4672,28 @@ class SSHIFTClient {
     const bookmarkWithFolder = { ...bookmark, folderId: folderId || bookmark.folderId || null };
     
     const firstLetter = bookmark.name.charAt(0).toUpperCase();
+    
+    // Determine icon and details based on type
+    let iconClass, details;
+    if (bookmark.type === 'url') {
+      iconClass = 'fa-globe';
+      details = bookmark.url || '';
+    } else if (bookmark.type === 'sftp') {
+      iconClass = 'fa-folder-open';
+      details = `${this.escapeHtml(bookmark.username)}@${this.escapeHtml(bookmark.host)}:${bookmark.port}`;
+    } else {
+      iconClass = 'fa-terminal';
+      details = `${this.escapeHtml(bookmark.username)}@${this.escapeHtml(bookmark.host)}:${bookmark.port}`;
+    }
+    
     item.innerHTML = `
       <div class="bookmark-icon ${bookmark.type}">
-        <i class="fas fa-${bookmark.type === 'ssh' ? 'terminal' : 'folder-open'}"></i>
+        <i class="fas ${iconClass}"></i>
         <span class="bookmark-letter">${firstLetter}</span>
       </div>
       <div class="bookmark-info">
         <div class="bookmark-name">${this.escapeHtml(bookmark.name)}</div>
-        <div class="bookmark-details">${this.escapeHtml(bookmark.username)}@${this.escapeHtml(bookmark.host)}:${bookmark.port}</div>
+        <div class="bookmark-details">${details}</div>
       </div>
       <div class="bookmark-actions">
         ${bookmark.type === 'ssh' ? '<button class="sftp-bookmark" title="Open SFTP"><i class="fas fa-folder-open"></i></button>' : ''}
@@ -4876,31 +4956,57 @@ class SSHIFTClient {
 
     const menu = document.createElement('div');
     menu.className = 'bookmark-context-menu active';
-    menu.innerHTML = `
-      <div class="bookmark-context-menu-item" data-action="connect">
-        <i class="fas fa-plug"></i>
-        <span>Connect ${bookmark.type.toUpperCase()}</span>
-      </div>
-      ${bookmark.type === 'ssh' ? `
-        <div class="bookmark-context-menu-item" data-action="sftp">
-          <i class="fas fa-folder-open"></i>
-          <span>Open SFTP</span>
+    
+    // Build menu items based on bookmark type
+    let menuItems = '';
+    if (bookmark.type === 'url') {
+      menuItems = `
+        <div class="bookmark-context-menu-item" data-action="connect">
+          <i class="fas fa-external-link-alt"></i>
+          <span>Open in New Tab</span>
         </div>
-      ` : ''}
-      <div class="bookmark-context-menu-divider"></div>
-      <div class="bookmark-context-menu-item" data-action="edit">
-        <i class="fas fa-edit"></i>
-        <span>Edit</span>
-      </div>
-      <div class="bookmark-context-menu-item" data-action="clone">
-        <i class="fas fa-copy"></i>
-        <span>Clone</span>
-      </div>
-      <div class="bookmark-context-menu-item" data-action="delete">
-        <i class="fas fa-trash"></i>
-        <span>Delete</span>
-      </div>
-    `;
+        <div class="bookmark-context-menu-divider"></div>
+        <div class="bookmark-context-menu-item" data-action="edit">
+          <i class="fas fa-edit"></i>
+          <span>Edit</span>
+        </div>
+        <div class="bookmark-context-menu-item" data-action="clone">
+          <i class="fas fa-copy"></i>
+          <span>Clone</span>
+        </div>
+        <div class="bookmark-context-menu-item" data-action="delete">
+          <i class="fas fa-trash"></i>
+          <span>Delete</span>
+        </div>
+      `;
+    } else {
+      menuItems = `
+        <div class="bookmark-context-menu-item" data-action="connect">
+          <i class="fas fa-plug"></i>
+          <span>Connect ${bookmark.type.toUpperCase()}</span>
+        </div>
+        ${bookmark.type === 'ssh' ? `
+          <div class="bookmark-context-menu-item" data-action="sftp">
+            <i class="fas fa-folder-open"></i>
+            <span>Open SFTP</span>
+          </div>
+        ` : ''}
+        <div class="bookmark-context-menu-divider"></div>
+        <div class="bookmark-context-menu-item" data-action="edit">
+          <i class="fas fa-edit"></i>
+          <span>Edit</span>
+        </div>
+        <div class="bookmark-context-menu-item" data-action="clone">
+          <i class="fas fa-copy"></i>
+          <span>Clone</span>
+        </div>
+        <div class="bookmark-context-menu-item" data-action="delete">
+          <i class="fas fa-trash"></i>
+          <span>Delete</span>
+        </div>
+      `;
+    }
+    menu.innerHTML = menuItems;
 
     // Position the menu
     const isMobile = window.innerWidth <= 768;
@@ -4990,7 +5096,14 @@ class SSHIFTClient {
       menuItems = '<div class="bookmark-context-menu-item disabled"><span>No bookmarks</span></div>';
     } else {
       bookmarks.forEach(bookmark => {
-        const icon = bookmark.type === 'ssh' ? 'fa-terminal' : 'fa-folder-open';
+        let icon;
+        if (bookmark.type === 'url') {
+          icon = 'fa-globe';
+        } else if (bookmark.type === 'sftp') {
+          icon = 'fa-folder-open';
+        } else {
+          icon = 'fa-terminal';
+        }
         menuItems += `
           <div class="bookmark-context-menu-item" data-bookmark-id="${bookmark.id}">
             <i class="fas ${icon}"></i>
@@ -5469,14 +5582,20 @@ class SSHIFTClient {
       document.getElementById('bookmarkModalTitle').textContent = 'Edit Bookmark';
       document.getElementById('bookmarkId').value = bookmark.id;
       document.getElementById('bookmarkName').value = bookmark.name;
-      document.getElementById('bookmarkHost').value = bookmark.host;
-      document.getElementById('bookmarkPort').value = bookmark.port;
-      document.getElementById('bookmarkUsername').value = bookmark.username;
-      document.getElementById('bookmarkPassword').value = bookmark.password || '';
-      document.getElementById('bookmarkPrivateKey').value = bookmark.privateKey || '';
-      document.getElementById('bookmarkPassphrase').value = bookmark.passphrase || '';
       document.getElementById('bookmarkType').value = bookmark.type;
       document.getElementById('bookmarkFolder').value = bookmark.folderId || '';
+      
+      // Handle URL type
+      if (bookmark.type === 'url') {
+        document.getElementById('bookmarkUrl').value = bookmark.url || '';
+      } else {
+        document.getElementById('bookmarkHost').value = bookmark.host;
+        document.getElementById('bookmarkPort').value = bookmark.port;
+        document.getElementById('bookmarkUsername').value = bookmark.username;
+        document.getElementById('bookmarkPassword').value = bookmark.password || '';
+        document.getElementById('bookmarkPrivateKey').value = bookmark.privateKey || '';
+        document.getElementById('bookmarkPassphrase').value = bookmark.passphrase || '';
+      }
     } else {
       document.getElementById('bookmarkModalTitle').textContent = 'Add Bookmark';
       document.getElementById('bookmarkId').value = '';
@@ -5484,32 +5603,73 @@ class SSHIFTClient {
       document.getElementById('bookmarkFolder').value = folderId || '';
     }
 
+    // Toggle fields based on type
+    this.toggleBookmarkTypeFields(bookmark?.type || 'ssh');
+
     this.openModal('bookmarkModal');
+  }
+
+  toggleBookmarkTypeFields(type) {
+    const sshFields = document.getElementById('sshFields');
+    const urlGroup = document.getElementById('bookmarkUrlGroup');
+    const nameInput = document.getElementById('bookmarkName');
+    
+    if (type === 'url') {
+      sshFields.style.display = 'none';
+      urlGroup.style.display = 'block';
+      // Update required fields
+      document.getElementById('bookmarkHost').removeAttribute('required');
+      document.getElementById('bookmarkUsername').removeAttribute('required');
+      document.getElementById('bookmarkUrl').setAttribute('required', '');
+    } else {
+      sshFields.style.display = 'block';
+      urlGroup.style.display = 'none';
+      // Update required fields
+      document.getElementById('bookmarkHost').setAttribute('required', '');
+      document.getElementById('bookmarkUsername').setAttribute('required', '');
+      document.getElementById('bookmarkUrl').removeAttribute('required');
+    }
   }
 
   async saveBookmark() {
     const id = document.getElementById('bookmarkId').value;
     const name = document.getElementById('bookmarkName').value.trim();
-    const host = document.getElementById('bookmarkHost').value.trim();
-    const port = parseInt(document.getElementById('bookmarkPort').value) || 22;
-    const username = document.getElementById('bookmarkUsername').value.trim();
-    const password = document.getElementById('bookmarkPassword').value;
-    const privateKey = document.getElementById('bookmarkPrivateKey').value.trim();
-    const passphrase = document.getElementById('bookmarkPassphrase').value;
     const type = document.getElementById('bookmarkType').value;
     const folderId = document.getElementById('bookmarkFolder').value || null;
 
-    if (!name || !host || !username) {
-      this.showToast('Name, host, and username are required', 'error');
-      return;
-    }
-
-    const bookmark = { name, host, port, username, type };
-    // Only include password/key if provided (don't store empty strings)
-    if (password) bookmark.password = password;
-    if (privateKey) bookmark.privateKey = privateKey;
-    if (passphrase) bookmark.passphrase = passphrase;
+    let bookmark = { name, type };
     if (folderId) bookmark.folderId = folderId;
+
+    // Handle URL type
+    if (type === 'url') {
+      const url = document.getElementById('bookmarkUrl').value.trim();
+      if (!name || !url) {
+        this.showToast('Name and URL are required', 'error');
+        return;
+      }
+      bookmark.url = url;
+    } else {
+      // SSH/SFTP type
+      const host = document.getElementById('bookmarkHost').value.trim();
+      const port = parseInt(document.getElementById('bookmarkPort').value) || 22;
+      const username = document.getElementById('bookmarkUsername').value.trim();
+      const password = document.getElementById('bookmarkPassword').value;
+      const privateKey = document.getElementById('bookmarkPrivateKey').value.trim();
+      const passphrase = document.getElementById('bookmarkPassphrase').value;
+
+      if (!name || !host || !username) {
+        this.showToast('Name, host, and username are required', 'error');
+        return;
+      }
+
+      bookmark.host = host;
+      bookmark.port = port;
+      bookmark.username = username;
+      // Only include password/key if provided (don't store empty strings)
+      if (password) bookmark.password = password;
+      if (privateKey) bookmark.privateKey = privateKey;
+      if (passphrase) bookmark.passphrase = passphrase;
+    }
 
     try {
       let response;
@@ -5533,6 +5693,25 @@ class SSHIFTClient {
         this.closeModal('bookmarkModal');
       } else {
         throw new Error('Failed to save bookmark');
+      }
+    } catch (err) {
+      this.showToast(err.message, 'error');
+    }
+  }
+
+  async addBookmark(bookmarkData) {
+    try {
+      const response = await fetch('/api/bookmarks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bookmarkData)
+      });
+
+      if (response.ok) {
+        this.showToast('Bookmark added', 'success');
+        this.loadBookmarks();
+      } else {
+        throw new Error('Failed to add bookmark');
       }
     } catch (err) {
       this.showToast(err.message, 'error');
@@ -5563,17 +5742,23 @@ class SSHIFTClient {
     // Create a copy of the bookmark with "(Copy)" suffix
     const clonedBookmark = {
       name: `${bookmark.name} (Copy)`,
-      host: bookmark.host,
-      port: bookmark.port,
-      username: bookmark.username,
       type: bookmark.type,
       folderId: bookmark.folderId || null
     };
 
-    // Include credentials if they exist
-    if (bookmark.password) clonedBookmark.password = bookmark.password;
-    if (bookmark.privateKey) clonedBookmark.privateKey = bookmark.privateKey;
-    if (bookmark.passphrase) clonedBookmark.passphrase = bookmark.passphrase;
+    // Handle URL type
+    if (bookmark.type === 'url') {
+      clonedBookmark.url = bookmark.url;
+    } else {
+      // SSH/SFTP type
+      clonedBookmark.host = bookmark.host;
+      clonedBookmark.port = bookmark.port;
+      clonedBookmark.username = bookmark.username;
+      // Include credentials if they exist
+      if (bookmark.password) clonedBookmark.password = bookmark.password;
+      if (bookmark.privateKey) clonedBookmark.privateKey = bookmark.privateKey;
+      if (bookmark.passphrase) clonedBookmark.passphrase = bookmark.passphrase;
+    }
 
     try {
       const response = await fetch('/api/bookmarks', {
@@ -5603,6 +5788,14 @@ class SSHIFTClient {
       if (sidebarOverlay) sidebarOverlay.classList.remove('active');
     }
     
+    // Handle URL type - open in new tab
+    if (bookmark.type === 'url') {
+      if (bookmark.url) {
+        window.open(bookmark.url, '_blank');
+      }
+      return;
+    }
+
     // Connect directly using bookmark credentials
     const connectionData = {
       name: bookmark.name,
@@ -5671,6 +5864,12 @@ class SSHIFTClient {
         });
       }
       
+      // Load expanded states from server
+      const expandedStates = await this.loadFolderExpandedStates();
+      folders.forEach(folder => {
+        folder.expanded = expandedStates[folder.id] !== false; // Default to true
+      });
+      
       this.folders = folders;
     } catch (err) {
       console.error('Failed to load folders:', err);
@@ -5713,16 +5912,39 @@ class SSHIFTClient {
     localStorage.setItem('folderOrder', JSON.stringify(order));
   }
 
-  loadFolderExpandedStates() {
+  async loadFolderExpandedStates() {
+    try {
+      const response = await fetch('/api/folders/expanded');
+      if (response.ok) {
+        const states = await response.json();
+        return states;
+      }
+    } catch (err) {
+      console.error('Failed to load folder expanded states from server:', err);
+    }
+    // Fall back to localStorage
     const saved = localStorage.getItem('folderExpandedStates');
     return saved ? JSON.parse(saved) : {};
   }
 
-  saveFolderExpandedStates() {
+  async saveFolderExpandedStates() {
     const states = {};
     this.folders.forEach(folder => {
       states[folder.id] = folder.expanded;
     });
+    
+    // Save to server
+    try {
+      await fetch('/api/folders/expanded', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ states })
+      });
+    } catch (err) {
+      console.error('Failed to save folder expanded states to server:', err);
+    }
+    
+    // Also save to localStorage as backup
     localStorage.setItem('folderExpandedStates', JSON.stringify(states));
   }
 
@@ -5813,11 +6035,11 @@ class SSHIFTClient {
     }
   }
 
-  toggleFolderExpand(folderId) {
+  async toggleFolderExpand(folderId) {
     const folder = this.folders.find(f => f.id === folderId);
     if (folder) {
       folder.expanded = !folder.expanded;
-      this.saveFolderExpandedStates();
+      await this.saveFolderExpandedStates();
       this.renderBookmarks();
     }
   }

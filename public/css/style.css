@@ -11,7 +11,8 @@
   --text-secondary: #8b949e;
   --text-muted: #6e7681;
   --accent-primary: #c10059;
-  --accent-secondary: #a00045;
+  --accent-secondary: #00b4d8;
+  --accent-tertiary: #f59e0b;
   --accent-success: #3fb950;
   --accent-warning: #d29922;
   --accent-danger: #f85149;
@@ -90,100 +91,120 @@
 }
 
 /* Accent Colors - Dark Theme */
+/* Primary = SSH bookmarks, Secondary = SFTP bookmarks, Tertiary = URL bookmarks */
+/* Using complementary/triadic colors for visual distinction */
 [data-accent="fuchsia"] {
   --accent-primary: #c10059;
-  --accent-secondary: #e84a8a;
+  --accent-secondary: #00b4d8;
+  --accent-tertiary: #f59e0b;
   --accent-hover: #d9106a;
 }
 
 [data-accent="green"] {
   --accent-primary: #2ea043;
-  --accent-secondary: #5cd46f;
+  --accent-secondary: #8b5cf6;
+  --accent-tertiary: #f97316;
   --accent-hover: #3fb950;
 }
 
 [data-accent="purple"] {
   --accent-primary: #a371f2;
-  --accent-secondary: #c9a8f7;
+  --accent-secondary: #84cc16;
+  --accent-tertiary: #ef4444;
   --accent-hover: #b279f7;
 }
 
 [data-accent="orange"] {
   --accent-primary: #d18616;
-  --accent-secondary: #f0a842;
+  --accent-secondary: #3b82f6;
+  --accent-tertiary: #ec4899;
   --accent-hover: #e09b2d;
 }
 
 [data-accent="red"] {
   --accent-primary: #da3633;
-  --accent-secondary: #f06b6b;
+  --accent-secondary: #06b6d4;
+  --accent-tertiary: #eab308;
   --accent-hover: #f85149;
 }
 
 [data-accent="cyan"] {
   --accent-primary: #1f6feb;
-  --accent-secondary: #5a9ff5;
+  --accent-secondary: #f97316;
+  --accent-tertiary: #ec4899;
   --accent-hover: #388bfd;
 }
 
 [data-accent="blue"] {
   --accent-primary: #58a6ff;
-  --accent-secondary: #90c5ff;
+  --accent-secondary: #f97316;
+  --accent-tertiary: #22c55e;
   --accent-hover: #79b8ff;
 }
 
 [data-accent="yellow"] {
   --accent-primary: #d29922;
-  --accent-secondary: #f0b842;
+  --accent-secondary: #8b5cf6;
+  --accent-tertiary: #3b82f6;
   --accent-hover: #e3b341;
 }
 
 /* Accent Colors - Light Theme (adjusted for visibility) */
+/* Primary = SSH bookmarks, Secondary = SFTP bookmarks, Tertiary = URL bookmarks */
+/* Using complementary/triadic colors for visual distinction */
 [data-theme="light"][data-accent="fuchsia"] {
   --accent-primary: #c10059;
-  --accent-secondary: #d9447a;
+  --accent-secondary: #0891b2;
+  --accent-tertiary: #d97706;
   --accent-hover: #9d0047;
 }
 
 [data-theme="light"][data-accent="green"] {
   --accent-primary: #1a7f37;
-  --accent-secondary: #3fb950;
+  --accent-secondary: #7c3aed;
+  --accent-tertiary: #ea580c;
   --accent-hover: #2da44e;
 }
 
 [data-theme="light"][data-accent="purple"] {
   --accent-primary: #8250df;
-  --accent-secondary: #a371f2;
+  --accent-secondary: #65a30d;
+  --accent-tertiary: #dc2626;
   --accent-hover: #9649e4;
 }
 
 [data-theme="light"][data-accent="orange"] {
   --accent-primary: #bf8700;
-  --accent-secondary: #f0a842;
+  --accent-secondary: #2563eb;
+  --accent-tertiary: #db2777;
   --accent-hover: #d4a72c;
 }
 
 [data-theme="light"][data-accent="red"] {
   --accent-primary: #cf222e;
-  --accent-secondary: #f06b6b;
+  --accent-secondary: #0891b2;
+  --accent-tertiary: #ca8a04;
   --accent-hover: #da3633;
 }
 
 [data-theme="light"][data-accent="cyan"] {
   --accent-primary: #0550ae;
-  --accent-secondary: #388bfd;
+  --accent-secondary: #ea580c;
+  --accent-tertiary: #db2777;
   --accent-hover: #0969da;
 }
 
 [data-theme="light"][data-accent="blue"] {
   --accent-primary: #0969da;
-  --accent-secondary: #58a6ff;
+  --accent-secondary: #ea580c;
+  --accent-tertiary: #16a34a;
   --accent-hover: #218bff;
 }
 
 [data-theme="light"][data-accent="yellow"] {
   --accent-primary: #9a6700;
-  --accent-secondary: #d29922;
+  --accent-secondary: #7c3aed;
+  --accent-tertiary: #2563eb;
   --accent-hover: #bf8700;
 }
 
@@ -1068,14 +1089,22 @@ body {
   font-size: 14px;
 }
 
+/* SSH bookmarks use primary accent (e.g., fuchsia/pink) */
 .bookmark-icon.ssh {
   background: rgba(193, 0, 89, 0.15);
   color: var(--accent-primary);
 }
 
+/* SFTP bookmarks use secondary accent (complementary color - cyan/teal) */
 .bookmark-icon.sftp {
-  background: var(--bg-active);
+  background: rgba(0, 180, 216, 0.15);
   color: var(--accent-secondary);
+}
+
+/* URL bookmarks use tertiary accent (triadic color - amber/orange) */
+.bookmark-icon.url {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--accent-tertiary);
 }
 
 .bookmark-info {
@@ -2050,6 +2079,7 @@ body {
 .form-group input[type="text"],
 .form-group input[type="password"],
 .form-group input[type="number"],
+.form-group input[type="url"],
 .form-group select,
 .form-group textarea {
   width: 100%;
@@ -2074,6 +2104,7 @@ body {
 .form-group input[type="text"]:focus,
 .form-group input[type="password"]:focus,
 .form-group input[type="number"]:focus,
+.form-group input[type="url"]:focus,
 .form-group select:focus,
 .form-group textarea:focus {
   outline: none;

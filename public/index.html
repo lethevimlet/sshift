@@ -368,46 +368,53 @@
         <form id="bookmarkForm">
           <input type="hidden" id="bookmarkId">
           <div class="form-group">
-            <label for="bookmarkName">Name *</label>
-            <input type="text" id="bookmarkName" required placeholder="My Server">
-          </div>
-          <div class="form-row">
-            <div class="form-group flex-3">
-              <label for="bookmarkHost">Host *</label>
-              <input type="text" id="bookmarkHost" required placeholder="hostname or IP">
-            </div>
-            <div class="form-group flex-1">
-              <label for="bookmarkPort">Port</label>
-              <input type="number" id="bookmarkPort" value="22" min="1" max="65535">
-            </div>
-          </div>
-          <div class="form-group">
-            <label for="bookmarkUsername">Username *</label>
-            <input type="text" id="bookmarkUsername" required placeholder="username">
-          </div>
-          <div class="form-group">
-            <label for="bookmarkPassword">Password</label>
-            <div class="password-input">
-              <input type="password" id="bookmarkPassword" placeholder="password (optional)">
-              <button type="button" class="password-toggle" id="toggleBookmarkPassword">
-                <i class="fas fa-eye"></i>
-              </button>
-            </div>
-          </div>
-          <div class="form-group">
-            <label for="bookmarkPrivateKey">Private Key (optional)</label>
-            <textarea id="bookmarkPrivateKey" rows="4" placeholder="Paste your private key here..."></textarea>
-          </div>
-          <div class="form-group">
-            <label for="bookmarkPassphrase">Key Passphrase (optional)</label>
-            <input type="password" id="bookmarkPassphrase" placeholder="passphrase">
-          </div>
-          <div class="form-group">
             <label for="bookmarkType">Type</label>
             <select id="bookmarkType">
               <option value="ssh">SSH</option>
               <option value="sftp">SFTP</option>
+              <option value="url">URL</option>
             </select>
+          </div>
+          <div class="form-group">
+            <label for="bookmarkName">Name *</label>
+            <input type="text" id="bookmarkName" required placeholder="My Server">
+          </div>
+          <div class="form-group" id="bookmarkUrlGroup" style="display: none;">
+            <label for="bookmarkUrl">URL *</label>
+            <input type="url" id="bookmarkUrl" class="themed-input" placeholder="https://example.com">
+          </div>
+          <div id="sshFields">
+            <div class="form-row">
+              <div class="form-group flex-3">
+                <label for="bookmarkHost">Host *</label>
+                <input type="text" id="bookmarkHost" placeholder="hostname or IP">
+              </div>
+              <div class="form-group flex-1">
+                <label for="bookmarkPort">Port</label>
+                <input type="number" id="bookmarkPort" value="22" min="1" max="65535">
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="bookmarkUsername">Username *</label>
+              <input type="text" id="bookmarkUsername" placeholder="username">
+            </div>
+            <div class="form-group">
+              <label for="bookmarkPassword">Password</label>
+              <div class="password-input">
+                <input type="password" id="bookmarkPassword" placeholder="password (optional)">
+                <button type="button" class="password-toggle" id="toggleBookmarkPassword">
+                  <i class="fas fa-eye"></i>
+                </button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="bookmarkPrivateKey">Private Key (optional)</label>
+              <textarea id="bookmarkPrivateKey" rows="4" placeholder="Paste your private key here..."></textarea>
+            </div>
+            <div class="form-group">
+              <label for="bookmarkPassphrase">Key Passphrase (optional)</label>
+              <input type="password" id="bookmarkPassphrase" placeholder="passphrase">
+            </div>
           </div>
           <div class="form-group">
             <label for="bookmarkFolder">Folder</label>
