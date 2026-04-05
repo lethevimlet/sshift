@@ -6284,6 +6284,12 @@ class SSHIFTClient {
           versionNumber.textContent = data.version || 'Unknown';
         }
         
+        // Show installed version in update section
+        const checkUpdatesLink = document.getElementById('checkUpdates');
+        if (checkUpdatesLink) {
+          checkUpdatesLink.textContent = `v${data.version || 'Unknown'}`;
+        }
+        
         // Show update info section
         const updateInfo = document.getElementById('updateInfo');
         if (updateInfo) {
@@ -6295,6 +6301,10 @@ class SSHIFTClient {
       const versionNumber = document.getElementById('versionNumber');
       if (versionNumber) {
         versionNumber.textContent = 'Error';
+      }
+      const checkUpdatesLink = document.getElementById('checkUpdates');
+      if (checkUpdatesLink) {
+        checkUpdatesLink.textContent = 'Error';
       }
     }
   }
@@ -6329,8 +6339,11 @@ class SSHIFTClient {
           if (updateBtn) {
             updateBtn.style.display = 'none';
           }
+          // Show installed version
           if (checkUpdatesLink) {
-            checkUpdatesLink.textContent = 'Check for updates';
+            const versionNumber = document.getElementById('versionNumber');
+            const version = versionNumber ? versionNumber.textContent : 'Unknown';
+            checkUpdatesLink.textContent = `v${version}`;
             checkUpdatesLink.style.color = '';
           }
           
