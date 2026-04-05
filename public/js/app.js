@@ -6284,10 +6284,10 @@ class SSHIFTClient {
           versionNumber.textContent = data.version || 'Unknown';
         }
         
-        // Show "Update" link in update section
+        // Show "Check Updates" link in update section
         const checkUpdatesLink = document.getElementById('checkUpdates');
         if (checkUpdatesLink) {
-          checkUpdatesLink.textContent = 'Update';
+          checkUpdatesLink.textContent = 'Check Updates';
         }
         
         // Show update info section
@@ -6339,9 +6339,9 @@ class SSHIFTClient {
           if (updateBtn) {
             updateBtn.style.display = 'none';
           }
-          // Show "Update" link
+          // Show "Check Updates" link
           if (checkUpdatesLink) {
-            checkUpdatesLink.textContent = 'Update';
+            checkUpdatesLink.textContent = 'Check Updates';
             checkUpdatesLink.style.color = '';
           }
           
