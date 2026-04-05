@@ -19,7 +19,7 @@ param(
 # Configuration (defaults, can be overridden by arguments)
 $NodeVersion = "18"  # Minimum LTS version
 $RepoUrl = "https://github.com/lethevimlet/sshift.git"
-$RepoApiUrl = "https://api.github.com/repos/lethevimlet/sshift/contents/package.json"
+$RepoRawUrl = "https://raw.githubusercontent.com/lethevimlet/sshift/main/package.json"
 if ($InstallDir -eq "") {
     $InstallDir = "$env:USERPROFILE\.local\share\sshift"
 }
@@ -77,12 +77,11 @@ function Get-LocalVersion {
     return "0.0.0"
 }
 
-# Get remote version from GitHub API
+# Get remote version from GitHub raw file
 function Get-RemoteVersion {
     try {
-        $response = Invoke-RestMethod -Uri $RepoApiUrl -Method Get -UseBasicParsing
-        # GitHub API returns base64 encoded content
-        $content = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($response.content))
+        $content = Invoke-RestMethod -Uri $RepoRawUrl -Method Get -UseBasicParsing
+        # Parse JSON directly from raw content
         $packageJson = $content | ConvertFrom-Json
         return $packageJson.version
     } catch {
