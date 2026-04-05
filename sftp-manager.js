@@ -72,7 +72,12 @@ class SFTPManager {
             id: sessionId,
             conn: conn,
             sftp: sftp,
-            socket: socket
+            socket: socket,
+            // Connection info for sessions API
+            host: options.host,
+            port: options.port || 22,
+            username: options.username,
+            connectedAt: Date.now()
           };
 
           this.sessions.set(sessionId, session);
@@ -251,6 +256,10 @@ class SFTPManager {
         this.disconnect(sessionId);
       }
     }
+  }
+
+  getActiveSessions() {
+    return this.sessions;
   }
 }
 

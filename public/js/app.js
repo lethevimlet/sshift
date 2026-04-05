@@ -24,6 +24,7 @@ class SSHIFTClient {
     this.draggedBookmark = null;
     this.draggedFolder = null;
     this.sticky = true; // Default to true - combines stickyTabs and stickySessions
+    this.takeControlDefault = true; // Default to true - automatically take control when joining sessions
     this.savedTabs = []; // Store tab information
     this.isRestoring = false; // Flag to prevent saving during restoration
     this.sftpClipboard = null; // For cut/copy/paste: { action: 'cut'|'copy', path: string, name: string, sessionId: string }
@@ -59,18 +60,22 @@ class SSHIFTClient {
       const config = await response.json();
       // Load sticky from config
       this.sticky = config.sticky !== undefined ? config.sticky : true;
+      // Load takeControlDefault from config
+      this.takeControlDefault = config.takeControlDefault !== undefined ? config.takeControlDefault : true;
       // Load SSH keepalive settings from config
       this.sshKeepaliveInterval = config.sshKeepaliveInterval || 10000;
       this.sshKeepaliveCountMax = config.sshKeepaliveCountMax || 1000;
       // Load mobile keys bar setting
       this.mobileKeysBarEnabled = config.mobileKeysBarEnabled !== undefined ? config.mobileKeysBarEnabled : true;
       console.log('[SSHIFT] Sticky:', this.sticky ? 'enabled' : 'disabled',
+                  'Take Control Default:', this.takeControlDefault ? 'enabled' : 'disabled',
                   'Keepalive Interval:', this.sshKeepaliveInterval,
                   'Keepalive Count Max:', this.sshKeepaliveCountMax,
                   'Mobile Keys Bar:', this.mobileKeysBarEnabled ? 'enabled' : 'disabled');
     } catch (err) {
       console.error('[SSHIFT] Failed to load config:', err);
       this.sticky = true; // Default to true
+      this.takeControlDefault = true; // Default to true
       this.sshKeepaliveInterval = 10000;
       this.sshKeepaliveCountMax = 1000;
       this.mobileKeysBarEnabled = true; // Default to true
@@ -1484,6 +1489,19 @@ class SSHIFTClient {
         // Show/hide control overlay based on controller status
         this.updateControlOverlay(data.sessionId);
         
+        // If takeControlDefault is enabled and we're not the controller, take control
+        // Note: This will take control from the current controller if one exists
+        // The 1-second cooldown on the server prevents rapid control transfers
+        if (this.takeControlDefault && !data.isController) {
+          console.log('[SSHIFT] takeControlDefault enabled, taking control...');
+          // Delay to ensure the session is fully set up and to stagger requests from multiple clients
+          // Use a random delay to reduce collision when multiple clients join simultaneously
+          const delay = 100 + Math.random() * 400; // 100-500ms
+          setTimeout(() => {
+            this.requestTakeControl(sessionId);
+          }, delay);
+        }
+        
         // Focus the terminal
         if (session.terminal) {
           session.terminal.focus();
@@ -1565,27 +1583,36 @@ class SSHIFTClient {
       console.log('[SSHIFT] Received resize sync for session:', data.sessionId, 'cols:', data.cols, 'rows:', data.rows);
       const session = this.sessions.get(data.sessionId);
       if (session && session.terminal) {
+        // Skip if dimensions are the same (no need to resize)
+        if (session.terminal.cols === data.cols && session.terminal.rows === data.rows) {
+          console.log('[SSHIFT] Terminal already at correct dimensions, skipping resize');
+          return;
+        }
+        
         try {
           // Mark that we're syncing to prevent resize feedback loop
           session.isResyncing = true;
           
-          // Resize the terminal to match the server's dimensions
-          // Only resize if dimensions are different to avoid unnecessary updates
-          if (session.terminal.cols !== data.cols || session.terminal.rows !== data.rows) {
-            session.terminal.resize(data.cols, data.rows);
-            // Note: We do NOT call fit() here because:
-            // 1. Non-controllers should display at the server's dimensions
-            // 2. fit() would recalculate dimensions for the local container
-            // 3. This can cause resize feedback loops between clients
-            // The controller is responsible for determining terminal dimensions
-            console.log('[SSHIFT] Terminal resized to match server dimensions');
+          // Clear any pending resize timeout to prevent duplicate resize events
+          if (session.resizeTimeout) {
+            clearTimeout(session.resizeTimeout);
+            session.resizeTimeout = null;
           }
           
-          // Clear the syncing flag after a longer delay to ensure resize events settle
+          // Resize the terminal to match the server's dimensions
+          // Note: We do NOT call fit() here because:
+          // 1. Non-controllers should display at the server's dimensions
+          // 2. fit() would recalculate dimensions for the local container
+          // 3. This can cause resize feedback loops between clients
+          // The controller is responsible for determining terminal dimensions
+          session.terminal.resize(data.cols, data.rows);
+          console.log('[SSHIFT] Terminal resized to match server dimensions');
+          
+          // Clear the syncing flag after a delay to ensure resize events settle
           // Mobile browsers can have delayed resize events
           setTimeout(() => {
             session.isResyncing = false;
-          }, 200); // Increased from 50ms to 200ms
+          }, 200);
         } catch (e) {
           console.warn('[SSHIFT] Error resizing terminal:', e.message);
           session.isResyncing = false;
@@ -1598,7 +1625,7 @@ class SSHIFTClient {
       console.log('[SSHIFT] Control taken for session:', data.sessionId, 'by', data.controllerSocket);
       const session = this.sessions.get(data.sessionId);
       if (session) {
-        // Check if this client is now the controller
+        // Update controller status
         const wasController = session.isController;
         session.isController = data.controllerSocket === this.socket.id;
         session.controllerSocket = data.controllerSocket;
@@ -1606,28 +1633,11 @@ class SSHIFTClient {
         // Update overlay visibility
         this.updateControlOverlay(data.sessionId);
         
-        // If this client became the controller and we have terminal dimensions, resize
-        if (session.isController && !wasController && session.terminal && data.cols && data.rows) {
-          try {
-            // Mark that we're syncing to prevent resize feedback loop
-            session.isResyncing = true;
-            session.terminal.resize(data.cols, data.rows);
-            if (session.fitAddon) {
-              session.fitAddon.fit();
-            }
-            console.log('[SSHIFT] Terminal resized to match server dimensions after control transfer');
-            setTimeout(() => {
-              session.isResyncing = false;
-            }, 50);
-          } catch (e) {
-            console.warn('[SSHIFT] Error resizing terminal after control transfer:', e.message);
-            session.isResyncing = false;
-          }
-        }
-        
         // Show appropriate toast
         if (session.isController && !wasController) {
-          // This client just became the controller
+          // This client just became the controller (shouldn't happen via this event)
+          // This event is broadcast to OTHER clients, not the one that took control
+          console.warn('[SSHIFT] Unexpected: became controller via ssh-control-taken');
           this.showToast('You are now in control (previous controller left)', 'info');
         } else if (!session.isController) {
           // Another client took control
@@ -1657,15 +1667,37 @@ class SSHIFTClient {
         session.controllerSocket = this.socket.id;
         this.updateControlOverlay(data.sessionId);
         
-        // Resize terminal to our dimensions
-        if (session.terminal && data.cols && data.rows) {
+        // Resize the SSH terminal to match our local terminal dimensions
+        // This ensures the terminal displays correctly for the new controller
+        if (session.terminal && session.fitAddon) {
           try {
-            session.terminal.resize(data.cols, data.rows);
-            if (session.fitAddon) {
-              session.fitAddon.fit();
+            // Set resyncing flag to prevent onResize from emitting duplicate resize event
+            // fit() triggers onResize, but we want to control when the resize is sent
+            session.isResyncing = true;
+            
+            // Clear any pending resize timeout to prevent duplicate resize events
+            if (session.resizeTimeout) {
+              clearTimeout(session.resizeTimeout);
+              session.resizeTimeout = null;
             }
+            
+            // Fit the terminal to our container first
+            session.fitAddon.fit();
+            
+            // Clear the resyncing flag before emitting resize
+            session.isResyncing = false;
+            
+            // Now emit the resize event to update the SSH terminal and other clients
+            this.socket.emit('ssh-resize', {
+              sessionId: data.sessionId,
+              cols: session.terminal.cols,
+              rows: session.terminal.rows
+            });
+            
+            console.log('[SSHIFT] Resized SSH terminal after taking control:', session.terminal.cols, 'x', session.terminal.rows);
           } catch (e) {
             console.warn('[SSHIFT] Error resizing terminal after taking control:', e.message);
+            session.isResyncing = false;
           }
         }
         
@@ -1933,6 +1965,9 @@ class SSHIFTClient {
 
     // Initialize settings modal handlers
     this.initSettingsModalHandlers();
+    
+    // Initialize sessions modal handlers
+    this.initSessionsModalHandlers();
 
     // Mobile overflow menu
     this.setupMobileOverflowMenu();
@@ -2197,6 +2232,12 @@ class SSHIFTClient {
       stickyToggle.checked = this.sticky;
     }
     
+    // Load current takeControlDefault setting
+    const takeControlDefaultToggle = document.getElementById('takeControlDefaultToggle');
+    if (takeControlDefaultToggle) {
+      takeControlDefaultToggle.checked = this.takeControlDefault;
+    }
+    
     // Load current SSH keepalive settings
     const keepaliveIntervalInput = document.getElementById('sshKeepaliveInterval');
     const keepaliveCountMaxInput = document.getElementById('sshKeepaliveCountMax');
@@ -2237,6 +2278,12 @@ class SSHIFTClient {
           stickyToggle.checked = this.sticky;
         }
         
+        // Revert takeControlDefault toggle
+        const takeControlDefaultToggle = document.getElementById('takeControlDefaultToggle');
+        if (takeControlDefaultToggle) {
+          takeControlDefaultToggle.checked = this.takeControlDefault;
+        }
+        
         // Revert SSH keepalive settings
         const keepaliveIntervalInput = document.getElementById('sshKeepaliveInterval');
         const keepaliveCountMaxInput = document.getElementById('sshKeepaliveCountMax');
@@ -2264,6 +2311,7 @@ class SSHIFTClient {
     if (saveBtn) {
       saveBtn.addEventListener('click', () => {
         const stickyToggle = document.getElementById('stickyToggle');
+        const takeControlDefaultToggle = document.getElementById('takeControlDefaultToggle');
         const keepaliveIntervalInput = document.getElementById('sshKeepaliveInterval');
         const keepaliveCountMaxInput = document.getElementById('sshKeepaliveCountMax');
         const mobileKeysBarToggle = document.getElementById('mobileKeysBarToggle');
@@ -2271,6 +2319,11 @@ class SSHIFTClient {
         // Save sticky setting
         if (stickyToggle) {
           this.sticky = stickyToggle.checked;
+        }
+        
+        // Save takeControlDefault setting
+        if (takeControlDefaultToggle) {
+          this.takeControlDefault = takeControlDefaultToggle.checked;
         }
         
         // Save SSH keepalive settings
@@ -2291,6 +2344,7 @@ class SSHIFTClient {
         // Save all settings to config
         this.saveStickyConfig();
         console.log('[SSHIFT] Settings saved - sticky:', this.sticky, 
+                    'takeControlDefault:', this.takeControlDefault,
                     'keepaliveInterval:', this.sshKeepaliveInterval,
                     'keepaliveCountMax:', this.sshKeepaliveCountMax,
                     'mobileKeysBarEnabled:', this.mobileKeysBarEnabled);
@@ -2328,6 +2382,133 @@ class SSHIFTClient {
           }
           
           this.closeModal('settingsModal');
+        }
+      });
+    }
+  }
+
+  // Sessions Modal
+  async openSessionsModal() {
+    this.openModal('manageSessionsModal');
+    await this.loadSessions();
+  }
+
+  async loadSessions() {
+    const sessionsList = document.getElementById('sessionsList');
+    if (!sessionsList) return;
+    
+    sessionsList.innerHTML = '<div class="loading">Loading sessions...</div>';
+    
+    try {
+      const response = await fetch('/api/sessions');
+      const sessions = await response.json();
+      
+      if (sessions.length === 0) {
+        sessionsList.innerHTML = '<div class="no-sessions">No active sessions</div>';
+        return;
+      }
+      
+      sessionsList.innerHTML = sessions.map(session => `
+        <div class="session-item" data-session-id="${session.id}">
+          <div class="session-info">
+            <div class="session-name">${this.escapeHtml(session.name || session.host)}</div>
+            <div class="session-details">
+              <span class="session-type">${session.type.toUpperCase()}</span>
+              <span class="session-host">${this.escapeHtml(session.host)}:${session.port}</span>
+              <span class="session-user">${this.escapeHtml(session.username)}</span>
+              ${session.activeSockets > 0 ? `<span class="session-clients">${session.activeSockets} client${session.activeSockets > 1 ? 's' : ''}</span>` : ''}
+            </div>
+          </div>
+          <button class="btn-close-session" data-session-id="${session.id}" title="Close session">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+      `).join('');
+      
+      // Add event listeners to close buttons
+      sessionsList.querySelectorAll('.btn-close-session').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const sessionId = btn.dataset.sessionId;
+          this.closeSession(sessionId);
+        });
+      });
+      
+    } catch (err) {
+      console.error('[SSHIFT] Failed to load sessions:', err);
+      sessionsList.innerHTML = '<div class="error">Failed to load sessions</div>';
+    }
+  }
+
+  async closeSession(sessionId) {
+    try {
+      const response = await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+      if (response.ok) {
+        this.showToast('Session closed', 'success');
+        await this.loadSessions();
+      } else {
+        const data = await response.json();
+        this.showToast(data.error || 'Failed to close session', 'error');
+      }
+    } catch (err) {
+      console.error('[SSHIFT] Failed to close session:', err);
+      this.showToast('Failed to close session', 'error');
+    }
+  }
+
+  async closeAllSessions() {
+    if (!confirm('Are you sure you want to close all sessions? This will disconnect all clients.')) {
+      return;
+    }
+    
+    try {
+      const response = await fetch('/api/sessions/close-all', { method: 'POST' });
+      if (response.ok) {
+        const data = await response.json();
+        this.showToast(`Closed ${data.closedCount} session(s)`, 'success');
+        await this.loadSessions();
+      } else {
+        const data = await response.json();
+        this.showToast(data.error || 'Failed to close sessions', 'error');
+      }
+    } catch (err) {
+      console.error('[SSHIFT] Failed to close all sessions:', err);
+      this.showToast('Failed to close sessions', 'error');
+    }
+  }
+
+  initSessionsModalHandlers() {
+    // Close button
+    const closeBtn = document.getElementById('closeManageSessionsModal');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        this.closeModal('manageSessionsModal');
+      });
+    }
+    
+    // Close all button
+    const closeAllBtn = document.getElementById('closeAllSessions');
+    if (closeAllBtn) {
+      closeAllBtn.addEventListener('click', () => {
+        this.closeAllSessions();
+      });
+    }
+    
+    // Manage Sessions button in settings
+    const manageBtn = document.getElementById('manageSessionsBtn');
+    if (manageBtn) {
+      manageBtn.addEventListener('click', () => {
+        this.closeModal('settingsModal');
+        this.openSessionsModal();
+      });
+    }
+    
+    // Click outside modal to close
+    const sessionsModal = document.getElementById('manageSessionsModal');
+    if (sessionsModal) {
+      sessionsModal.addEventListener('click', (e) => {
+        if (e.target === sessionsModal) {
+          this.closeModal('manageSessionsModal');
         }
       });
     }
@@ -2624,6 +2805,7 @@ class SSHIFTClient {
   saveStickyConfig() {
     // Save to localStorage
     localStorage.setItem('sticky', JSON.stringify(this.sticky));
+    localStorage.setItem('takeControlDefault', JSON.stringify(this.takeControlDefault));
     localStorage.setItem('sshKeepaliveInterval', this.sshKeepaliveInterval || 10000);
     localStorage.setItem('sshKeepaliveCountMax', this.sshKeepaliveCountMax || 1000);
     localStorage.setItem('mobileKeysBarEnabled', JSON.stringify(this.mobileKeysBarEnabled));
@@ -2634,6 +2816,7 @@ class SSHIFTClient {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         sticky: this.sticky,
+        takeControlDefault: this.takeControlDefault,
         sshKeepaliveInterval: this.sshKeepaliveInterval || 10000,
         sshKeepaliveCountMax: this.sshKeepaliveCountMax || 1000,
         mobileKeysBarEnabled: this.mobileKeysBarEnabled
@@ -3035,6 +3218,7 @@ class SSHIFTClient {
     controlText.innerHTML = `
       <div class="terminal-control-title">View Only</div>
       <div class="terminal-control-subtitle">Another device is controlling this terminal</div>
+      <div class="terminal-control-manage" id="manage-sessions-link-${sessionId}">Manage Sessions</div>
     `;
     
     const takeControlBtn = document.createElement('button');
@@ -3051,6 +3235,16 @@ class SSHIFTClient {
     controlContent.appendChild(controlText);
     controlContent.appendChild(takeControlBtn);
     controlOverlay.appendChild(controlContent);
+    
+    // Add click handler for Manage Sessions link
+    const manageLink = controlText.querySelector('.terminal-control-manage');
+    if (manageLink) {
+      manageLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.openSessionsModal();
+      });
+    }
     wrapper.appendChild(controlOverlay);
     
     return wrapper;
@@ -5698,13 +5892,32 @@ class SSHIFTClient {
     const overlay = document.getElementById(`control-overlay-${sessionId}`);
     if (!overlay) return;
     
-    // Show overlay if not in control (isController is false or undefined)
-    // Hide overlay if in control (isController is true)
-    if (session.isController === true) {
-      overlay.style.display = 'none';
-    } else {
-      overlay.style.display = 'flex';
+    // Clear any pending overlay update timeout to prevent rapid flashing
+    if (session.overlayUpdateTimeout) {
+      clearTimeout(session.overlayUpdateTimeout);
+      session.overlayUpdateTimeout = null;
     }
+    
+    // Debounce overlay updates to prevent rapid flashing when control changes quickly
+    // This is especially important when multiple clients are fighting for control
+    session.overlayUpdateTimeout = setTimeout(() => {
+      // Re-check session state after debounce
+      const currentSession = this.sessions.get(sessionId);
+      if (!currentSession) return;
+      
+      const currentOverlay = document.getElementById(`control-overlay-${sessionId}`);
+      if (!currentOverlay) return;
+      
+      // Show overlay if not in control (isController is false or undefined)
+      // Hide overlay if in control (isController is true)
+      if (currentSession.isController === true) {
+        currentOverlay.style.display = 'none';
+      } else {
+        currentOverlay.style.display = 'flex';
+      }
+      
+      currentSession.overlayUpdateTimeout = null;
+    }, 50); // 50ms debounce to prevent flashing
   }
 
   requestTakeControl(sessionId) {

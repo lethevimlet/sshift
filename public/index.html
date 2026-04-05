@@ -676,6 +676,21 @@
               </label>
             </div>
           </div>
+          
+          <div class="setting-item">
+            <label class="setting-label">
+              <i class="fas fa-hand-paper"></i> Take Control by Default
+            </label>
+            <div class="setting-description">
+              When enabled, automatically take control of existing sessions when you open the app. When disabled, you'll need to click "Take Control" to interact with sessions.
+            </div>
+            <div class="setting-control">
+              <label class="toggle-switch">
+                <input type="checkbox" id="takeControlDefaultToggle" checked>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
         </div>
         
         <!-- SSH Keepalive Settings -->
@@ -722,11 +737,54 @@
             </div>
           </div>
         </div>
+        
+        <!-- Manage Sessions -->
+        <div class="setting-group">
+          <div class="setting-item">
+            <label class="setting-label">
+              <i class="fas fa-tasks"></i> Active Sessions
+            </label>
+            <div class="setting-description">
+              View and manage active SSH and SFTP sessions on the server.
+            </div>
+            <div class="setting-control">
+              <button class="btn btn-secondary" id="manageSessionsBtn">
+                <i class="fas fa-list"></i> Manage Sessions
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn" id="cancelSettings">Cancel</button>
         <button class="btn btn-primary" id="saveSettings">
           <i class="fas fa-save"></i> Save
+        </button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Manage Sessions Modal -->
+  <div class="modal" id="manageSessionsModal">
+    <div class="modal-content modal-large">
+      <div class="modal-header">
+        <h2><i class="fas fa-tasks"></i> Manage Active Sessions</h2>
+        <button class="modal-close" id="closeManageSessionsModal">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="sessions-list" id="sessionsList">
+          <!-- Sessions will be populated dynamically -->
+          <div class="sessions-loading">
+            <i class="fas fa-spinner fa-spin"></i> Loading sessions...
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="closeManageSessions">Close</button>
+        <button class="btn btn-danger" id="closeAllSessions">
+          <i class="fas fa-times-circle"></i> Close All Sessions
         </button>
       </div>
     </div>

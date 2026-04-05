@@ -42,6 +42,11 @@ class SSHManager {
         rows: rows,
         terminal: terminal, // Headless terminal for state management
         serializeAddon: serializeAddon, // Serialize addon for syncing state
+        // Connection info for sessions API
+        host: options.host,
+        port: options.port || 22,
+        username: options.username,
+        connectedAt: Date.now(),
         // Data batching state
         dataBuffer: '', // Buffer for outgoing data
         batchTimer: null, // Timer for batched sends
@@ -362,8 +367,17 @@ class SSHManager {
       return { success: false, error: 'Session not found' };
     }
     
+    // Prevent rapid control transfers (cooldown of 1 second)
+    // This prevents "control wars" where multiple clients keep taking control
+    const now = Date.now();
+    if (session.lastControlTransfer && (now - session.lastControlTransfer) < 1000) {
+      console.log(`[SSH] Control transfer cooldown active for session ${sessionId}`);
+      return { success: false, error: 'Please wait before taking control again' };
+    }
+    
     const previousController = session.controllerSocket;
     session.controllerSocket = socket.id;
+    session.lastControlTransfer = now;
     console.log(`[SSH] Socket ${socket.id} took control of session ${sessionId} (was ${previousController})`);
     
     // Notify other clients that control was taken
@@ -499,6 +513,10 @@ class SSHManager {
         this.disconnect(sessionId);
       }
     }
+  }
+
+  getActiveSessions() {
+    return this.sessions;
   }
 }
 

@@ -111,6 +111,7 @@ app.get('/api/config', (req, res) => {
   const config = loadConfig();
   res.json({ 
     sticky: config.sticky !== false, // Default to true
+    takeControlDefault: config.takeControlDefault !== false, // Default to true
     sshKeepaliveInterval: config.sshKeepaliveInterval || 10000,
     sshKeepaliveCountMax: config.sshKeepaliveCountMax || 1000
   });
@@ -123,6 +124,11 @@ app.post('/api/config', (req, res) => {
   // Update sticky setting if provided
   if (req.body.hasOwnProperty('sticky')) {
     config.sticky = req.body.sticky;
+  }
+  
+  // Update takeControlDefault setting if provided
+  if (req.body.hasOwnProperty('takeControlDefault')) {
+    config.takeControlDefault = req.body.takeControlDefault;
   }
   
   // Update SSH keepalive settings if provided
@@ -140,6 +146,7 @@ app.post('/api/config', (req, res) => {
     res.json({ 
       success: true,
       sticky: config.sticky !== false,
+      takeControlDefault: config.takeControlDefault !== false,
       sshKeepaliveInterval: config.sshKeepaliveInterval || 10000,
       sshKeepaliveCountMax: config.sshKeepaliveCountMax || 1000
     });
@@ -202,6 +209,101 @@ app.put('/api/bookmarks/:id', (req, res) => {
   } else {
     res.status(404).json({ error: 'Bookmark not found' });
   }
+});
+
+// API: Get active sessions
+app.get('/api/sessions', (req, res) => {
+  const sessions = [];
+  
+  // Get SSH sessions from ssh-manager
+  const sshSessions = sshManager.getActiveSessions();
+  for (const [sessionId, session] of sshSessions) {
+    const tab = openTabs.get(sessionId);
+    sessions.push({
+      id: sessionId,
+      type: 'ssh',
+      name: tab?.name || session.host || 'Unknown',
+      host: session.host,
+      port: session.port,
+      username: session.username,
+      connectedAt: session.connectedAt,
+      activeSockets: tab?.activeSockets?.size || 0,
+      controllerSocket: session.controllerSocket
+    });
+  }
+  
+  // Get SFTP sessions from sftp-manager
+  const sftpSessions = sftpManager.getActiveSessions();
+  for (const [sessionId, session] of sftpSessions) {
+    const tab = openTabs.get(sessionId);
+    sessions.push({
+      id: sessionId,
+      type: 'sftp',
+      name: tab?.name || session.host || 'Unknown',
+      host: session.host,
+      port: session.port,
+      username: session.username,
+      connectedAt: session.connectedAt,
+      activeSockets: tab?.activeSockets?.size || 0
+    });
+  }
+  
+  res.json(sessions);
+});
+
+// API: Close a specific session
+app.delete('/api/sessions/:id', (req, res) => {
+  const sessionId = req.params.id;
+  const tab = openTabs.get(sessionId);
+  
+  if (!tab) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+  
+  console.log('[API] Force closing session:', sessionId);
+  
+  // Disconnect the session
+  if (tab.type === 'ssh') {
+    sshManager.disconnect(sessionId);
+  } else if (tab.type === 'sftp') {
+    sftpManager.disconnect(sessionId);
+  }
+  
+  // Remove from openTabs
+  openTabs.delete(sessionId);
+  tabOrder = tabOrder.filter(id => id !== sessionId);
+  
+  // Broadcast to all clients that the session was closed
+  io.emit('tab-closed', { sessionId });
+  
+  res.json({ success: true, sessionId });
+});
+
+// API: Close all sessions
+app.post('/api/sessions/close-all', (req, res) => {
+  console.log('[API] Force closing all sessions');
+  
+  const closedSessions = [];
+  
+  for (const [sessionId, tab] of openTabs) {
+    // Disconnect the session
+    if (tab.type === 'ssh') {
+      sshManager.disconnect(sessionId);
+    } else if (tab.type === 'sftp') {
+      sftpManager.disconnect(sessionId);
+    }
+    
+    closedSessions.push(sessionId);
+    
+    // Broadcast to all clients
+    io.emit('tab-closed', { sessionId });
+  }
+  
+  // Clear all tabs
+  openTabs.clear();
+  tabOrder = [];
+  
+  res.json({ success: true, closedCount: closedSessions.length });
 });
 
 // API: Get folders
