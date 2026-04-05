@@ -12,6 +12,7 @@ param(
     [string]$InstallDir = "",
     [string]$Port = "",
     [switch]$Uninstall,
+    [switch]$Update,
     [switch]$Help
 )
 
@@ -37,6 +38,7 @@ function Show-Help {
     Write-Host "Options:"
     Write-Host "  -InstallDir DIR   Installation directory (default: ~/.local/share/sshift)"
     Write-Host "  -Port PORT        Server port (default: 8022)"
+    Write-Host "  -Update           Update existing installation (non-interactive)"
     Write-Host "  -Uninstall        Remove sshift from the system"
     Write-Host "  -Help             Show this help message"
     Write-Host ""
@@ -44,6 +46,7 @@ function Show-Help {
     Write-Host "  ./install.ps1                              # Install with defaults"
     Write-Host "  ./install.ps1 -Port 8080                   # Install with custom port"
     Write-Host "  ./install.ps1 -InstallDir C:\sshift        # Install to custom directory"
+    Write-Host "  ./install.ps1 -Update                      # Update existing installation"
     Write-Host "  ./install.ps1 -Uninstall                   # Remove sshift"
     exit 0
 }
@@ -297,6 +300,9 @@ function Update-Project {
     npm install
     
     Write-Success "sshift updated successfully"
+    
+    # Restart the app
+    Start-App
 }
 
 # Add to PATH
@@ -676,6 +682,25 @@ function Main {
     # Handle uninstall
     if ($Uninstall) {
         Uninstall-App
+        return
+    }
+    
+    # Handle update-only mode
+    if ($Update) {
+        # Check if installed
+        if (-not (Test-Path $InstallDir)) {
+            Write-Error "sshift is not installed at $InstallDir"
+            return
+        }
+        
+        Write-Host ""
+        Write-Host "=========================================="
+        Write-Host "       sshift Update Script"
+        Write-Host "=========================================="
+        Write-Host ""
+        
+        Write-Info "Updating sshift..."
+        Update-Project
         return
     }
     

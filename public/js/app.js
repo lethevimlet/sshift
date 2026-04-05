@@ -669,6 +669,9 @@ class SSHIFTClient {
     // Initialize mobile keys bar
     this.initMobileKeysBar();
     
+    // Initialize version check and update functionality
+    this.initVersionCheck();
+    
     this.handleResize();
     console.log('[SSHIFT] Client initialized');
   }
@@ -6230,6 +6233,156 @@ class SSHIFTClient {
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  }
+
+  // Version and Update Management
+  async initVersionCheck() {
+    // Load and display current version
+    await this.loadVersion();
+    
+    // Set up auto-check interval (6 hours + 0-2 minute random delay)
+    const lastCheck = localStorage.getItem('lastUpdateCheck');
+    const now = Date.now();
+    const sixHours = 6 * 60 * 60 * 1000;
+    
+    // Check if we need to do initial check
+    if (!lastCheck || (now - parseInt(lastCheck)) > sixHours) {
+      // Add random delay (0-2 minutes) to avoid thundering herd
+      const randomDelay = Math.floor(Math.random() * 2 * 60 * 1000);
+      setTimeout(() => this.checkForUpdates(false), randomDelay);
+    }
+    
+    // Set up periodic check every 6 hours
+    setInterval(() => {
+      const randomDelay = Math.floor(Math.random() * 2 * 60 * 1000);
+      setTimeout(() => this.checkForUpdates(false), randomDelay);
+    }, sixHours);
+    
+    // Set up manual check handler
+    const checkUpdatesLink = document.getElementById('checkUpdates');
+    if (checkUpdatesLink) {
+      checkUpdatesLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        this.checkForUpdates(true);
+      });
+    }
+    
+    // Set up update button handler
+    const updateBtn = document.getElementById('updateBtn');
+    if (updateBtn) {
+      updateBtn.addEventListener('click', () => this.executeUpdate());
+    }
+  }
+
+  async loadVersion() {
+    try {
+      const response = await fetch('/api/version');
+      if (response.ok) {
+        const data = await response.json();
+        const versionNumber = document.getElementById('versionNumber');
+        if (versionNumber) {
+          versionNumber.textContent = data.version || 'Unknown';
+        }
+        
+        // Show update info section
+        const updateInfo = document.getElementById('updateInfo');
+        if (updateInfo) {
+          updateInfo.style.display = 'flex';
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load version:', error);
+      const versionNumber = document.getElementById('versionNumber');
+      if (versionNumber) {
+        versionNumber.textContent = 'Error';
+      }
+    }
+  }
+
+  async checkForUpdates(manual = false) {
+    try {
+      const response = await fetch('/api/check-update');
+      if (response.ok) {
+        const data = await response.json();
+        
+        // Update last check time
+        localStorage.setItem('lastUpdateCheck', Date.now().toString());
+        
+        const updateBtn = document.getElementById('updateBtn');
+        const checkUpdatesLink = document.getElementById('checkUpdates');
+        
+        if (data.updateAvailable) {
+          // Show update button
+          if (updateBtn) {
+            updateBtn.style.display = 'inline-flex';
+          }
+          if (checkUpdatesLink) {
+            checkUpdatesLink.textContent = 'Update available!';
+            checkUpdatesLink.style.color = '#f59e0b'; // Warning color
+          }
+          
+          if (manual) {
+            this.showToast('A new version is available!', 'info');
+          }
+        } else {
+          // Hide update button
+          if (updateBtn) {
+            updateBtn.style.display = 'none';
+          }
+          if (checkUpdatesLink) {
+            checkUpdatesLink.textContent = 'Check for updates';
+            checkUpdatesLink.style.color = '';
+          }
+          
+          if (manual) {
+            this.showToast('You are running the latest version', 'success');
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to check for updates:', error);
+      if (manual) {
+        this.showToast('Failed to check for updates', 'error');
+      }
+    }
+  }
+
+  async executeUpdate() {
+    const updateBtn = document.getElementById('updateBtn');
+    if (updateBtn) {
+      updateBtn.disabled = true;
+      updateBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
+    }
+    
+    try {
+      const response = await fetch('/api/update', { method: 'POST' });
+      if (response.ok) {
+        this.showToast('Update started. The server will restart shortly...', 'success');
+        
+        // Disable update button permanently
+        if (updateBtn) {
+          updateBtn.innerHTML = '<i class="fas fa-check"></i> Updated';
+        }
+        
+        // Show message that page will reload
+        setTimeout(() => {
+          this.showToast('Reloading page in 5 seconds...', 'info');
+          setTimeout(() => window.location.reload(), 5000);
+        }, 3000);
+      } else {
+        const error = await response.json();
+        throw new Error(error.error || 'Update failed');
+      }
+    } catch (error) {
+      console.error('Failed to execute update:', error);
+      this.showToast('Failed to update: ' + error.message, 'error');
+      
+      // Re-enable update button
+      if (updateBtn) {
+        updateBtn.disabled = false;
+        updateBtn.innerHTML = '<i class="fas fa-download"></i> Update';
+      }
+    }
   }
 }
 

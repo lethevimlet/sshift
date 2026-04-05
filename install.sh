@@ -21,6 +21,7 @@ PID_FILE="/tmp/sshift.pid"
 SERVICE_NAME="sshift"
 SERVER_PORT=""
 UNINSTALL=false
+UPDATE_ONLY=false
 
 # Colors for output
 RED='\033[0;31m'
@@ -44,6 +45,7 @@ show_help() {
     echo "Options:"
     echo "  --install-dir DIR   Installation directory (default: ~/.local/share/sshift)"
     echo "  --port PORT         Server port (default: 8022)"
+    echo "  --update            Update existing installation (non-interactive)"
     echo "  --uninstall         Remove sshift from the system"
     echo "  -h, --help          Show this help message"
     echo ""
@@ -51,6 +53,7 @@ show_help() {
     echo "  $0                              # Install with defaults"
     echo "  $0 --port 8080                  # Install with custom port"
     echo "  $0 --install-dir /opt/sshift     # Install to custom directory"
+    echo "  $0 --update                     # Update existing installation"
     echo "  $0 --uninstall                   # Remove sshift"
     exit 0
 }
@@ -69,6 +72,10 @@ parse_args() {
                 ;;
             --uninstall)
                 UNINSTALL=true
+                shift
+                ;;
+            --update)
+                UPDATE_ONLY=true
                 shift
                 ;;
             -h|--help)
@@ -312,6 +319,9 @@ update_project() {
     npm install
     
     success "sshift updated successfully"
+    
+    # Restart the app if it was running before
+    start_app
 }
 
 # Detect shell configuration file
@@ -877,6 +887,27 @@ main() {
     # Handle uninstall
     if [ "$UNINSTALL" = true ]; then
         uninstall
+        exit 0
+    fi
+    
+    # Handle update-only mode
+    if [ "$UPDATE_ONLY" = true ]; then
+        # Detect OS
+        detect_os
+        
+        # Check if installed
+        if [ ! -d "$INSTALL_DIR" ]; then
+            error "sshift is not installed at $INSTALL_DIR"
+        fi
+        
+        echo ""
+        echo "=========================================="
+        echo "       sshift Update Script"
+        echo "=========================================="
+        echo ""
+        
+        info "Updating sshift..."
+        update_project
         exit 0
     fi
     
