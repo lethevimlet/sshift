@@ -1544,15 +1544,27 @@ class SSHIFTClient {
       const session = this.sessions.get(data.sessionId);
       if (session && session.terminal) {
         try {
+          // Mark that we're syncing to prevent resize feedback loop
+          session.isResyncing = true;
+          
           // Resize the terminal to match the server's dimensions
-          session.terminal.resize(data.cols, data.rows);
-          // Re-fit the terminal to the container
-          if (session.fitAddon) {
-            session.fitAddon.fit();
+          // Only resize if dimensions are different to avoid unnecessary updates
+          if (session.terminal.cols !== data.cols || session.terminal.rows !== data.rows) {
+            session.terminal.resize(data.cols, data.rows);
+            // Re-fit the terminal to the container
+            if (session.fitAddon) {
+              session.fitAddon.fit();
+            }
+            console.log('[SSHIFT] Terminal resized to match server dimensions');
           }
-          console.log('[SSHIFT] Terminal resized to match server dimensions');
+          
+          // Clear the syncing flag after a short delay
+          setTimeout(() => {
+            session.isResyncing = false;
+          }, 50);
         } catch (e) {
           console.warn('[SSHIFT] Error resizing terminal:', e.message);
+          session.isResyncing = false;
         }
       }
     });
@@ -3110,7 +3122,19 @@ class SSHIFTClient {
       terminal.onResize(({ cols, rows }) => {
         const sess = this.sessions.get(sessionId);
         if (sess && sess.connected) {
-          this.socket.emit('ssh-resize', { sessionId, cols, rows });
+          // Skip if we're currently syncing from another client's resize
+          // This prevents resize feedback loops between clients
+          if (sess.isResyncing) {
+            return;
+          }
+          
+          // Debounce resize events to prevent resize storms between clients
+          if (sess.resizeTimeout) {
+            clearTimeout(sess.resizeTimeout);
+          }
+          sess.resizeTimeout = setTimeout(() => {
+            this.socket.emit('ssh-resize', { sessionId, cols, rows });
+          }, 100); // 100ms debounce
         }
       });
 

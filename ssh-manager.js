@@ -5,6 +5,9 @@ const { SerializeAddon } = require('@xterm/addon-serialize');
 class SSHManager {
   constructor() {
     this.sessions = new Map();
+    // Data batching configuration
+    this.batchInterval = 16; // ~60fps - batch data for this many ms before sending
+    this.batchMaxSize = 64 * 1024; // 64KB max batch size - send immediately if exceeded
   }
 
   connect(socket, options) {
@@ -37,7 +40,11 @@ class SSHManager {
         cols: cols,
         rows: rows,
         terminal: terminal, // Headless terminal for state management
-        serializeAddon: serializeAddon // Serialize addon for syncing state
+        serializeAddon: serializeAddon, // Serialize addon for syncing state
+        // Data batching state
+        dataBuffer: '', // Buffer for outgoing data
+        batchTimer: null, // Timer for batched sends
+        lastDataTime: 0 // Timestamp of last data received
       };
 
       const config = {
@@ -113,29 +120,32 @@ class SSHManager {
           socket.join(`session-${sessionId}`);
           console.log(`[SSH] Shell started: ${sessionId}`);
 
-          // Handle stream data
+          // Handle stream data with batching to reduce socket events
+          // This prevents performance issues when multiple clients are connected
           stream.on('data', (data) => {
             const dataStr = data.toString('utf8');
             
-            // Write to headless terminal to maintain state
+            // Write to headless terminal to maintain state (immediate)
             session.terminal.write(dataStr);
             
-            // Broadcast to all connected sockets for this session
-            this.broadcastToSession(sessionId, 'ssh-data', { sessionId, data: dataStr });
+            // Buffer data for batched broadcast
+            this.bufferData(sessionId, dataStr);
           });
 
           stream.stderr.on('data', (data) => {
             const dataStr = data.toString('utf8');
             
-            // Write to headless terminal
+            // Write to headless terminal (immediate)
             session.terminal.write(dataStr);
             
-            // Broadcast to all connected sockets
-            this.broadcastToSession(sessionId, 'ssh-data', { sessionId, data: dataStr });
+            // Buffer data for batched broadcast
+            this.bufferData(sessionId, dataStr);
           });
 
           stream.on('close', () => {
             console.log(`[SSH] Stream closed: ${sessionId}`);
+            // Flush any remaining buffered data before disconnect
+            this.flushData(sessionId);
             this.broadcastToSession(sessionId, 'ssh-disconnected', { sessionId });
             this.disconnect(sessionId);
           });
@@ -187,6 +197,51 @@ class SSHManager {
     
     // Emit to all sockets in the session room
     io.to(`session-${sessionId}`).emit(event, data);
+  }
+
+  // Buffer data for batched broadcast to reduce socket events
+  // This improves performance when multiple clients are connected
+  bufferData(sessionId, dataStr) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    
+    // Add data to buffer
+    session.dataBuffer += dataStr;
+    session.lastDataTime = Date.now();
+    
+    // If buffer exceeds max size, flush immediately
+    if (session.dataBuffer.length >= this.batchMaxSize) {
+      this.flushData(sessionId);
+      return;
+    }
+    
+    // If no timer is running, start one
+    if (!session.batchTimer) {
+      session.batchTimer = setTimeout(() => {
+        this.flushData(sessionId);
+      }, this.batchInterval);
+    }
+  }
+
+  // Flush buffered data to all connected clients
+  flushData(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    
+    // Clear any pending timer
+    if (session.batchTimer) {
+      clearTimeout(session.batchTimer);
+      session.batchTimer = null;
+    }
+    
+    // If there's data to send, broadcast it
+    if (session.dataBuffer.length > 0) {
+      this.broadcastToSession(sessionId, 'ssh-data', { 
+        sessionId, 
+        data: session.dataBuffer 
+      });
+      session.dataBuffer = '';
+    }
   }
 
   // Join a session (for receiving updates)
@@ -322,6 +377,11 @@ class SSHManager {
   disconnect(sessionId) {
     const session = this.sessions.get(sessionId);
     if (session) {
+      // Clear any pending batch timer
+      if (session.batchTimer) {
+        clearTimeout(session.batchTimer);
+        session.batchTimer = null;
+      }
       if (session.stream) {
         session.stream.end();
       }
