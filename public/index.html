@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/libs/xterm/xterm.css">
   <link rel="stylesheet" href="/libs/font-awesome/css/all.min.css">
   <link rel="stylesheet" href="/css/style.css">
+  <script src="/libs/lucide/lucide.min.js"></script>
 </head>
 <body>
   <div class="app-container">
@@ -110,9 +111,9 @@
               </div>
             </div>
           </div>
-          <div class="layout-selector" id="layoutSelector">
+          <div class="layout-selector desktop-only" id="layoutSelector">
             <button class="btn btn-icon layout-btn" title="Change Layout">
-              <i class="fas fa-th-large"></i>
+              <i data-lucide="layout-dashboard"></i>
             </button>
             <div class="layout-dropdown" id="layoutDropdown">
               <!-- Layout options will be populated dynamically -->
@@ -251,58 +252,64 @@
 
       <!-- Terminal Area -->
       <main class="terminal-area">
-        <!-- Tabs -->
-        <div class="tabs-container">
-          <!-- Desktop tabs -->
-          <div class="tabs" id="tabs">
-            <!-- Tabs will be added here -->
-          </div>
-          <!-- Scroll arrows for desktop -->
-          <div class="tabs-scroll-arrows" id="tabsScrollArrows">
-            <button class="tabs-scroll-arrow" id="scrollLeftBtn" title="Scroll Left">
-              <i class="fas fa-chevron-left"></i>
-            </button>
-            <button class="tabs-scroll-arrow" id="scrollRightBtn" title="Scroll Right">
-              <i class="fas fa-chevron-right"></i>
-            </button>
-          </div>
-          <!-- Mobile tabs dropdown -->
-          <div class="mobile-tabs-dropdown" id="mobileTabsDropdown">
-            <button class="mobile-tabs-toggle" id="mobileTabsToggle">
-              <i class="fas fa-terminal tab-icon-active"></i>
-              <span class="mobile-tabs-label" id="mobileTabsLabel">No Active Tabs</span>
-              <i class="fas fa-chevron-down dropdown-arrow"></i>
-            </button>
-            <div class="mobile-tabs-menu" id="mobileTabsMenu">
-              <!-- Mobile tab options will be added here dynamically -->
+        <!-- Layout Container -->
+        <div class="layout-container" id="layoutContainer">
+          <!-- Single Panel (default) -->
+          <div class="layout-panel" id="panel-0" data-panel-id="0">
+            <!-- Tabs -->
+            <div class="tabs-container">
+              <!-- Desktop tabs -->
+              <div class="tabs" id="tabs">
+                <!-- Tabs will be added here -->
+              </div>
+              <!-- Scroll arrows for desktop -->
+              <div class="tabs-scroll-arrows" id="tabsScrollArrows">
+                <button class="tabs-scroll-arrow" id="scrollLeftBtn" title="Scroll Left">
+                  <i class="fas fa-chevron-left"></i>
+                </button>
+                <button class="tabs-scroll-arrow" id="scrollRightBtn" title="Scroll Right">
+                  <i class="fas fa-chevron-right"></i>
+                </button>
+              </div>
+              <!-- Mobile tabs dropdown -->
+              <div class="mobile-tabs-dropdown" id="mobileTabsDropdown">
+                <button class="mobile-tabs-toggle" id="mobileTabsToggle">
+                  <i class="fas fa-terminal tab-icon-active"></i>
+                  <span class="mobile-tabs-label" id="mobileTabsLabel">No Active Tabs</span>
+                  <i class="fas fa-chevron-down dropdown-arrow"></i>
+                </button>
+                <div class="mobile-tabs-menu" id="mobileTabsMenu">
+                  <!-- Mobile tab options will be added here dynamically -->
+                </div>
+              </div>
+              <div class="tabs-actions">
+                <button class="btn btn-sm" id="decreaseFontBtn" title="Decrease Font Size">
+                  <i class="fas fa-minus"></i>
+                </button>
+                <button class="btn btn-sm" id="increaseFontBtn" title="Increase Font Size">
+                  <i class="fas fa-plus"></i>
+                </button>
+                <button class="btn btn-sm" id="specialKeysBtn" title="Special Keys">
+                  <i class="fas fa-keyboard"></i>
+                </button>
+              </div>
             </div>
-          </div>
-          <div class="tabs-actions">
-            <button class="btn btn-sm" id="decreaseFontBtn" title="Decrease Font Size">
-              <i class="fas fa-minus"></i>
-            </button>
-            <button class="btn btn-sm" id="increaseFontBtn" title="Increase Font Size">
-              <i class="fas fa-plus"></i>
-            </button>
-            <button class="btn btn-sm" id="specialKeysBtn" title="Special Keys">
-              <i class="fas fa-keyboard"></i>
-            </button>
-          </div>
-        </div>
 
-        <!-- Terminal Container -->
-        <div class="terminals-container" id="terminalsContainer">
-          <div class="empty-state" id="emptyState">
-            <i class="fas fa-terminal"></i>
-            <h3>No Active Sessions</h3>
-            <p>Connect to a server using SSH or SFTP</p>
-            <div class="empty-actions">
-              <button class="btn btn-primary" id="quickSshBtn">
-                <i class="fas fa-plug"></i> Quick SSH
-              </button>
-              <button class="btn btn-primary" id="quickSftpBtn">
-                <i class="fas fa-folder-open"></i> Quick SFTP
-              </button>
+            <!-- Terminal Container -->
+            <div class="terminals-container" id="terminalsContainer">
+              <div class="empty-state" id="emptyState">
+                <i class="fas fa-terminal"></i>
+                <h3>No Active Sessions</h3>
+                <p>Connect to a server using SSH or SFTP</p>
+                <div class="empty-actions">
+                  <button class="btn btn-primary" id="quickSshBtn">
+                    <i class="fas fa-plug"></i> Quick SSH
+                  </button>
+                  <button class="btn btn-primary" id="quickSftpBtn">
+                    <i class="fas fa-folder-open"></i> Quick SFTP
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

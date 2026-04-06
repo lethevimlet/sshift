@@ -866,6 +866,11 @@ body {
   color: var(--accent-primary);
 }
 
+.layout-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
 .layout-dropdown {
   position: absolute;
   top: calc(100% + 8px);
@@ -908,13 +913,16 @@ body {
   color: var(--accent-primary);
 }
 
-.layout-option i {
+.layout-option i,
+.layout-option svg {
   width: 20px;
+  height: 20px;
   text-align: center;
   color: var(--text-secondary);
 }
 
-.layout-option.active i {
+.layout-option.active i,
+.layout-option.active svg {
   color: var(--accent-primary);
 }
 
@@ -971,6 +979,11 @@ body {
   padding: 8px 8px;
 }
 
+.btn-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
 /* Mobile-specific button sizing */
 @media (max-width: 768px) {
   .btn-icon {
@@ -984,8 +997,11 @@ body {
     border-width: 1px !important;
   }
   
-  .btn-icon i {
+  .btn-icon i,
+  .btn-icon svg {
     font-size: 16px !important;
+    width: 16px !important;
+    height: 16px !important;
   }
   
   .menu-btn {
@@ -1909,6 +1925,89 @@ body {
 /* Show scroll arrows on desktop when tabs overflow */
 .tabs-scroll-arrows.visible {
   display: flex;
+}
+
+/* Layout System */
+.layout-container {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.layout-container.columns {
+  flex-direction: row;
+}
+
+.layout-container.rows {
+  flex-direction: column;
+}
+
+.layout-column {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Add right border to all columns except the last one */
+.layout-column:not(:last-child) {
+  border-right: 1px solid var(--border-color);
+}
+
+.layout-row {
+  display: flex;
+  flex-direction: row;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.layout-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
+/* Add bottom border to all panels except the last one in a column */
+.layout-panel:not(:last-child) {
+  border-bottom: 1px solid var(--border-color);
+}
+
+.layout-panel .tabs-container {
+  flex-shrink: 0;
+}
+
+.layout-panel .terminals-container {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Panel resize handles (for future use) */
+.layout-panel-resize-handle {
+  position: absolute;
+  background: transparent;
+  z-index: 10;
+}
+
+.layout-panel-resize-handle.vertical {
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  cursor: ew-resize;
+}
+
+.layout-panel-resize-handle.horizontal {
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  cursor: ns-resize;
 }
 
 /* Terminals Container */
