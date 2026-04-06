@@ -602,6 +602,147 @@ class SSHIFTClient {
     this.loadTerminalColorSettings();
   }
 
+  // Layout Management
+  async loadLayouts() {
+    try {
+      // First try to get layouts from config.json via API
+      const configResponse = await fetch('/api/config');
+      if (configResponse.ok) {
+        const config = await configResponse.json();
+        if (config.layouts && Array.isArray(config.layouts) && config.layouts.length > 0) {
+          console.log('[SSHIFT] Loaded layouts from config');
+          return config.layouts;
+        }
+      }
+    } catch (err) {
+      console.warn('[SSHIFT] Failed to load layouts from config:', err);
+    }
+    
+    // Fallback to layouts.json
+    try {
+      const layoutsResponse = await fetch('/layouts.json');
+      if (layoutsResponse.ok) {
+        const data = await layoutsResponse.json();
+        if (data.layouts && Array.isArray(data.layouts)) {
+          console.log('[SSHIFT] Loaded layouts from layouts.json');
+          return data.layouts;
+        }
+      }
+    } catch (err) {
+      console.warn('[SSHIFT] Failed to load layouts.json:', err);
+    }
+    
+    // Default fallback layouts
+    console.log('[SSHIFT] Using default layouts');
+    return [
+      { id: 'single', name: 'Single', icon: 'square', columns: [{ width: '100%', rows: [{ height: '100%' }] }] },
+      { id: '2-columns', name: '2 Columns', icon: 'columns', columns: [{ width: '50%', rows: [{ height: '100%' }] }, { width: '50%', rows: [{ height: '100%' }] }] },
+      { id: '3-columns', name: '3 Columns', icon: 'grip-lines-vertical', columns: [{ width: '33.33%', rows: [{ height: '100%' }] }, { width: '33.33%', rows: [{ height: '100%' }] }, { width: '33.34%', rows: [{ height: '100%' }] }] },
+      { id: '1-column-2-rows', name: '1 Column 2 Rows', icon: 'grip-lines', columns: [{ width: '100%', rows: [{ height: '50%' }, { height: '50%' }] }] },
+      { id: 'cross', name: 'Cross', icon: 'th-large', columns: [{ width: '50%', rows: [{ height: '50%' }, { height: '50%' }] }, { width: '50%', rows: [{ height: '50%' }, { height: '50%' }] }] }
+    ];
+  }
+
+  loadCurrentLayout() {
+    return localStorage.getItem('currentLayout') || 'single';
+  }
+
+  saveCurrentLayout(layoutId) {
+    localStorage.setItem('currentLayout', layoutId);
+  }
+
+  async initLayoutSelector() {
+    const layoutBtn = document.querySelector('.layout-btn');
+    const layoutDropdown = document.getElementById('layoutDropdown');
+    
+    if (!layoutBtn || !layoutDropdown) {
+      console.warn('[SSHIFT] Layout selector elements not found');
+      return;
+    }
+    
+    // Load layouts
+    this.layouts = await this.loadLayouts();
+    
+    // Populate dropdown
+    this.populateLayoutDropdown();
+    
+    // Set current layout
+    const currentLayout = this.loadCurrentLayout();
+    this.updateLayoutActiveState(currentLayout);
+    
+    // Toggle dropdown on button click
+    layoutBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      layoutDropdown.classList.toggle('show');
+      // Close other dropdowns
+      const accentDropdown = document.querySelector('.accent-dropdown');
+      const terminalColorDropdown = document.querySelector('.terminal-color-dropdown');
+      if (accentDropdown) accentDropdown.classList.remove('show');
+      if (terminalColorDropdown) terminalColorDropdown.classList.remove('show');
+    });
+    
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+      if (layoutDropdown.classList.contains('show') && !e.target.closest('.layout-selector')) {
+        layoutDropdown.classList.remove('show');
+      }
+    }, true);
+  }
+
+  populateLayoutDropdown() {
+    const layoutDropdown = document.getElementById('layoutDropdown');
+    if (!layoutDropdown || !this.layouts) return;
+    
+    layoutDropdown.innerHTML = '';
+    
+    this.layouts.forEach(layout => {
+      const button = document.createElement('button');
+      button.className = 'layout-option';
+      button.dataset.layoutId = layout.id;
+      button.innerHTML = `
+        <i class="fas fa-${layout.icon || 'th-large'}"></i>
+        <span class="layout-label">${layout.name}</span>
+      `;
+      button.addEventListener('click', () => {
+        this.setLayout(layout.id);
+        layoutDropdown.classList.remove('show');
+      });
+      layoutDropdown.appendChild(button);
+    });
+  }
+
+  setLayout(layoutId) {
+    console.log('[SSHIFT] Setting layout:', layoutId);
+    this.saveCurrentLayout(layoutId);
+    this.updateLayoutActiveState(layoutId);
+    
+    // Find the layout definition
+    const layout = this.layouts?.find(l => l.id === layoutId);
+    if (layout) {
+      // Emit event for layout change (to be implemented later)
+      this.onLayoutChange(layout);
+    }
+  }
+
+  updateLayoutActiveState(layoutId) {
+    document.querySelectorAll('.layout-option').forEach(option => {
+      option.classList.toggle('active', option.dataset.layoutId === layoutId);
+    });
+    
+    // Update button active state
+    const layoutBtn = document.querySelector('.layout-btn');
+    if (layoutBtn) {
+      layoutBtn.classList.toggle('active', layoutId !== 'single');
+    }
+  }
+
+  onLayoutChange(layout) {
+    // Placeholder for layout logic implementation
+    console.log('[SSHIFT] Layout changed to:', layout.name, layout);
+    // This will be implemented when layout logic is added
+    this.showToast(`Layout: ${layout.name}`, 'info');
+  }
+
   async loadBookmarkOrder() {
     try {
       const response = await fetch('/api/bookmarks/order');
@@ -2025,6 +2166,9 @@ class SSHIFTClient {
     
     // Initialize terminal color override UI state
     this.updateTerminalColorOverrideUI();
+
+    // Layout selector
+    this.initLayoutSelector();
 
     // Menu toggle
     document.getElementById('menuBtn').addEventListener('click', () => {
