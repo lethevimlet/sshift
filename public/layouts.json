@@ -1,0 +1,128 @@
+{
+  "layouts": [
+    {
+      "id": "single",
+      "name": "Single",
+      "icon": "square",
+      "columns": [
+        {
+          "width": "100%",
+          "rows": [
+            {
+              "height": "100%"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "2-columns",
+      "name": "2 Columns",
+      "icon": "columns-2",
+      "columns": [
+        {
+          "width": "50%",
+          "rows": [
+            {
+              "height": "100%"
+            }
+          ]
+        },
+        {
+          "width": "50%",
+          "rows": [
+            {
+              "height": "100%"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "3-columns",
+      "name": "3 Columns",
+      "icon": "columns-3",
+      "columns": [
+        {
+          "width": "33.33%",
+          "rows": [
+            {
+              "height": "100%"
+            }
+          ]
+        },
+        {
+          "width": "33.33%",
+          "rows": [
+            {
+              "height": "100%"
+            }
+          ]
+        },
+        {
+          "width": "33.34%",
+          "rows": [
+            {
+              "height": "100%"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mixed",
+      "name": "Mixed",
+      "icon": "layout-panel-left",
+      "columns": [
+        {
+          "width": "50%",
+          "rows": [
+            {
+              "height": "100%"
+            }
+          ]
+        },
+        {
+          "width": "50%",
+          "rows": [
+            {
+              "height": "50%"
+            },
+            {
+              "height": "50%"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cross",
+      "name": "Cross",
+      "icon": "grid-2x2",
+      "columns": [
+        {
+          "width": "50%",
+          "rows": [
+            {
+              "height": "50%"
+            },
+            {
+              "height": "50%"
+            }
+          ]
+        },
+        {
+          "width": "50%",
+          "rows": [
+            {
+              "height": "50%"
+            },
+            {
+              "height": "50%"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -49,6 +49,10 @@ class SSHIFTClient {
     this.minFontSize = 8; // Minimum font size
     this.maxFontSize = 32; // Maximum font size
     
+    // Layout system
+    this.layouts = null; // Will be loaded from config/layouts.json
+    this.currentLayout = null; // Current active layout
+    
     console.log('[SSHIFT] Mobile detection - isMobile:', this.isMobile, 'window width:', window.innerWidth);
     
     this.init();
@@ -660,14 +664,16 @@ class SSHIFTClient {
       return;
     }
     
-    // Load layouts
-    this.layouts = await this.loadLayouts();
+    // Use already loaded layouts or load them
+    if (!this.layouts) {
+      this.layouts = await this.loadLayouts();
+    }
     
     // Populate dropdown
     this.populateLayoutDropdown();
     
     // Set current layout
-    const currentLayout = this.loadCurrentLayout();
+    const currentLayout = this.currentLayout?.id || this.loadCurrentLayout();
     this.updateLayoutActiveState(currentLayout);
     
     // Toggle dropdown on button click
@@ -700,7 +706,7 @@ class SSHIFTClient {
       button.className = 'layout-option';
       button.dataset.layoutId = layout.id;
       button.innerHTML = `
-        <i class="fas fa-${layout.icon || 'th-large'}"></i>
+        <i data-lucide="${layout.icon || 'grid'}"></i>
         <span class="layout-label">${layout.name}</span>
       `;
       button.addEventListener('click', () => {
@@ -709,6 +715,11 @@ class SSHIFTClient {
       });
       layoutDropdown.appendChild(button);
     });
+    
+    // Initialize Lucide icons in the dropdown
+    if (typeof lucide !== 'undefined') {
+      lucide.createIcons();
+    }
   }
 
   setLayout(layoutId) {
@@ -737,10 +748,307 @@ class SSHIFTClient {
   }
 
   onLayoutChange(layout) {
-    // Placeholder for layout logic implementation
     console.log('[SSHIFT] Layout changed to:', layout.name, layout);
-    // This will be implemented when layout logic is added
+    
+    // Store current layout
+    this.currentLayout = layout;
+    
+    // Apply the layout
+    this.applyLayout(layout);
+    
     this.showToast(`Layout: ${layout.name}`, 'info');
+  }
+
+  applyLayout(layout) {
+    const layoutContainer = document.getElementById('layoutContainer');
+    if (!layoutContainer) {
+      console.error('[SSHIFT] Layout container not found');
+      return;
+    }
+    
+    // Check if single layout (use existing structure)
+    if (layout.id === 'single') {
+      // For single layout, just ensure the container has the right class
+      layoutContainer.className = 'layout-container columns';
+      
+      // Check if we need to restore the original single panel structure
+      const existingPanel = document.getElementById('panel-0');
+      if (!existingPanel) {
+        // Clear and recreate single panel
+        layoutContainer.innerHTML = '';
+        this.createSinglePanel(layoutContainer, 0);
+      }
+      
+      this.currentLayout = layout;
+      return;
+    }
+    
+    // For multi-panel layouts, clear existing layout
+    layoutContainer.innerHTML = '';
+    layoutContainer.className = 'layout-container columns';
+    
+    // Create panels based on layout definition
+    layout.columns.forEach((columnDef, colIndex) => {
+      const column = this.createColumn(columnDef, colIndex);
+      layoutContainer.appendChild(column);
+    });
+    
+    this.currentLayout = layout;
+  }
+
+  createColumn(columnDef, colIndex) {
+    const column = document.createElement('div');
+    column.className = 'layout-column';
+    column.style.width = columnDef.width;
+    column.dataset.columnIndex = colIndex;
+    
+    // Create rows within the column
+    columnDef.rows.forEach((rowDef, rowIndex) => {
+      const panel = this.createPanel(colIndex, rowIndex, rowDef.height);
+      column.appendChild(panel);
+    });
+    
+    return column;
+  }
+
+  createPanel(colIndex, rowIndex, height) {
+    const panelId = `panel-${colIndex}-${rowIndex}`;
+    const panel = document.createElement('div');
+    panel.className = 'layout-panel';
+    panel.id = panelId;
+    panel.dataset.panelId = `${colIndex}-${rowIndex}`;
+    panel.style.height = height;
+    
+    // Create tabs container for this panel
+    const tabsContainer = this.createTabsContainer(panelId);
+    panel.appendChild(tabsContainer);
+    
+    // Create terminals container for this panel
+    const terminalsContainer = this.createTerminalsContainer(panelId);
+    panel.appendChild(terminalsContainer);
+    
+    return panel;
+  }
+
+  createSinglePanel(container, panelId) {
+    const panel = document.createElement('div');
+    panel.className = 'layout-panel';
+    panel.id = 'panel-0';
+    panel.dataset.panelId = '0';
+    panel.style.width = '100%';
+    panel.style.height = '100%';
+    
+    // Create tabs container with original IDs (no prefix for single panel)
+    const tabsContainer = this.createTabsContainer('panel-0', true);
+    panel.appendChild(tabsContainer);
+    
+    // Create terminals container with original IDs (no prefix for single panel)
+    const terminalsContainer = this.createTerminalsContainer('panel-0', true);
+    panel.appendChild(terminalsContainer);
+    
+    container.appendChild(panel);
+    
+    // Re-attach event listeners for the new panel
+    this.attachPanelEventListeners('panel-0');
+  }
+
+  createTabsContainer(panelId, isSingle = false) {
+    const container = document.createElement('div');
+    container.className = 'tabs-container';
+    // For single panel, use original IDs without prefix
+    container.id = isSingle ? 'tabs-container' : `${panelId}-tabs-container`;
+    
+    // Desktop tabs
+    const tabs = document.createElement('div');
+    tabs.className = 'tabs';
+    tabs.id = isSingle ? 'tabs' : `${panelId}-tabs`;
+    container.appendChild(tabs);
+    
+    // Scroll arrows
+    const scrollArrows = document.createElement('div');
+    scrollArrows.className = 'tabs-scroll-arrows';
+    scrollArrows.id = isSingle ? 'tabsScrollArrows' : `${panelId}-tabsScrollArrows`;
+    
+    const scrollLeftBtn = document.createElement('button');
+    scrollLeftBtn.className = 'tabs-scroll-arrow';
+    scrollLeftBtn.id = isSingle ? 'scrollLeftBtn' : `${panelId}-scrollLeftBtn`;
+    scrollLeftBtn.title = 'Scroll Left';
+    scrollLeftBtn.innerHTML = '<i class="fas fa-chevron-left"></i>';
+    scrollArrows.appendChild(scrollLeftBtn);
+    
+    const scrollRightBtn = document.createElement('button');
+    scrollRightBtn.className = 'tabs-scroll-arrow';
+    scrollRightBtn.id = isSingle ? 'scrollRightBtn' : `${panelId}-scrollRightBtn`;
+    scrollRightBtn.title = 'Scroll Right';
+    scrollRightBtn.innerHTML = '<i class="fas fa-chevron-right"></i>';
+    scrollArrows.appendChild(scrollRightBtn);
+    
+    container.appendChild(scrollArrows);
+    
+    // Mobile tabs dropdown
+    const mobileDropdown = document.createElement('div');
+    mobileDropdown.className = 'mobile-tabs-dropdown';
+    mobileDropdown.id = isSingle ? 'mobileTabsDropdown' : `${panelId}-mobileTabsDropdown`;
+    
+    const mobileToggle = document.createElement('button');
+    mobileToggle.className = 'mobile-tabs-toggle';
+    mobileToggle.id = isSingle ? 'mobileTabsToggle' : `${panelId}-mobileTabsToggle`;
+    mobileToggle.innerHTML = `
+      <i class="fas fa-terminal tab-icon-active"></i>
+      <span class="mobile-tabs-label" id="${isSingle ? 'mobileTabsLabel' : `${panelId}-mobileTabsLabel`}">No Active Tabs</span>
+      <i class="fas fa-chevron-down dropdown-arrow"></i>
+    `;
+    mobileDropdown.appendChild(mobileToggle);
+    
+    const mobileMenu = document.createElement('div');
+    mobileMenu.className = 'mobile-tabs-menu';
+    mobileMenu.id = isSingle ? 'mobileTabsMenu' : `${panelId}-mobileTabsMenu`;
+    mobileDropdown.appendChild(mobileMenu);
+    
+    container.appendChild(mobileDropdown);
+    
+    // Tabs actions (font size, special keys)
+    const actions = document.createElement('div');
+    actions.className = 'tabs-actions';
+    
+    const decreaseBtn = document.createElement('button');
+    decreaseBtn.className = 'btn btn-sm';
+    decreaseBtn.id = isSingle ? 'decreaseFontBtn' : `${panelId}-decreaseFontBtn`;
+    decreaseBtn.title = 'Decrease Font Size';
+    decreaseBtn.innerHTML = '<i class="fas fa-minus"></i>';
+    actions.appendChild(decreaseBtn);
+    
+    const increaseBtn = document.createElement('button');
+    increaseBtn.className = 'btn btn-sm';
+    increaseBtn.id = isSingle ? 'increaseFontBtn' : `${panelId}-increaseFontBtn`;
+    increaseBtn.title = 'Increase Font Size';
+    increaseBtn.innerHTML = '<i class="fas fa-plus"></i>';
+    actions.appendChild(increaseBtn);
+    
+    const specialKeysBtn = document.createElement('button');
+    specialKeysBtn.className = 'btn btn-sm';
+    specialKeysBtn.id = isSingle ? 'specialKeysBtn' : `${panelId}-specialKeysBtn`;
+    specialKeysBtn.title = 'Special Keys';
+    specialKeysBtn.innerHTML = '<i class="fas fa-keyboard"></i>';
+    actions.appendChild(specialKeysBtn);
+    
+    container.appendChild(actions);
+    
+    return container;
+  }
+
+  createTerminalsContainer(panelId, isSingle = false) {
+    const container = document.createElement('div');
+    container.className = 'terminals-container';
+    container.id = isSingle ? 'terminalsContainer' : `${panelId}-terminalsContainer`;
+    
+    // Add empty state
+    const emptyState = document.createElement('div');
+    emptyState.className = 'empty-state';
+    emptyState.id = isSingle ? 'emptyState' : `${panelId}-emptyState`;
+    emptyState.innerHTML = `
+      <i class="fas fa-terminal"></i>
+      <h3>No Active Sessions</h3>
+      <p>Connect to a server using SSH or SFTP</p>
+      <div class="empty-actions">
+        <button class="btn btn-primary" id="${isSingle ? 'quickSshBtn' : `${panelId}-quickSshBtn`}">
+          <i class="fas fa-plug"></i> Quick SSH
+        </button>
+        <button class="btn btn-primary" id="${isSingle ? 'quickSftpBtn' : `${panelId}-quickSftpBtn`}">
+          <i class="fas fa-folder-open"></i> Quick SFTP
+        </button>
+      </div>
+    `;
+    container.appendChild(emptyState);
+    
+    return container;
+  }
+
+  attachPanelEventListeners(panelId) {
+    // For single panel (panel-0), use original IDs without prefix
+    const isSingle = panelId === 'panel-0';
+    const prefix = isSingle ? '' : `${panelId}-`;
+    
+    // Font size buttons
+    const decreaseBtn = document.getElementById(isSingle ? 'decreaseFontBtn' : `${panelId}-decreaseFontBtn`);
+    const increaseBtn = document.getElementById(isSingle ? 'increaseFontBtn' : `${panelId}-increaseFontBtn`);
+    
+    if (decreaseBtn) {
+      decreaseBtn.addEventListener('click', () => this.decreaseFontSize(panelId));
+    }
+    if (increaseBtn) {
+      increaseBtn.addEventListener('click', () => this.increaseFontSize(panelId));
+    }
+    
+    // Special keys button
+    const specialKeysBtn = document.getElementById(isSingle ? 'specialKeysBtn' : `${panelId}-specialKeysBtn`);
+    if (specialKeysBtn) {
+      specialKeysBtn.addEventListener('click', () => this.toggleSpecialKeys(panelId));
+    }
+    
+    // Scroll arrows
+    const scrollLeftBtn = document.getElementById(isSingle ? 'scrollLeftBtn' : `${panelId}-scrollLeftBtn`);
+    const scrollRightBtn = document.getElementById(isSingle ? 'scrollRightBtn' : `${panelId}-scrollRightBtn`);
+    const tabsContainer = document.getElementById(isSingle ? 'tabs' : `${panelId}-tabs`);
+    
+    if (scrollLeftBtn && tabsContainer) {
+      scrollLeftBtn.addEventListener('click', () => {
+        tabsContainer.scrollBy({ left: -100, behavior: 'smooth' });
+      });
+    }
+    if (scrollRightBtn && tabsContainer) {
+      scrollRightBtn.addEventListener('click', () => {
+        tabsContainer.scrollBy({ left: 100, behavior: 'smooth' });
+      });
+    }
+    
+    // Mobile tabs dropdown
+    const mobileToggle = document.getElementById(isSingle ? 'mobileTabsToggle' : `${panelId}-mobileTabsToggle`);
+    const mobileMenu = document.getElementById(isSingle ? 'mobileTabsMenu' : `${panelId}-mobileTabsMenu`);
+    
+    if (mobileToggle && mobileMenu) {
+      mobileToggle.addEventListener('click', () => {
+        mobileMenu.classList.toggle('show');
+      });
+    }
+  }
+
+  // Placeholder methods for panel-specific actions
+  decreaseFontSize(panelId) {
+    console.log('[SSHIFT] Decrease font size for panel:', panelId);
+    // TODO: Implement panel-specific font size
+    this.changeFontSize(-1);
+  }
+
+  increaseFontSize(panelId) {
+    console.log('[SSHIFT] Increase font size for panel:', panelId);
+    // TODO: Implement panel-specific font size
+    this.changeFontSize(1);
+  }
+
+  toggleSpecialKeys(panelId) {
+    console.log('[SSHIFT] Toggle special keys for panel:', panelId);
+    // TODO: Implement panel-specific special keys
+    this.toggleSpecialKeysBar();
+  }
+
+  async initLayoutSystem() {
+    console.log('[SSHIFT] Initializing layout system...');
+    
+    // Load layouts
+    this.layouts = await this.loadLayouts();
+    
+    // Get saved layout or default to 'single'
+    const savedLayoutId = this.loadCurrentLayout();
+    const layout = this.layouts.find(l => l.id === savedLayoutId) || this.layouts[0];
+    
+    if (layout) {
+      this.currentLayout = layout;
+      this.applyLayout(layout);
+      this.updateLayoutActiveState(layout.id);
+    }
+    
+    console.log('[SSHIFT] Layout system initialized with layout:', layout?.name);
   }
 
   async loadBookmarkOrder() {
@@ -786,6 +1094,9 @@ class SSHIFTClient {
     
     // Load sticky config first
     await this.loadStickyConfig();
+    
+    // Initialize layout system (must be before setupEventListeners)
+    await this.initLayoutSystem();
     
     this.setupSocketListeners();
     this.setupEventListeners();
@@ -6718,4 +7029,8 @@ class SSHIFTClient {
 // Initialize application
 document.addEventListener('DOMContentLoaded', () => {
   window.app = new SSHIFTClient();
+  // Initialize Lucide icons
+  if (typeof lucide !== 'undefined') {
+    lucide.createIcons();
+  }
 });
