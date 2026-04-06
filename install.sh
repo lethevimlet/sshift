@@ -7,6 +7,12 @@
 # Usage: ./install.sh [OPTIONS]
 #   --install-dir DIR   Installation directory (default: ~/.local/share/sshift)
 #   --port PORT         Server port (default: 8022)
+#   --start             Start sshift after installation/update
+#   --stop              Stop running sshift instance
+#   --restart           Restart sshift
+#   --status            Check if sshift is running
+#   --update            Update existing installation (non-interactive)
+#   --uninstall         Remove sshift from the system
 #   -h, --help          Show this help message
 
 set -e
@@ -17,11 +23,15 @@ REPO_URL="https://github.com/lethevimlet/sshift.git"
 REPO_API_URL="https://api.github.com/repos/lethevimlet/sshift/contents/package.json"
 INSTALL_DIR="${HOME}/.local/share/sshift"
 BIN_DIR="${HOME}/.local/bin"
-PID_FILE="/tmp/sshift.pid"
+PID_FILE="${INSTALL_DIR}/.sshift.pid"
 SERVICE_NAME="sshift"
 SERVER_PORT=""
 UNINSTALL=false
 UPDATE_ONLY=false
+START_ONLY=false
+STOP_ONLY=false
+RESTART_ONLY=false
+STATUS_ONLY=false
 
 # Colors for output
 RED='\033[0;31m'
@@ -45,6 +55,10 @@ show_help() {
     echo "Options:"
     echo "  --install-dir DIR   Installation directory (default: ~/.local/share/sshift)"
     echo "  --port PORT         Server port (default: 8022)"
+    echo "  --start             Start sshift after installation/update"
+    echo "  --stop              Stop running sshift instance"
+    echo "  --restart           Restart sshift"
+    echo "  --status            Check if sshift is running"
     echo "  --update            Update existing installation (non-interactive)"
     echo "  --uninstall         Remove sshift from the system"
     echo "  -h, --help          Show this help message"
@@ -52,9 +66,13 @@ show_help() {
     echo "Examples:"
     echo "  $0                              # Install with defaults"
     echo "  $0 --port 8080                  # Install with custom port"
-    echo "  $0 --install-dir /opt/sshift     # Install to custom directory"
+    echo "  $0 --install-dir /opt/sshift    # Install to custom directory"
     echo "  $0 --update                     # Update existing installation"
-    echo "  $0 --uninstall                   # Remove sshift"
+    echo "  $0 --start                      # Start sshift"
+    echo "  $0 --stop                       # Stop sshift"
+    echo "  $0 --restart                    # Restart sshift"
+    echo "  $0 --status                     # Check status"
+    echo "  $0 --uninstall                  # Remove sshift"
     exit 0
 }
 
@@ -76,6 +94,22 @@ parse_args() {
                 ;;
             --update)
                 UPDATE_ONLY=true
+                shift
+                ;;
+            --start)
+                START_ONLY=true
+                shift
+                ;;
+            --stop)
+                STOP_ONLY=true
+                shift
+                ;;
+            --restart)
+                RESTART_ONLY=true
+                shift
+                ;;
+            --status)
+                STATUS_ONLY=true
                 shift
                 ;;
             -h|--help)
@@ -164,12 +198,43 @@ is_running() {
 
 # Stop running instance
 stop_app() {
+    # Check if running via systemd
+    if command_exists systemctl && systemctl --user is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+        info "Stopping sshift via systemd..."
+        systemctl --user stop "$SERVICE_NAME" 2>/dev/null || true
+        sleep 2
+        return
+    fi
+    
+    # Otherwise, stop via PID file
     if is_running; then
         local pid=$(cat "$PID_FILE")
         info "Stopping sshift (PID: $pid)..."
         kill "$pid" 2>/dev/null || true
+        
+        # Wait for the process to actually stop (up to 10 seconds)
+        local wait_count=0
+        while kill -0 "$pid" 2>/dev/null && [ $wait_count -lt 10 ]; do
+            sleep 1
+            wait_count=$((wait_count + 1))
+            info "Waiting for process to stop... ($wait_count/10)"
+        done
+        
+        # Force kill if still running
+        if kill -0 "$pid" 2>/dev/null; then
+            warn "Process did not stop gracefully, force killing..."
+            kill -9 "$pid" 2>/dev/null || true
+            sleep 1
+        fi
+        
         rm -f "$PID_FILE"
-        sleep 1
+        success "sshift stopped"
+    else
+        # Clean up stale PID file if it exists
+        if [ -f "$PID_FILE" ]; then
+            rm -f "$PID_FILE"
+            info "Removed stale PID file"
+        fi
     fi
 }
 
@@ -177,78 +242,37 @@ stop_app() {
 ensure_sshift_executable() {
     if [ ! -f "$INSTALL_DIR/sshift" ]; then
         warn "sshift executable not found, creating it..."
-        cat > "$INSTALL_DIR/sshift" << 'EOFSHIFT'
-#!/usr/bin/env node
-
-/**
- * sshift - Web-based SSH & SFTP Terminal Client
- * 
- * This is the main entry point for the sshift application.
- * Run this file to start the server.
- * 
- * Usage:
- *   ./sshift              # Start server on default port (8022, or from config.json)
- *   PORT=8080 ./sshift    # Start server on custom port (overrides config)
- *   NODE_ENV=development ./sshift  # Start in dev mode (port 3000, or from config)
- *   node sshift           # Alternative way to start
- * 
- * Port Priority:
- *   1. PORT environment variable (highest priority)
- *   2. config.json port/devPort based on NODE_ENV
- *   3. Default: 8022 (production), 3000 (development)
- */
-
-'use strict';
-
-const path = require('path');
-const fs = require('fs');
-
-// Get the directory where this script is located
-const scriptDir = __dirname;
-const serverPath = path.join(scriptDir, 'server.js');
-
-// Check if server.js exists
-if (!fs.existsSync(serverPath)) {
-  console.error('Error: server.js not found');
-  console.error('Make sure you are running sshift from the installation directory');
-  process.exit(1);
-}
-
-// Change to the script's directory to ensure relative paths work correctly
-process.chdir(scriptDir);
-
-// Load environment variables from .env files
-// Priority: .env/.env.local > .env.local > .env/.env > .env
-const envPaths = [
-  path.join(scriptDir, '.env', '.env.local'),
-  path.join(scriptDir, '.env.local'),
-  path.join(scriptDir, '.env', '.env'),
-  path.join(scriptDir, '.env')
-];
-
-// Load dotenv if available
-try {
-  const dotenv = require('dotenv');
-  envPaths.forEach(envPath => {
-    if (fs.existsSync(envPath)) {
-      dotenv.config({ path: envPath });
-    }
-  });
-} catch (e) {
-  // dotenv not available, environment variables will be loaded by server.js
-}
-
-// Start the server
-require(serverPath);
-EOFSHIFT
-        chmod +x "$INSTALL_DIR/sshift"
-        success "Created sshift executable"
+        # Note: This is a fallback. The sshift file should be in the repository.
+        # If you see this message, the repository clone may be incomplete.
+        warn "Please ensure the repository was cloned correctly."
+        return 1
     fi
+    chmod +x "$INSTALL_DIR/sshift"
 }
 
 # Start the app
 start_app() {
     info "Starting sshift..."
+    
+    # Check if systemd service is enabled
+    if command_exists systemctl && systemctl --user is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then
+        info "Starting via systemd service..."
+        systemctl --user start "$SERVICE_NAME" 2>/dev/null || {
+            warn "Failed to start via systemd, falling back to direct start"
+            # Fall through to direct start below
+        }
+        
+        # Give systemd a moment to start
+        sleep 2
+        
+        # Check if it started successfully
+        if systemctl --user is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+            success "sshift started via systemd"
+            return 0
+        fi
+    fi
+    
+    # Direct start (no systemd or systemd failed)
     
     # Ensure sshift executable exists
     ensure_sshift_executable
@@ -256,12 +280,15 @@ start_app() {
     # Make sure it's executable
     chmod +x "$INSTALL_DIR/sshift"
     
-    # Check if already running
+    # Check if already running - if so, stop it first
     if [ -f "$PID_FILE" ]; then
         local pid=$(cat "$PID_FILE" 2>/dev/null)
         if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-            warn "sshift is already running (PID: $pid)"
-            return 0
+            warn "sshift is already running (PID: $pid), stopping it first..."
+            stop_app
+        else
+            # Stale PID file, remove it
+            rm -f "$PID_FILE"
         fi
     fi
     
@@ -311,6 +338,19 @@ start_app() {
 # Update the project
 update_project() {
     info "Updating sshift..."
+    
+    # Check for restart marker (set by server when update is triggered from UI)
+    local restart_marker="$INSTALL_DIR/.restart-after-update"
+    local update_marker="$INSTALL_DIR/.updating"
+    local should_restart=false
+    
+    if [ -f "$restart_marker" ]; then
+        should_restart=true
+        rm -f "$restart_marker"
+        info "Restart marker found, will restart after update"
+    fi
+    
+    # Stop the app if running
     stop_app
     
     cd "$INSTALL_DIR"
@@ -320,10 +360,18 @@ update_project() {
     # Install/update dependencies
     npm install
     
+    # Clean up update marker
+    rm -f "$update_marker"
+    
     success "sshift updated successfully"
     
-    # Restart the app if it was running before
-    start_app
+    # Restart the app if it was running before or if restart marker was set
+    if [ "$should_restart" = true ]; then
+        info "Restarting sshift..."
+        start_app
+    else
+        info "Run 'sshift' or use '--start' flag to start sshift"
+    fi
 }
 
 # Detect shell configuration file
@@ -413,7 +461,7 @@ After=network.target
 [Service]
 Type=simple
 ExecStart=%h/.local/bin/sshift
-Restart=on-failure
+Restart=always
 RestartSec=10
 
 [Install]
@@ -889,6 +937,38 @@ main() {
     # Handle uninstall
     if [ "$UNINSTALL" = true ]; then
         uninstall
+        exit 0
+    fi
+    
+    # Handle status check
+    if [ "$STATUS_ONLY" = true ]; then
+        if is_running; then
+            local pid=$(cat "$PID_FILE")
+            success "sshift is running (PID: $pid)"
+            exit 0
+        else
+            info "sshift is not running"
+            exit 1
+        fi
+    fi
+    
+    # Handle stop
+    if [ "$STOP_ONLY" = true ]; then
+        stop_app
+        exit 0
+    fi
+    
+    # Handle restart
+    if [ "$RESTART_ONLY" = true ]; then
+        info "Restarting sshift..."
+        stop_app
+        start_app
+        exit 0
+    fi
+    
+    # Handle start
+    if [ "$START_ONLY" = true ]; then
+        start_app
         exit 0
     fi
     

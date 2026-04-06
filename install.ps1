@@ -5,12 +5,21 @@
 # Usage: ./install.ps1 [OPTIONS]
 #   -InstallDir DIR   Installation directory (default: ~/.local/share/sshift)
 #   -Port PORT        Server port (default: 8022)
+#   -Start            Start sshift after installation/update
+#   -Stop             Stop running sshift instance
+#   -Restart          Restart sshift
+#   -Status           Check if sshift is running
+#   -Update           Update existing installation (non-interactive)
 #   -Uninstall        Remove sshift from the system
 #   -Help             Show this help message
 
 param(
     [string]$InstallDir = "",
     [string]$Port = "",
+    [switch]$Start,
+    [switch]$Stop,
+    [switch]$Restart,
+    [switch]$Status,
     [switch]$Uninstall,
     [switch]$Update,
     [switch]$Help
@@ -38,6 +47,10 @@ function Show-Help {
     Write-Host "Options:"
     Write-Host "  -InstallDir DIR   Installation directory (default: ~/.local/share/sshift)"
     Write-Host "  -Port PORT        Server port (default: 8022)"
+    Write-Host "  -Start            Start sshift after installation/update"
+    Write-Host "  -Stop             Stop running sshift instance"
+    Write-Host "  -Restart          Restart sshift"
+    Write-Host "  -Status           Check if sshift is running"
     Write-Host "  -Update           Update existing installation (non-interactive)"
     Write-Host "  -Uninstall        Remove sshift from the system"
     Write-Host "  -Help             Show this help message"
@@ -47,7 +60,11 @@ function Show-Help {
     Write-Host "  ./install.ps1 -Port 8080                   # Install with custom port"
     Write-Host "  ./install.ps1 -InstallDir C:\sshift        # Install to custom directory"
     Write-Host "  ./install.ps1 -Update                      # Update existing installation"
-    Write-Host "  ./install.ps1 -Uninstall                   # Remove sshift"
+    Write-Host "  ./install.ps1 -Start                      # Start sshift"
+    Write-Host "  ./install.ps1 -Stop                       # Stop sshift"
+    Write-Host "  ./install.ps1 -Restart                    # Restart sshift"
+    Write-Host "  ./install.ps1 -Status                    # Check status"
+    Write-Host "  ./install.ps1 -Uninstall                  # Remove sshift"
     exit 0
 }
 
@@ -287,6 +304,18 @@ function Start-App {
 # Update the project
 function Update-Project {
     Write-Info "Updating sshift..."
+    
+    # Check for restart marker (set by server when update is triggered from UI)
+    $restartMarker = Join-Path $InstallDir ".restart-after-update"
+    $updateMarker = Join-Path $InstallDir ".updating"
+    $shouldRestart = $false
+    
+    if (Test-Path $restartMarker) {
+        $shouldRestart = $true
+        Remove-Item $restartMarker -Force
+        Write-Info "Restart marker found, will restart after update"
+    }
+    
     Stop-App
     
     Set-Location $InstallDir
@@ -298,10 +327,20 @@ function Update-Project {
     # Install/update dependencies
     npm install
     
+    # Clean up update marker
+    if (Test-Path $updateMarker) {
+        Remove-Item $updateMarker -Force
+    }
+    
     Write-Success "sshift updated successfully"
     
-    # Restart the app
-    Start-App
+    # Restart the app if restart marker was set
+    if ($shouldRestart) {
+        Write-Info "Restarting sshift..."
+        Start-App
+    } else {
+        Write-Info "Run 'sshift' or use '-Start' flag to start sshift"
+    }
 }
 
 # Add to PATH
@@ -681,6 +720,38 @@ function Main {
     # Handle uninstall
     if ($Uninstall) {
         Uninstall-App
+        return
+    }
+    
+    # Handle status check
+    if ($Status) {
+        if (Test-IsRunning) {
+            $pid = Get-Content $PidFile
+            Write-Success "sshift is running (PID: $pid)"
+            exit 0
+        } else {
+            Write-Info "sshift is not running"
+            exit 1
+        }
+    }
+    
+    # Handle stop
+    if ($Stop) {
+        Stop-App
+        return
+    }
+    
+    # Handle restart
+    if ($Restart) {
+        Write-Info "Restarting sshift..."
+        Stop-App
+        Start-App
+        return
+    }
+    
+    # Handle start
+    if ($Start) {
+        Start-App
         return
     }
     
