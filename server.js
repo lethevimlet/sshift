@@ -151,7 +151,9 @@ app.get('/api/config', (req, res) => {
     sticky: config.sticky !== false, // Default to true
     takeControlDefault: config.takeControlDefault !== false, // Default to true
     sshKeepaliveInterval: config.sshKeepaliveInterval || 10000,
-    sshKeepaliveCountMax: config.sshKeepaliveCountMax || 1000
+    sshKeepaliveCountMax: config.sshKeepaliveCountMax || 1000,
+    mobileKeysBarEnabled: config.mobileKeysBarEnabled !== false, // Default to true
+    layouts: config.layouts || null // Include layouts if defined in config
   });
 });
 
