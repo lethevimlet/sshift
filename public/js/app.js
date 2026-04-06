@@ -756,6 +756,9 @@ class SSHIFTClient {
     // Apply the layout
     this.applyLayout(layout);
     
+    // Resize terminals after layout change (with delay for DOM to settle)
+    setTimeout(() => this.handleResize(), 50);
+    
     this.showToast(`Layout: ${layout.name}`, 'info');
   }
 
@@ -1046,6 +1049,9 @@ class SSHIFTClient {
       this.currentLayout = layout;
       this.applyLayout(layout);
       this.updateLayoutActiveState(layout.id);
+      
+      // Resize terminals after initial layout (with delay for DOM to settle)
+      setTimeout(() => this.handleResize(), 100);
     }
     
     console.log('[SSHIFT] Layout system initialized with layout:', layout?.name);
@@ -6590,6 +6596,7 @@ class SSHIFTClient {
 
   // Resize Handler
   handleResize() {
+    // Resize SSH terminals
     this.sessions.forEach((session) => {
       if (session.terminal && session.fitAddon) {
         // Only fit if this client is the controller
@@ -6598,6 +6605,13 @@ class SSHIFTClient {
         if (session.isController) {
           session.fitAddon.fit();
         }
+      }
+    });
+    
+    // Resize SFTP terminals (no controller concept, always fit)
+    this.sftpSessions.forEach((session) => {
+      if (session.terminal && session.fitAddon) {
+        session.fitAddon.fit();
       }
     });
   }
