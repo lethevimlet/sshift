@@ -52,6 +52,7 @@ class SSHIFTClient {
     // Layout system
     this.layouts = null; // Will be loaded from config/layouts.json
     this.currentLayout = null; // Current active layout
+    this.pendingLayoutSync = null; // Queue for layout sync before layouts are loaded
     
     console.log('[SSHIFT] Mobile detection - isMobile:', this.isMobile, 'window width:', window.innerWidth);
     
@@ -733,6 +734,34 @@ class SSHIFTClient {
       // Emit event for layout change (to be implemented later)
       this.onLayoutChange(layout);
     }
+    
+    // Sync layout to server for cross-tab sync
+    if (this.sticky && this.socket) {
+      this.socket.emit('layout-change', { layoutId });
+    }
+  }
+
+  setLayoutFromServer(layoutId) {
+    console.log('[SSHIFT] Setting layout from server:', layoutId);
+    
+    // If layouts aren't loaded yet, queue this for later
+    if (!this.layouts) {
+      console.log('[SSHIFT] Layouts not loaded yet, queuing layout sync for:', layoutId);
+      this.pendingLayoutSync = layoutId;
+      return;
+    }
+    
+    // Don't sync back to server (avoid loop)
+    this.saveCurrentLayout(layoutId);
+    this.updateLayoutActiveState(layoutId);
+    
+    // Find the layout definition
+    const layout = this.layouts.find(l => l.id === layoutId);
+    if (layout) {
+      this.currentLayout = layout;
+      this.applyLayout(layout);
+      setTimeout(() => this.handleResize(), 50);
+    }
   }
 
   updateLayoutActiveState(layoutId) {
@@ -1040,6 +1069,15 @@ class SSHIFTClient {
     
     // Load layouts
     this.layouts = await this.loadLayouts();
+    
+    // Apply any pending layout sync that arrived before layouts were loaded
+    if (this.pendingLayoutSync) {
+      console.log('[SSHIFT] Applying pending layout sync:', this.pendingLayoutSync);
+      const pendingLayoutId = this.pendingLayoutSync;
+      this.pendingLayoutSync = null;
+      this.setLayoutFromServer(pendingLayoutId);
+      return; // setLayoutFromServer handles everything
+    }
     
     // Get saved layout or default to 'single'
     const savedLayoutId = this.loadCurrentLayout();
@@ -1901,6 +1939,10 @@ class SSHIFTClient {
       if (this.sticky && data.tabs.length > 0) {
         this.syncTabsFromServer(data.tabs);
       }
+      // Sync layout if provided
+      if (data.layout && this.sticky) {
+        this.setLayoutFromServer(data.layout);
+      }
     });
 
     // Handle tab opened event from another client
@@ -1948,6 +1990,14 @@ class SSHIFTClient {
         
         // Save tabs if sticky is enabled
         this.saveTabs();
+      }
+    });
+
+    // Handle layout change from another client
+    this.socket.on('layout-changed', (data) => {
+      console.log('[SSHIFT] Layout changed by another client:', data.layoutId);
+      if (this.sticky) {
+        this.setLayoutFromServer(data.layoutId);
       }
     });
 
