@@ -43,6 +43,7 @@ const ROOT_CONFIG_PATH = path.join(__dirname, 'config.json');
 // Track open tabs across all clients
 const openTabs = new Map(); // sessionId -> { name, type, connectionData, activeSockets: Set }
 let tabOrder = []; // Array of sessionIds in order
+let currentLayout = 'single'; // Current active layout for sync
 
 // Middleware
 app.use(express.json());
@@ -711,7 +712,8 @@ io.on('connection', (socket) => {
     });
   
   socket.emit('open-tabs', { 
-    tabs: orderedTabs
+    tabs: orderedTabs,
+    layout: currentLayout
   });
 
   // SSH connection
@@ -933,6 +935,15 @@ io.on('connection', (socket) => {
       sessionId: data.sessionId, 
       name: data.name 
     });
+  });
+
+  // Layout change - sync across all sessions
+  socket.on('layout-change', (data) => {
+    console.log('[LAYOUT] Layout change:', data.layoutId);
+    currentLayout = data.layoutId;
+    
+    // Broadcast to all other clients
+    socket.broadcast.emit('layout-changed', { layoutId: data.layoutId });
   });
 
   // SFTP connection
