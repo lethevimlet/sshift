@@ -580,10 +580,37 @@ app.get('/api/check-update', async (req, res) => {
   }
 });
 
+// API: Get update status
+app.get('/api/update-status', (req, res) => {
+  const updateMarker = path.join(__dirname, '.updating');
+  const restartMarker = path.join(__dirname, '.restart-after-update');
+  
+  // Read package.json for current version
+  let version = 'unknown';
+  try {
+    const pkgPath = path.join(__dirname, 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    version = pkg.version;
+  } catch (e) {
+    console.error('[UPDATE] Failed to read version:', e.message);
+  }
+  
+  // Check if we're in the middle of an update
+  const isUpdating = fs.existsSync(updateMarker);
+  const restartRequested = fs.existsSync(restartMarker);
+  
+  res.json({
+    version,
+    updating: isUpdating,
+    restartRequested,
+    ready: !isUpdating // Server is ready if not updating
+  });
+});
+
 // API: Trigger update
 app.post('/api/update', async (req, res) => {
   try {
-    const { exec } = require('child_process');
+    const { spawn } = require('child_process');
     const platform = process.platform;
     
     // Determine the install script based on platform
@@ -600,28 +627,54 @@ app.post('/api/update', async (req, res) => {
       return;
     }
     
+    // Write update marker to indicate update in progress
+    const updateMarker = path.join(__dirname, '.updating');
+    try {
+      fs.writeFileSync(updateMarker, JSON.stringify({
+        startTime: Date.now(),
+        oldVersion: require('./package.json').version
+      }));
+    } catch (e) {
+      console.error('[UPDATE] Failed to write update marker:', e.message);
+    }
+    
+    // Write a restart marker file to indicate we want to restart after update
+    const restartMarker = path.join(__dirname, '.restart-after-update');
+    try {
+      fs.writeFileSync(restartMarker, 'true');
+    } catch (e) {
+      console.error('[UPDATE] Failed to write restart marker:', e.message);
+    }
+    
     // Send response immediately, then update in background
     res.json({ message: 'Update started. Server will restart automatically.' });
     
-    // Execute update script with --update flag
+    // Execute update script with --update flag (detached from parent process)
     const updateCommand = platform === 'win32' 
       ? `powershell.exe -ExecutionPolicy Bypass -File "${installScript}" --update`
       : `"${installScript}" --update`;
     
     console.log('[UPDATE] Starting update process...');
-    exec(updateCommand, { cwd: __dirname }, (error, stdout, stderr) => {
-      if (error) {
-        console.error('[UPDATE] Update failed:', error);
-        console.error('[UPDATE] stderr:', stderr);
-        return;
-      }
-      console.log('[UPDATE] Update completed:', stdout);
+    
+    // Wait for response to be sent before spawning update process
+    res.on('finish', () => {
+      // Use spawn with detached mode to allow the update script to continue after parent exits
+      const updateProcess = spawn(updateCommand, [], {
+        cwd: __dirname,
+        shell: true,
+        detached: true,
+        stdio: 'ignore'
+      });
       
-      // Exit the process to allow the update script to restart it
+      // Unref the child process so the parent can exit without waiting for it
+      updateProcess.unref();
+      
+      // Give the update script a moment to start
       setTimeout(() => {
-        console.log('[UPDATE] Exiting for restart...');
+        // Exit immediately to allow the update script to manage the restart
+        console.log('[UPDATE] Exiting for update...');
         process.exit(0);
-      }, 1000);
+      }, 500);
     });
   } catch (err) {
     console.error('Error triggering update:', err);
@@ -1074,6 +1127,35 @@ server.listen(PORT, BIND, () => {
   const ESC = '\x1b';
   const BEL = '\x07';
   console.log(`Click to open: ${ESC}]8;;http://localhost:${PORT}${BEL}http://localhost:${PORT}${ESC}]8;;${BEL}`);
+  
+  // Write PID file for update script to manage process
+  const pidFile = path.join(__dirname, '.sshift.pid');
+  try {
+    fs.writeFileSync(pidFile, process.pid.toString());
+    console.log(`[PID] Written PID ${process.pid} to ${pidFile}`);
+  } catch (err) {
+    console.error('[PID] Failed to write PID file:', err.message);
+  }
+});
+
+// Clean up PID file on exit
+process.on('exit', () => {
+  const pidFile = path.join(__dirname, '.sshift.pid');
+  try {
+    if (fs.existsSync(pidFile)) {
+      fs.unlinkSync(pidFile);
+    }
+  } catch (err) {
+    // Ignore errors during cleanup
+  }
+});
+
+process.on('SIGINT', () => {
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  process.exit(0);
 });
 
 // Export io for use in managers
