@@ -2,6 +2,16 @@
 
 This project uses a `.agents` directory for all AI-generated documentation files.
 
+## Version Control Rules
+
+**CRITICAL: NEVER commit or push without explicit user permission.**
+
+- **DO NOT** commit changes locally without asking
+- **DO NOT** push to remote without explicit permission
+- **DO NOT** create pull requests without being asked
+- Always ask the user before any git operations (commit, push, PR)
+- The user will handle version control operations themselves when ready
+
 ## Guidelines for AI Agents
 
 **DO NOT** create AI-related markdown files in the project root directory.
