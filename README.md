@@ -318,6 +318,162 @@ This ensures sensitive credentials never get committed to version control.
 
 ## 🚀 Usage
 
+### Command Line Interface
+
+SSHIFT provides a command-line interface for managing the server:
+
+#### sshift Executable (Linux/macOS)
+
+```bash
+# Start server on default port (8022)
+sshift
+
+# Start server on custom port
+sshift --port 8080
+sshift -p 8080
+
+# Bind to specific address (default: 0.0.0.0 - all interfaces)
+sshift --bind 127.0.0.1
+sshift -b 192.168.1.100
+
+# Start in development mode (port 3000)
+sshift --dev
+sshift -d
+
+# Stop running instance
+sshift --stop
+sshift -s
+
+# Restart running instance
+sshift --restart
+sshift -r
+
+# Check if sshift is running
+sshift --status
+
+# Show help message
+sshift --help
+sshift -h
+```
+
+#### sshift Executable (Windows)
+
+```powershell
+# Start server on default port (8022)
+sshift
+
+# Start server on custom port
+sshift --port 8080
+sshift -p 8080
+
+# Bind to specific address
+sshift --bind 127.0.0.1
+sshift -b 192.168.1.100
+
+# Start in development mode (port 3000)
+sshift --dev
+sshift -d
+
+# Stop running instance
+sshift --stop
+sshift -s
+
+# Restart running instance
+sshift --restart
+sshift -r
+
+# Check if sshift is running
+sshift --status
+
+# Show help message
+sshift --help
+sshift -h
+```
+
+#### Environment Variables
+
+You can also use environment variables to configure sshift:
+
+```bash
+# Override port
+PORT=8080 sshift
+
+# Override bind address
+BIND=127.0.0.1 sshift
+
+# Development mode
+NODE_ENV=development sshift
+```
+
+#### Port Priority
+
+SSHIFT uses the following priority for determining the port:
+
+1. `--port` CLI argument (highest priority)
+2. `PORT` environment variable
+3. `config.json` `port`/`devPort` based on `NODE_ENV`
+4. Default: 8022 (production), 3000 (development)
+
+### Installer Scripts
+
+The installer scripts also support various commands:
+
+#### Linux/macOS (install.sh)
+
+```bash
+# Install with custom options
+./install.sh --install-dir /opt/sshift --port 8080
+
+# Update existing installation
+./install.sh --update
+
+# Start sshift
+./install.sh --start
+
+# Stop sshift
+./install.sh --stop
+
+# Restart sshift
+./install.sh --restart
+
+# Check if sshift is running
+./install.sh --status
+
+# Uninstall sshift
+./install.sh --uninstall
+
+# Show help
+./install.sh --help
+```
+
+#### Windows (install.ps1)
+
+```powershell
+# Install with custom options
+.\install.ps1 -InstallDir "C:\sshift" -Port 8080
+
+# Update existing installation
+.\install.ps1 -Update
+
+# Start sshift
+.\install.ps1 -Start
+
+# Stop sshift
+.\install.ps1 -Stop
+
+# Restart sshift
+.\install.ps1 -Restart
+
+# Check if sshift is running
+.\install.ps1 -Status
+
+# Uninstall sshift
+.\install.ps1 -Uninstall
+
+# Show help
+.\install.ps1 -Help
+```
+
 ### SSH Connection
 
 1. Click the **"SSH"** button in the header
