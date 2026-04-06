@@ -6360,32 +6360,71 @@ class SSHIFTClient {
 
   async executeUpdate() {
     const updateBtn = document.getElementById('updateBtn');
+    const updateOverlay = document.getElementById('updateOverlay');
+    const updateMessage = document.getElementById('updateMessage');
+    const updateProgressBar = document.getElementById('updateProgressBar');
+    const updateStatus = document.getElementById('updateStatus');
+    
+    // Store the current version for comparison
+    let currentVersion = 'unknown';
+    try {
+      const versionResponse = await fetch('/api/version');
+      if (versionResponse.ok) {
+        const versionData = await versionResponse.json();
+        currentVersion = versionData.version;
+      }
+    } catch (e) {
+      console.error('[UPDATE] Failed to get current version:', e);
+    }
+    
+    // Show update overlay
+    if (updateOverlay) {
+      updateOverlay.classList.add('active');
+    }
+    
+    // Update UI to show update is starting
     if (updateBtn) {
       updateBtn.disabled = true;
       updateBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
     }
     
+    if (updateMessage) {
+      updateMessage.textContent = 'Starting update process...';
+    }
+    
+    if (updateProgressBar) {
+      updateProgressBar.style.width = '10%';
+    }
+    
+    if (updateStatus) {
+      updateStatus.textContent = `Current version: ${currentVersion}`;
+    }
+    
     try {
       const response = await fetch('/api/update', { method: 'POST' });
       if (response.ok) {
-        this.showToast('Update started. The server will restart shortly...', 'success');
-        
-        // Disable update button permanently
-        if (updateBtn) {
-          updateBtn.innerHTML = '<i class="fas fa-check"></i> Updated';
+        if (updateMessage) {
+          updateMessage.textContent = 'Update in progress. Please wait...';
         }
         
-        // Show message that page will reload
-        setTimeout(() => {
-          this.showToast('Reloading page in 5 seconds...', 'info');
-          setTimeout(() => window.location.reload(), 5000);
-        }, 3000);
+        if (updateProgressBar) {
+          updateProgressBar.style.width = '30%';
+        }
+        
+        // Start polling for update status
+        this.pollUpdateStatus(currentVersion, updateProgressBar, updateMessage, updateStatus);
       } else {
         const error = await response.json();
         throw new Error(error.error || 'Update failed');
       }
     } catch (error) {
       console.error('Failed to execute update:', error);
+      
+      // Hide overlay on error
+      if (updateOverlay) {
+        updateOverlay.classList.remove('active');
+      }
+      
       this.showToast('Failed to update: ' + error.message, 'error');
       
       // Re-enable update button
@@ -6393,6 +6432,141 @@ class SSHIFTClient {
         updateBtn.disabled = false;
         updateBtn.innerHTML = '<i class="fas fa-download"></i> Update';
       }
+    }
+  }
+  
+  async pollUpdateStatus(oldVersion, progressBar, messageEl, statusEl) {
+    const maxAttempts = 120; // 2 minutes max (1 second per attempt)
+    let attempts = 0;
+    let lastProgress = 30;
+    
+    const poll = async () => {
+      attempts++;
+      
+      try {
+        const response = await fetch('/api/update-status');
+        
+        if (!response.ok) {
+          // Server might be restarting, wait and retry
+          if (attempts < maxAttempts) {
+            // Update progress bar to show we're waiting for server
+            const progress = Math.min(90, lastProgress + (attempts * 0.5));
+            if (progressBar) {
+              progressBar.style.width = `${progress}%`;
+            }
+            
+            if (statusEl) {
+              statusEl.textContent = `Waiting for server to restart... (${attempts}/${maxAttempts})`;
+            }
+            
+            setTimeout(poll, 1000);
+            return;
+          }
+        }
+        
+        const data = await response.json();
+        
+        // Update progress based on status
+        if (data.updating) {
+          // Still updating
+          const progress = Math.min(70, 30 + (attempts * 2));
+          if (progressBar) {
+            progressBar.style.width = `${progress}%`;
+          }
+          
+          if (statusEl) {
+            statusEl.textContent = `Installing update... (${attempts}/${maxAttempts})`;
+          }
+          
+          if (attempts < maxAttempts) {
+            setTimeout(poll, 1000);
+          } else {
+            // Timeout reached
+            this.handleUpdateError('Update timed out. Please refresh the page manually.');
+          }
+        } else if (data.ready && data.version !== oldVersion) {
+          // Update complete! New version is running
+          if (progressBar) {
+            progressBar.style.width = '100%';
+          }
+          
+          if (messageEl) {
+            messageEl.textContent = 'Update complete! Reloading page...';
+          }
+          
+          if (statusEl) {
+            statusEl.textContent = `New version: ${data.version}`;
+          }
+          
+          // Reload page after a short delay
+          setTimeout(() => {
+            window.location.reload();
+          }, 1000);
+        } else if (data.ready && data.version === oldVersion) {
+          // Server restarted but version is the same
+          // This might mean the update failed or we need to wait longer
+          if (attempts < maxAttempts) {
+            const progress = Math.min(90, 70 + (attempts * 0.5));
+            if (progressBar) {
+              progressBar.style.width = `${progress}%`;
+            }
+            
+            if (statusEl) {
+              statusEl.textContent = `Waiting for new version... (${attempts}/${maxAttempts})`;
+            }
+            
+            setTimeout(poll, 1000);
+          } else {
+            // Same version after timeout - might be an error
+            this.handleUpdateError('Server restarted but version unchanged. Please check the update manually.');
+          }
+        } else {
+          // Unexpected state
+          if (attempts < maxAttempts) {
+            setTimeout(poll, 1000);
+          } else {
+            this.handleUpdateError('Unexpected update state. Please refresh the page.');
+          }
+        }
+      } catch (error) {
+        // Network error - server might be restarting
+        if (attempts < maxAttempts) {
+          const progress = Math.min(90, lastProgress + (attempts * 0.5));
+          if (progressBar) {
+            progressBar.style.width = `${progress}%`;
+          }
+          
+          if (statusEl) {
+            statusEl.textContent = `Server restarting... (${attempts}/${maxAttempts})`;
+          }
+          
+          setTimeout(poll, 1000);
+        } else {
+          this.handleUpdateError('Connection lost during update. Please refresh the page.');
+        }
+      }
+    };
+    
+    // Start polling
+    setTimeout(poll, 1000);
+  }
+  
+  handleUpdateError(message) {
+    const updateOverlay = document.getElementById('updateOverlay');
+    const updateBtn = document.getElementById('updateBtn');
+    
+    // Hide overlay
+    if (updateOverlay) {
+      updateOverlay.classList.remove('active');
+    }
+    
+    // Show error toast
+    this.showToast(message, 'error');
+    
+    // Re-enable update button
+    if (updateBtn) {
+      updateBtn.disabled = false;
+      updateBtn.innerHTML = '<i class="fas fa-download"></i> Update';
     }
   }
 }
