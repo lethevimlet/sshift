@@ -52,7 +52,7 @@ async function runTests() {
     // Start server
     console.log('Starting test server...');
     const { spawn } = require('child_process');
-    server = spawn('node', ['src/server/server.js'], {
+    server = spawn('node', ['src/server/index.js'], {
       cwd: path.join(__dirname, '..', '..'),
       env: { ...process.env, PORT: TEST_PORT },
       stdio: ['pipe', 'pipe', 'pipe']
@@ -179,7 +179,7 @@ async function runTests() {
     
     console.log('\n=== All tests passed! ===');
     console.log('\nNote: Real-time Socket.IO synchronization is verified by the');
-    console.log('io.emit() calls in server.js (lines 185, 198, 217).');
+    console.log('io.emit() calls in endpoints/rest/bookmarks.js.');
     console.log('Client-side reload on reconnect is implemented in app.js');
     console.log('(line 1394: loadBookmarks() on connect event).');
     

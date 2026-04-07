@@ -246,25 +246,25 @@ async function testServerEvents() {
     const fs = require('fs');
     const path = require('path');
     
-    // Check server.js for event handlers
-    const serverPath = path.join(__dirname, '..', 'server', 'server.js');
-    const serverCode = fs.readFileSync(serverPath, 'utf8');
+    // Check WebSocket handlers for event handlers
+    const wsHandlersPath = path.join(__dirname, '..', 'server', 'endpoints', 'ws', 'index.js');
+    const wsHandlersCode = fs.readFileSync(wsHandlersPath, 'utf8');
     
     // Verify ssh-request-sync event handler
-    if (!serverCode.includes("socket.on('ssh-request-sync'")) {
-      console.error('❌ FAIL: ssh-request-sync event handler not found in server.js');
+    if (!wsHandlersCode.includes("socket.on('ssh-request-sync'")) {
+      console.error('❌ FAIL: ssh-request-sync event handler not found in WebSocket handlers');
       return false;
     }
     
     // Verify resize broadcast
-    if (!serverCode.includes("socket.to(`session-${data.sessionId}`).emit('ssh-resize-sync'")) {
-      console.error('❌ FAIL: Resize broadcast not found in server.js');
+    if (!wsHandlersCode.includes("socket.to(`session-${data.sessionId}`).emit('ssh-resize-sync'")) {
+      console.error('❌ FAIL: Resize broadcast not found in WebSocket handlers');
       return false;
     }
     
     // Verify screen sync on join
-    if (!serverCode.includes("socket.emit('ssh-screen-sync'")) {
-      console.error('❌ FAIL: Screen sync on join not found in server.js');
+    if (!wsHandlersCode.includes("socket.emit('ssh-screen-sync'")) {
+      console.error('❌ FAIL: Screen sync on join not found in WebSocket handlers');
       return false;
     }
     

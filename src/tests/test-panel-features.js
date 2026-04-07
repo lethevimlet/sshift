@@ -37,7 +37,7 @@ async function startServer() {
   return new Promise((resolve, reject) => {
     console.log('[TEST] Starting server...');
     
-    serverProcess = spawn('node', ['src/server/server.js'], {
+    serverProcess = spawn('node', ['src/server/index.js'], {
       cwd: path.join(__dirname, '..', '..'),
       env: { ...process.env, PORT: TEST_PORT, NODE_ENV: 'development' },
       stdio: ['pipe', 'pipe', 'pipe']

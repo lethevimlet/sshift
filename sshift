@@ -36,7 +36,7 @@ const { spawn } = require('child_process');
 
 // Get the directory where this script is located
 const scriptDir = __dirname;
-const serverPath = path.join(scriptDir, 'src', 'server', 'server.js');
+const serverPath = path.join(scriptDir, 'src', 'server', 'index.js');
 const pidFile = path.join(scriptDir, '.sshift.pid');
 
 // CLI argument parsing
@@ -124,9 +124,9 @@ Examples:
   process.exit(0);
 }
 
-// Check if server.js exists
+// Check if index.js exists
 if (!fs.existsSync(serverPath)) {
-  console.error('Error: server.js not found');
+  console.error('Error: index.js not found');
   console.error('Make sure you are running sshift from the installation directory');
   process.exit(1);
 }

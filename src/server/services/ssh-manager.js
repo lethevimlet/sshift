@@ -8,6 +8,13 @@ class SSHManager {
     // Data batching configuration
     this.batchInterval = 16; // ~60fps - batch data for this many ms before sending
     this.batchMaxSize = 64 * 1024; // 64KB max batch size - send immediately if exceeded
+    // Socket.io instance (set via setIO method)
+    this.io = null;
+  }
+
+  // Set the socket.io instance (called from server initialization)
+  setIO(io) {
+    this.io = io;
   }
 
   connect(socket, options) {
@@ -197,12 +204,11 @@ class SSHManager {
     const session = this.sessions.get(sessionId);
     if (!session) return;
     
-    // Get all connected sockets from the socket.io instance
-    const io = require('./server').io;
-    if (!io) return;
+    // Use the socket.io instance set during initialization
+    if (!this.io) return;
     
     // Emit to all sockets in the session room
-    io.to(`session-${sessionId}`).emit(event, data);
+    this.io.to(`session-${sessionId}`).emit(event, data);
   }
 
   // Buffer data for batched broadcast to reduce socket events
@@ -343,10 +349,9 @@ class SSHManager {
         
         // Notify the new controller and remaining clients about the new controller
         // Include terminal dimensions so the new controller can resize if needed
-        const io = require('./server').io;
-        if (io) {
+        if (this.io) {
           // Broadcast to all clients in the session about the new controller
-          io.to(`session-${sessionId}`).emit('ssh-control-taken', {
+          this.io.to(`session-${sessionId}`).emit('ssh-control-taken', {
             sessionId,
             controllerSocket: session.controllerSocket,
             cols: session.cols,
@@ -381,8 +386,7 @@ class SSHManager {
     console.log(`[SSH] Socket ${socket.id} took control of session ${sessionId} (was ${previousController})`);
     
     // Notify other clients that control was taken
-    const io = require('./server').io;
-    if (io) {
+    if (this.io) {
       // Broadcast to all OTHER clients that control was taken
       socket.to(`session-${sessionId}`).emit('ssh-control-taken', {
         sessionId,
@@ -415,9 +419,8 @@ class SSHManager {
       session.controllerSocket = remainingSockets[0];
       console.log(`[SSH] Socket ${socket.id} released control, new controller: ${session.controllerSocket}`);
       
-      const io = require('./server').io;
-      if (io) {
-        io.to(`session-${sessionId}`).emit('ssh-control-released', {
+      if (this.io) {
+        this.io.to(`session-${sessionId}`).emit('ssh-control-released', {
           sessionId,
           controllerSocket: session.controllerSocket
         });

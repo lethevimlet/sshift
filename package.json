@@ -2,7 +2,7 @@
   "name": "sshift",
   "version": "0.1.5",
   "description": "Web-based SSH + SFTP terminal client with tabs and bookmarks",
-  "main": "src/server/server.js",
+  "main": "src/server/index.js",
   "bin": {
     "sshift": "./sshift"
   },
@@ -10,7 +10,7 @@
     "start": "node sshift",
     "dev": "NODE_ENV=development node sshift",
     "test": "node src/tests/test-client.js",
-    "test:server": "node src/server/server.js & sleep 2 && node src/tests/test-client.js"
+    "test:server": "node src/server/index.js & sleep 2 && node src/tests/test-client.js"
   },
   "dependencies": {
     "@xterm/addon-serialize": "^0.14.0",

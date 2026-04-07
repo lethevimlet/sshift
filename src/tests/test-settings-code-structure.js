@@ -133,9 +133,10 @@ if (cssOk) {
 
 // Test 10: Check server API endpoint
 console.log('\nTest 10: Checking server API endpoint...');
-const serverJs = fs.readFileSync(path.join(__dirname, '..', 'server', 'server.js'), 'utf8');
+const restEndpointsPath = path.join(__dirname, '..', 'server', 'endpoints', 'rest', 'config.js');
+const restEndpointsCode = fs.readFileSync(restEndpointsPath, 'utf8');
 
-if (serverJs.includes("app.get('/api/config'") && serverJs.includes("app.post('/api/config'")) {
+if (restEndpointsCode.includes("app.get('/api/config'") && restEndpointsCode.includes("app.post('/api/config'")) {
   console.log('✓ Server has GET and POST /api/config endpoints');
 } else {
   console.log('✗ Server missing /api/config endpoints');
