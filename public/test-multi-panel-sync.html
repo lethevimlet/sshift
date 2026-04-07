@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Panel Tab Sync Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .test-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .status.pass {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status.fail {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .status.pending {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button.primary {
+            background-color: #007bff;
+            color: white;
+        }
+        button.secondary {
+            background-color: #6c757d;
+            color: white;
+        }
+        .log {
+            background-color: #f5f5f5;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Multi-Panel Tab Synchronization Test</h1>
+    
+    <div class="test-section">
+        <h2>Test 1: Layout Selection Sync</h2>
+        <div id="test1-status" class="status pending">Pending</div>
+        <button class="primary" onclick="runTest1()">Run Test</button>
+        <div id="test1-log" class="log"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 2: Tab Distribution Across Panels</h2>
+        <div id="test2-status" class="status pending">Pending</div>
+        <button class="primary" onclick="runTest2()">Run Test</button>
+        <div id="test2-log" class="log"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 3: Tab Persistence</h2>
+        <div id="test3-status" class="status pending">Pending</div>
+        <button class="primary" onclick="runTest3()">Run Test</button>
+        <div id="test3-log" class="log"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 4: Drag-and-Drop Between Panels</h2>
+        <div id="test4-status" class="status pending">Pending</div>
+        <button class="primary" onclick="runTest4()">Run Test</button>
+        <div id="test4-log" class="log"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 5: Mobile Dropdown</h2>
+        <div id="test5-status" class="status pending">Pending</div>
+        <button class="primary" onclick="runTest5()">Run Test</button>
+        <div id="test5-log" class="log"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 6: Cross-Tab Synchronization</h2>
+        <div id="test6-status" class="status pending">Pending</div>
+        <button class="primary" onclick="runTest6()">Run Test</button>
+        <div id="test6-log" class="log"></div>
+    </div>
+    
+    <div class="test-section">
+        <button class="primary" onclick="runAllTests()">Run All Tests</button>
+        <button class="secondary" onclick="clearLogs()">Clear Logs</button>
+    </div>
+    
+    <script>
+        // Helper functions
+        function log(testId, message) {
+            const logDiv = document.getElementById(`test${testId}-log`);
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}<br>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        function setStatus(testId, status, message) {
+            const statusDiv = document.getElementById(`test${testId}-status`);
+            statusDiv.className = `status ${status}`;
+            statusDiv.textContent = message;
+        }
+        
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+        
+        // Test 1: Layout Selection Sync
+        async function runTest1() {
+            log(1, 'Starting layout selection sync test...');
+            setStatus(1, 'pending', 'Running...');
+            
+            try {
+                // Open main application in new tab
+                const mainTab = window.open('/index.html', '_blank');
+                await sleep(2000);
+                
+                // Check if app initialized
+                if (!mainTab || !mainTab.app) {
+                    throw new Error('Failed to open main application');
+                }
+                
+                log(1, 'Main application opened');
+                
+                // Set layout to 2-panel horizontal
+                mainTab.app.setLayout('2-panel-horizontal');
+                await sleep(500);
+                
+                const layout1 = mainTab.app.currentLayout?.id;
+                log(1, `Layout set to: ${layout1}`);
+                
+                // Open second tab
+                const secondTab = window.open('/index.html', '_blank');
+                await sleep(2000);
+                
+                if (!secondTab || !secondTab.app) {
+                    throw new Error('Failed to open second tab');
+                }
+                
+                log(1, 'Second tab opened');
+                
+                // Check if layout synced
+                const layout2 = secondTab.app.currentLayout?.id;
+                log(1, `Second tab layout: ${layout2}`);
+                
+                if (layout1 !== layout2) {
+                    throw new Error(`Layout mismatch: ${layout1} !== ${layout2}`);
+                }
+                
+                log(1, 'Layout synced successfully');
+                
+                // Clean up
+                mainTab.close();
+                secondTab.close();
+                
+                setStatus(1, 'pass', 'Test passed');
+            } catch (error) {
+                log(1, `Error: ${error.message}`);
+                setStatus(1, 'fail', `Test failed: ${error.message}`);
+            }
+        }
+        
+        // Test 2: Tab Distribution Across Panels
+        async function runTest2() {
+            log(2, 'Starting tab distribution test...');
+            setStatus(2, 'pending', 'Running...');
+            
+            try {
+                const mainTab = window.open('/index.html', '_blank');
+                await sleep(2000);
+                
+                if (!mainTab || !mainTab.app) {
+                    throw new Error('Failed to open main application');
+                }
+                
+                log(2, 'Main application opened');
+                
+                // Set layout to 2-panel horizontal
+                mainTab.app.setLayout('2-panel-horizontal');
+                await sleep(500);
+                
+                log(2, 'Layout set to 2-panel-horizontal');
+                
+                // Create mock sessions
+                const sessions = ['session-1', 'session-2', 'session-3'];
+                sessions.forEach(sessionId => {
+                    mainTab.app.sessions.set(sessionId, {
+                        id: sessionId,
+                        name: `Test ${sessionId}`,
+                        type: 'ssh',
+                        panelId: 'panel-0'
+                    });
+                    
+                    // Create tab element
+                    const tab = mainTab.app.createTabElement(sessionId, `Test ${sessionId}`, 'ssh');
+                    const tabsContainer = mainTab.app.getTabsContainer('panel-0');
+                    tabsContainer.appendChild(tab);
+                });
+                
+                await sleep(500);
+                
+                // Check distribution
+                const distribution = mainTab.app.getAllTabsInOrder();
+                log(2, `Tab distribution: ${JSON.stringify(distribution)}`);
+                
+                if (distribution.length !== 3) {
+                    throw new Error(`Expected 3 tabs, got ${distribution.length}`);
+                }
+                
+                log(2, 'Tab distribution test passed');
+                
+                mainTab.close();
+                
+                setStatus(2, 'pass', 'Test passed');
+            } catch (error) {
+                log(2, `Error: ${error.message}`);
+                setStatus(2, 'fail', `Test failed: ${error.message}`);
+            }
+        }
+        
+        // Test 3: Tab Persistence
+        async function runTest3() {
+            log(3, 'Starting tab persistence test...');
+            setStatus(3, 'pending', 'Running...');
+            
+            try {
+                const mainTab = window.open('/index.html', '_blank');
+                await sleep(2000);
+                
+                if (!mainTab || !mainTab.app) {
+                    throw new Error('Failed to open main application');
+                }
+                
+                log(3, 'Main application opened');
+                
+                // Set layout
+                mainTab.app.setLayout('2-panel-horizontal');
+                await sleep(500);
+                
+                // Create mock sessions
+                const sessions = ['session-1', 'session-2'];
+                sessions.forEach(sessionId => {
+                    mainTab.app.sessions.set(sessionId, {
+                        id: sessionId,
+                        name: `Test ${sessionId}`,
+                        type: 'ssh',
+                        panelId: 'panel-0'
+                    });
+                    
+                    const tab = mainTab.app.createTabElement(sessionId, `Test ${sessionId}`, 'ssh');
+                    const tabsContainer = mainTab.app.getTabsContainer('panel-0');
+                    tabsContainer.appendChild(tab);
+                });
+                
+                await sleep(500);
+                
+                // Save tabs
+                mainTab.app.saveTabs();
+                await sleep(500);
+                
+                // Check localStorage
+                const savedTabs = JSON.parse(mainTab.localStorage.getItem('openTabs') || '{}');
+                log(3, `Saved tabs: ${JSON.stringify(savedTabs)}`);
+                
+                if (!savedTabs.tabs || !Array.isArray(savedTabs.tabs)) {
+                    throw new Error('Invalid saved tabs format');
+                }
+                
+                savedTabs.tabs.forEach(tab => {
+                    if (!tab.panelId) {
+                        throw new Error(`Tab ${tab.sessionId} missing panelId`);
+                    }
+                });
+                
+                if (!savedTabs.layout) {
+                    throw new Error('Layout not saved');
+                }
+                
+                log(3, 'Tab persistence test passed');
+                
+                mainTab.close();
+                
+                setStatus(3, 'pass', 'Test passed');
+            } catch (error) {
+                log(3, `Error: ${error.message}`);
+                setStatus(3, 'fail', `Test failed: ${error.message}`);
+            }
+        }
+        
+        // Test 4: Drag-and-Drop Between Panels
+        async function runTest4() {
+            log(4, 'Starting drag-and-drop test...');
+            setStatus(4, 'pending', 'Running...');
+            
+            try {
+                const mainTab = window.open('/index.html', '_blank');
+                await sleep(2000);
+                
+                if (!mainTab || !mainTab.app) {
+                    throw new Error('Failed to open main application');
+                }
+                
+                log(4, 'Main application opened');
+                
+                // Set layout
+                mainTab.app.setLayout('2-panel-horizontal');
+                await sleep(500);
+                
+                // Create mock sessions
+                const sessions = ['session-1', 'session-2'];
+                sessions.forEach(sessionId => {
+                    mainTab.app.sessions.set(sessionId, {
+                        id: sessionId,
+                        name: `Test ${sessionId}`,
+                        type: 'ssh',
+                        panelId: 'panel-0'
+                    });
+                    
+                    const tab = mainTab.app.createTabElement(sessionId, `Test ${sessionId}`, 'ssh');
+                    const tabsContainer = mainTab.app.getTabsContainer('panel-0');
+                    tabsContainer.appendChild(tab);
+                });
+                
+                await sleep(500);
+                
+                // Move tab to another panel
+                mainTab.app.moveTabToPanel('session-1', 'panel-1');
+                await sleep(500);
+                
+                // Check if tab moved
+                const distribution = mainTab.app.getAllTabsInOrder();
+                log(4, `Tab distribution after move: ${JSON.stringify(distribution)}`);
+                
+                const panel1Tabs = distribution.filter(t => t.panelId === 'panel-1');
+                if (!panel1Tabs.find(t => t.sessionId === 'session-1')) {
+                    throw new Error('Tab not moved to panel-1');
+                }
+                
+                log(4, 'Drag-and-drop test passed');
+                
+                mainTab.close();
+                
+                setStatus(4, 'pass', 'Test passed');
+            } catch (error) {
+                log(4, `Error: ${error.message}`);
+                setStatus(4, 'fail', `Test failed: ${error.message}`);
+            }
+        }
+        
+        // Test 5: Mobile Dropdown
+        async function runTest5() {
+            log(5, 'Starting mobile dropdown test...');
+            setStatus(5, 'pending', 'Running...');
+            
+            try {
+                const mainTab = window.open('/index.html', '_blank');
+                await sleep(2000);
+                
+                if (!mainTab || !mainTab.app) {
+                    throw new Error('Failed to open main application');
+                }
+                
+                log(5, 'Main application opened');
+                
+                // Set layout
+                mainTab.app.setLayout('2-panel-horizontal');
+                await sleep(500);
+                
+                // Check mobile dropdown elements
+                const panels = mainTab.app.getAllPanels();
+                log(5, `Panels: ${JSON.stringify(panels)}`);
+                
+                panels.forEach(panelId => {
+                    const toggleId = panelId === 'panel-0' ? 'mobileTabsToggle' : `${panelId}-mobileTabsToggle`;
+                    const menuId = panelId === 'panel-0' ? 'mobileTabsMenu' : `${panelId}-mobileTabsMenu`;
+                    
+                    const toggle = mainTab.document.getElementById(toggleId);
+                    const menu = mainTab.document.getElementById(menuId);
+                    
+                    if (!toggle) {
+                        throw new Error(`Mobile toggle not found for panel ${panelId}`);
+                    }
+                    
+                    if (!menu) {
+                        throw new Error(`Mobile menu not found for panel ${panelId}`);
+                    }
+                    
+                    log(5, `Mobile dropdown found for panel ${panelId}`);
+                });
+                
+                log(5, 'Mobile dropdown test passed');
+                
+                mainTab.close();
+                
+                setStatus(5, 'pass', 'Test passed');
+            } catch (error) {
+                log(5, `Error: ${error.message}`);
+                setStatus(5, 'fail', `Test failed: ${error.message}`);
+            }
+        }
+        
+        // Test 6: Cross-Tab Synchronization
+        async function runTest6() {
+            log(6, 'Starting cross-tab synchronization test...');
+            setStatus(6, 'pending', 'Running...');
+            
+            try {
+                const mainTab = window.open('/index.html', '_blank');
+                await sleep(2000);
+                
+                if (!mainTab || !mainTab.app) {
+                    throw new Error('Failed to open main application');
+                }
+                
+                log(6, 'Main application opened');
+                
+                // Set layout
+                mainTab.app.setLayout('2-panel-horizontal');
+                await sleep(500);
+                
+                // Create mock sessions
+                const sessions = ['session-1', 'session-2'];
+                sessions.forEach(sessionId => {
+                    mainTab.app.sessions.set(sessionId, {
+                        id: sessionId,
+                        name: `Test ${sessionId}`,
+                        type: 'ssh',
+                        panelId: 'panel-0'
+                    });
+                    
+                    const tab = mainTab.app.createTabElement(sessionId, `Test ${sessionId}`, 'ssh');
+                    const tabsContainer = mainTab.app.getTabsContainer('panel-0');
+                    tabsContainer.appendChild(tab);
+                });
+                
+                await sleep(500);
+                
+                // Open second tab
+                const secondTab = window.open('/index.html', '_blank');
+                await sleep(2000);
+                
+                if (!secondTab || !secondTab.app) {
+                    throw new Error('Failed to open second tab');
+                }
+                
+                log(6, 'Second tab opened');
+                
+                // Wait for sync
+                await sleep(1000);
+                
+                // Check if layout synced
+                const layout1 = mainTab.app.currentLayout?.id;
+                const layout2 = secondTab.app.currentLayout?.id;
+                
+                log(6, `Main tab layout: ${layout1}`);
+                log(6, `Second tab layout: ${layout2}`);
+                
+                if (layout1 !== layout2) {
+                    throw new Error(`Layout mismatch: ${layout1} !== ${layout2}`);
+                }
+                
+                // Check if tabs synced
+                const tabs1 = mainTab.app.getAllTabsInOrder();
+                const tabs2 = secondTab.app.getAllTabsInOrder();
+                
+                log(6, `Main tab tabs: ${JSON.stringify(tabs1)}`);
+                log(6, `Second tab tabs: ${JSON.stringify(tabs2)}`);
+                
+                if (tabs1.length !== tabs2.length) {
+                    throw new Error(`Tab count mismatch: ${tabs1.length} !== ${tabs2.length}`);
+                }
+                
+                log(6, 'Cross-tab synchronization test passed');
+                
+                mainTab.close();
+                secondTab.close();
+                
+                setStatus(6, 'pass', 'Test passed');
+            } catch (error) {
+                log(6, `Error: ${error.message}`);
+                setStatus(6, 'fail', `Test failed: ${error.message}`);
+            }
+        }
+        
+        // Run all tests
+        async function runAllTests() {
+            for (let i = 1; i <= 6; i++) {
+                await window[`runTest${i}`]();
+                await sleep(1000);
+            }
+        }
+        
+        // Clear logs
+        function clearLogs() {
+            for (let i = 1; i <= 6; i++) {
+                document.getElementById(`test${i}-log`).innerHTML = '';
+            }
+        }
+    </script>
+</body>
+</html>

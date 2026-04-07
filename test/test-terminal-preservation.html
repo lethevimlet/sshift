@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Terminal Preservation Test</title>
+  <style>
+    body { font-family: monospace; padding: 20px; }
+    .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+    .pass { color: green; }
+    .fail { color: red; }
+    .log { background: #f5f5f5; padding: 10px; margin: 10px 0; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>Terminal Preservation Test</h1>
+  <p>This test verifies that terminal content is preserved when switching layouts.</p>
+  
+  <div class="test-section">
+    <h2>Test Instructions:</h2>
+    <ol>
+      <li>Open the SSHIFT application in a browser</li>
+      <li>Connect to an SSH server and run some commands (e.g., <code>ls -la</code>, <code>pwd</code>)</li>
+      <li>Switch to a multi-panel layout (e.g., "2 Columns")</li>
+      <li>Verify that the terminal content is still visible</li>
+      <li>Switch back to single layout</li>
+      <li>Verify that the terminal content is still visible</li>
+    </ol>
+  </div>
+  
+  <div class="test-section">
+    <h2>Expected Behavior:</h2>
+    <ul>
+      <li>Terminal content should be preserved when switching layouts</li>
+      <li>Terminal should be properly resized to fit the new panel</li>
+      <li>Active tab should be restored after layout change</li>
+      <li>Non-active terminals should be hidden but their content preserved</li>
+    </ul>
+  </div>
+  
+  <div class="test-section">
+    <h2>Console Logs to Check:</h2>
+    <div class="log">
+[SSHIFT] Stored X tabs before layout change
+[SSHIFT] Preserved terminal wrapper for session: ssh-XXXXX
+[SSHIFT] Reused preserved terminal wrapper for session: ssh-XXXXX
+[SSHIFT] Fitting preserved terminal for session: ssh-XXXXX
+[SSHIFT] Preserved terminal fitted successfully for session: ssh-XXXXX
+[SSHIFT] Restoring active tab: ssh-XXXXX
+    </div>
+  </div>
+  
+  <div class="test-section">
+    <h2>Common Issues:</h2>
+    <ul>
+      <li><strong>Black terminal:</strong> Terminal wrapper was not preserved, or terminal.open() was called on an already-open terminal</li>
+      <li><strong>Terminal not visible:</strong> Active class not properly set on the wrapper</li>
+      <li><strong>Terminal too small/large:</strong> Fit addon not called after layout change</li>
+    </ul>
+  </div>
+  
+  <script>
+    console.log('Terminal Preservation Test');
+    console.log('==========================');
+    console.log('Open the browser console to see logs from the SSHIFT application');
+  </script>
+</body>
+</html>

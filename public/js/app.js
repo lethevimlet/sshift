@@ -14,7 +14,8 @@ class SSHIFTClient {
       console.error('[SSHIFT] Failed to create socket:', e);
     }
     this.sessions = new Map();
-    this.activeSessionId = null;
+    this.activeSessionId = null; // Global active session (for backwards compatibility)
+    this.activeSessionsByPanel = new Map(); // Per-panel active sessions: Map<panelId, sessionId>
     this.bookmarks = [];
     this.folders = [];
     this.currentConnectionType = 'ssh';
@@ -97,28 +98,46 @@ class SSHIFTClient {
     
     const tabs = [];
     
-    // Get tabs in DOM order from the tabs container
-    const tabsContainer = document.getElementById('tabs');
-    const tabElements = tabsContainer ? Array.from(tabsContainer.children) : [];
+    // Get tabs from all panels
+    const panels = this.getAllPanels();
     
-    // Save tabs in DOM order
-    tabElements.forEach(tabElement => {
-      const sessionId = tabElement.dataset.sessionId;
-      const session = this.sessions.get(sessionId) || this.sftpSessions.get(sessionId);
+    panels.forEach(panelId => {
+      const tabsContainer = this.getTabsContainer(panelId);
+      if (!tabsContainer) return;
       
-      if (session) {
-        tabs.push({
-          sessionId,
-          name: session.name,
-          type: session.type,
-          connectionData: session.connectionData,
-          active: sessionId === this.activeSessionId
-        });
-      }
+      const tabElements = Array.from(tabsContainer.children);
+      const activeInThisPanel = this.activeSessionsByPanel.get(panelId);
+      
+      tabElements.forEach(tabElement => {
+        const sessionId = tabElement.dataset.sessionId;
+        const session = this.sessions.get(sessionId) || this.sftpSessions.get(sessionId);
+        
+        if (session) {
+          tabs.push({
+            sessionId,
+            name: session.name,
+            type: session.type,
+            connectionData: session.connectionData,
+            active: sessionId === activeInThisPanel, // Active in this specific panel
+            panelId: panelId
+          });
+        }
+      });
     });
     
-    localStorage.setItem('openTabs', JSON.stringify(tabs));
-    console.log('[SSHIFT] Saved tabs:', tabs.length);
+    // Save tabs with current layout
+    const tabsData = {
+      tabs,
+      layout: this.currentLayout?.id || 'single'
+    };
+    
+    localStorage.setItem('openTabs', JSON.stringify(tabsData));
+    console.log('[SSHIFT] Saved tabs:', tabs.length, 'layout:', tabsData.layout);
+    
+    // Sync to server for cross-tab sync
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('tabs-save', tabsData);
+    }
   }
 
   loadTabs() {
@@ -133,6 +152,205 @@ class SSHIFTClient {
 
   clearTabs() {
     localStorage.removeItem('openTabs');
+  }
+
+  // Get all panel IDs in current layout
+  getAllPanels() {
+    const layoutContainer = document.getElementById('layoutContainer');
+    if (!layoutContainer) return ['panel-0'];
+    
+    const panels = layoutContainer.querySelectorAll('.layout-panel');
+    if (panels.length === 0) return ['panel-0'];
+    
+    return Array.from(panels).map(p => p.id);
+  }
+
+  // Get tabs container for a panel
+  getTabsContainer(panelId) {
+    // For single panel (panel-0), use original IDs without prefix
+    if (panelId === 'panel-0' || panelId === '0') {
+      return document.getElementById('tabs');
+    }
+    // For multi-panel layouts, use prefixed IDs
+    return document.getElementById(`${panelId}-tabs`);
+  }
+
+  // Get terminals container for a panel
+  getTerminalsContainer(panelId) {
+    // For single panel (panel-0), use original IDs without prefix
+    if (panelId === 'panel-0' || panelId === '0') {
+      return document.getElementById('terminalsContainer');
+    }
+    // For multi-panel layouts, use prefixed IDs
+    return document.getElementById(`${panelId}-terminalsContainer`);
+  }
+
+  // Get panel ID for a session (find which panel contains the session)
+  getPanelForSession(sessionId) {
+    const panels = this.getAllPanels();
+    for (const panelId of panels) {
+      const tabsContainer = this.getTabsContainer(panelId);
+      if (tabsContainer) {
+        const tab = tabsContainer.querySelector(`[data-session-id="${sessionId}"]`);
+        if (tab) return panelId;
+      }
+    }
+    return 'panel-0'; // Default to first panel
+  }
+
+  // Distribute tabs across panels when layout changes
+  distributeTabsToPanels(syncedTabs = null) {
+    // Get all sessions
+    const allSessions = [...this.sessions.keys(), ...this.sftpSessions.keys()];
+    if (allSessions.length === 0) return;
+    
+    const panels = this.getAllPanels();
+    const panelCount = panels.length;
+    
+    console.log('[SSHIFT] Distributing', allSessions.length, 'tabs across', panelCount, 'panels');
+    
+    // Clear per-panel active sessions before redistribution
+    this.activeSessionsByPanel.clear();
+    
+    // If we have synced tabs from another browser tab, use them
+    if (syncedTabs && Array.isArray(syncedTabs)) {
+      // Group tabs by panelId
+      const tabsByPanel = {};
+      panels.forEach(p => tabsByPanel[p] = []);
+      
+      syncedTabs.forEach(tabData => {
+        const targetPanel = tabData.panelId && panels.includes(tabData.panelId) 
+          ? tabData.panelId 
+          : panels[0];
+        tabsByPanel[targetPanel].push(tabData);
+      });
+      
+      // Move tabs to their assigned panels
+      Object.entries(tabsByPanel).forEach(([panelId, tabs]) => {
+        tabs.forEach(tabData => {
+          this.moveTabToPanel(tabData.sessionId, panelId);
+        });
+      });
+      
+      // Restore active sessions per panel - only activate the first active tab in each panel
+      const activatedPanels = new Set();
+      syncedTabs.forEach(tabData => {
+        if (tabData.active && !activatedPanels.has(tabData.panelId)) {
+          this.switchTab(tabData.sessionId, tabData.panelId);
+          activatedPanels.add(tabData.panelId);
+        }
+      });
+    } else {
+      // No synced data - distribute evenly across panels
+      // First, collect all existing tabs in order
+      const existingTabs = [];
+      panels.forEach(panelId => {
+        const tabsContainer = this.getTabsContainer(panelId);
+        if (tabsContainer) {
+          Array.from(tabsContainer.children).forEach(tab => {
+            existingTabs.push({
+              sessionId: tab.dataset.sessionId,
+              panelId: panelId
+            });
+          });
+        }
+      });
+      
+      // If we have more panels than tabs, put all in first panel
+      // If we have more tabs than panels, distribute evenly
+      if (panelCount === 1) {
+        // Single panel - all tabs go there
+        existingTabs.forEach(tabData => {
+          this.moveTabToPanel(tabData.sessionId, 'panel-0');
+        });
+      } else {
+        // Multi-panel - distribute evenly
+        existingTabs.forEach((tabData, index) => {
+          const targetPanel = panels[index % panelCount];
+          this.moveTabToPanel(tabData.sessionId, targetPanel);
+        });
+      }
+      
+      // Activate the first tab in each panel
+      const tabsByPanel = {};
+      panels.forEach(p => tabsByPanel[p] = []);
+      
+      existingTabs.forEach((tabData, index) => {
+        const targetPanel = panelCount === 1 ? 'panel-0' : panels[index % panelCount];
+        tabsByPanel[targetPanel].push(tabData.sessionId);
+      });
+      
+      // Activate first tab in each panel
+      Object.entries(tabsByPanel).forEach(([panelId, sessionIds]) => {
+        if (sessionIds.length > 0) {
+          this.switchTab(sessionIds[0], panelId);
+        }
+      });
+    }
+    
+    // Update mobile dropdowns for all panels
+    panels.forEach(panelId => {
+      this.updateMobileTabsDropdown(panelId);
+    });
+    
+    // Save tabs after distribution
+    this.saveTabs();
+  }
+
+  // Move a tab to a specific panel
+  moveTabToPanel(sessionId, targetPanelId) {
+    const currentPanelId = this.getPanelForSession(sessionId);
+    if (currentPanelId === targetPanelId) return; // Already in target panel
+    
+    const sourceTabsContainer = this.getTabsContainer(currentPanelId);
+    const targetTabsContainer = this.getTabsContainer(targetPanelId);
+    const sourceTerminalsContainer = this.getTerminalsContainer(currentPanelId);
+    const targetTerminalsContainer = this.getTerminalsContainer(targetPanelId);
+    
+    if (!sourceTabsContainer || !targetTabsContainer) return;
+    if (!sourceTerminalsContainer || !targetTerminalsContainer) return;
+    
+    // Move tab element
+    const tabElement = sourceTabsContainer.querySelector(`[data-session-id="${sessionId}"]`);
+    if (tabElement) {
+      targetTabsContainer.appendChild(tabElement);
+    }
+    
+    // Move terminal element
+    const terminalElement = sourceTerminalsContainer.querySelector(`[data-session-id="${sessionId}"]`);
+    if (terminalElement) {
+      targetTerminalsContainer.appendChild(terminalElement);
+    }
+    
+    // Hide empty state in target panel if it has tabs now
+    const targetTabs = targetTabsContainer.children;
+    if (targetTabs.length > 0) {
+      this.hideEmptyState(targetPanelId);
+    }
+    
+    // Show empty state in source panel if it has no tabs now
+    const sourceTabs = sourceTabsContainer.children;
+    if (sourceTabs.length === 0) {
+      this.showEmptyState(currentPanelId);
+    }
+    
+    console.log('[SSHIFT] Moved tab', sessionId, 'from', currentPanelId, 'to', targetPanelId);
+  }
+
+  // Hide empty state for a specific panel
+  hideEmptyState(panelId = 'panel-0') {
+    const emptyState = document.getElementById(panelId === 'panel-0' ? 'emptyState' : `${panelId}-emptyState`);
+    if (emptyState) {
+      emptyState.style.display = 'none';
+    }
+  }
+
+  // Show empty state for a specific panel
+  showEmptyState(panelId = 'panel-0') {
+    const emptyState = document.getElementById(panelId === 'panel-0' ? 'emptyState' : `${panelId}-emptyState`);
+    if (emptyState) {
+      emptyState.style.display = 'flex';
+    }
   }
 
   // Helper method to copy text to clipboard with fallback
@@ -741,13 +959,14 @@ class SSHIFTClient {
     }
   }
 
-  setLayoutFromServer(layoutId) {
+  setLayoutFromServer(layoutId, syncedTabs = null) {
     console.log('[SSHIFT] Setting layout from server:', layoutId);
     
     // If layouts aren't loaded yet, queue this for later
     if (!this.layouts) {
       console.log('[SSHIFT] Layouts not loaded yet, queuing layout sync for:', layoutId);
       this.pendingLayoutSync = layoutId;
+      this.pendingLayoutTabs = syncedTabs;
       return;
     }
     
@@ -759,7 +978,9 @@ class SSHIFTClient {
     const layout = this.layouts.find(l => l.id === layoutId);
     if (layout) {
       this.currentLayout = layout;
-      this.applyLayout(layout);
+      // Pass syncedTabs to applyLayout which will handle distribution
+      this.applyLayout(layout, syncedTabs);
+      
       setTimeout(() => this.handleResize(), 50);
     }
   }
@@ -791,12 +1012,29 @@ class SSHIFTClient {
     this.showToast(`Layout: ${layout.name}`, 'info');
   }
 
-  applyLayout(layout) {
+  applyLayout(layout, syncedTabs = null) {
     const layoutContainer = document.getElementById('layoutContainer');
     if (!layoutContainer) {
       console.error('[SSHIFT] Layout container not found');
       return;
     }
+    
+    // Store tabs before clearing layout (for sync from other tabs)
+    const storedTabs = syncedTabs;
+    
+    // Store terminal elements before clearing layout (to prevent black tabs)
+    const storedTerminals = new Map();
+    document.querySelectorAll('.terminal-wrapper').forEach(wrapper => {
+      const sessionId = wrapper.dataset.sessionId || wrapper.id.replace('terminal-wrapper-', '');
+      storedTerminals.set(sessionId, wrapper);
+    });
+    
+    // Store tab elements before clearing layout
+    const storedTabElements = new Map();
+    document.querySelectorAll('.tab').forEach(tab => {
+      const sessionId = tab.dataset.sessionId;
+      storedTabElements.set(sessionId, tab);
+    });
     
     // Check if single layout (use existing structure)
     if (layout.id === 'single') {
@@ -812,6 +1050,41 @@ class SSHIFTClient {
       }
       
       this.currentLayout = layout;
+      
+      // Get the single panel containers
+      const tabsContainer = this.getTabsContainer('panel-0');
+      const terminalsContainer = this.getTerminalsContainer('panel-0');
+      
+      // Restore tab elements to the single panel
+      storedTabElements.forEach((tab, sessionId) => {
+        if (tabsContainer && !tabsContainer.contains(tab)) {
+          tabsContainer.appendChild(tab);
+        }
+      });
+      
+      // Restore terminal elements to the single panel
+      storedTerminals.forEach((wrapper, sessionId) => {
+        if (terminalsContainer && !terminalsContainer.contains(wrapper)) {
+          terminalsContainer.appendChild(wrapper);
+        }
+      });
+      
+      // Hide empty state if we have tabs
+      if (storedTabElements.size > 0) {
+        this.hideEmptyState('panel-0');
+      }
+      
+      // Distribute tabs (use syncedTabs if available, otherwise just update mobile dropdown)
+      if (syncedTabs) {
+        this.distributeTabsToPanels(syncedTabs);
+      } else {
+        // Just update mobile dropdown and save tabs
+        this.updateMobileTabsDropdown('panel-0');
+        this.saveTabs();
+      }
+      
+      // Resize terminals after restoration
+      setTimeout(() => this.handleResize(), 100);
       return;
     }
     
@@ -826,6 +1099,62 @@ class SSHIFTClient {
     });
     
     this.currentLayout = layout;
+    
+    // Restore tab elements to the first panel temporarily
+    const firstPanel = this.getAllPanels()[0];
+    const firstTabsContainer = this.getTabsContainer(firstPanel);
+    storedTabElements.forEach((tab, sessionId) => {
+      if (firstTabsContainer && !firstTabsContainer.contains(tab)) {
+        firstTabsContainer.appendChild(tab);
+      }
+    });
+    
+    // Restore terminal elements to the first panel temporarily
+    const firstTerminalsContainer = this.getTerminalsContainer(firstPanel);
+    storedTerminals.forEach((wrapper, sessionId) => {
+      if (firstTerminalsContainer && !firstTerminalsContainer.contains(wrapper)) {
+        firstTerminalsContainer.appendChild(wrapper);
+      }
+    });
+    
+    // Hide empty state in first panel if we have tabs
+    if (storedTabElements.size > 0) {
+      this.hideEmptyState(firstPanel);
+    }
+    
+    // Distribute tabs across panels
+    // Use syncedTabs if available (from another browser tab), otherwise distribute evenly
+    this.distributeTabsToPanels(syncedTabs);
+    
+    // Resize terminals after restoration
+    setTimeout(() => this.handleResize(), 100);
+  }
+
+  // Get all tabs in order across all panels
+  getAllTabsInOrder() {
+    const tabs = [];
+    const panels = this.getAllPanels();
+    
+    panels.forEach(panelId => {
+      const tabsContainer = this.getTabsContainer(panelId);
+      if (tabsContainer) {
+        Array.from(tabsContainer.children).forEach(tab => {
+          const sessionId = tab.dataset.sessionId;
+          const session = this.sessions.get(sessionId) || this.sftpSessions.get(sessionId);
+          if (session) {
+            tabs.push({
+              sessionId,
+              name: session.name,
+              type: session.type,
+              connectionData: session.connectionData,
+              panelId: panelId
+            });
+          }
+        });
+      }
+    });
+    
+    return tabs;
   }
 
   createColumn(columnDef, colIndex) {
@@ -1835,7 +2164,11 @@ class SSHIFTClient {
   }
 
   async restoreTabs() {
-    const savedTabs = this.loadTabs();
+    const savedData = this.loadTabs();
+    
+    // Handle both old format (array) and new format (object with tabs and layout)
+    const savedTabs = Array.isArray(savedData) ? savedData : (savedData?.tabs || []);
+    const savedLayout = !Array.isArray(savedData) ? savedData?.layout : null;
     
     if (!savedTabs || savedTabs.length === 0) {
       console.log('[SSHIFT] No tabs to restore');
@@ -1843,7 +2176,7 @@ class SSHIFTClient {
     }
     
     console.log('[SSHIFT] Restoring', savedTabs.length, 'tabs');
-    console.log('[SSHIFT] sticky:', this.sticky);
+    console.log('[SSHIFT] sticky:', this.sticky, 'layout:', savedLayout);
     
     // Set restoring flag to prevent saving during restoration
     this.isRestoring = true;
@@ -1887,11 +2220,24 @@ class SSHIFTClient {
     if (activeSessionId) {
       setTimeout(() => {
         console.log('[SSHIFT] Restoring active session:', activeSessionId);
-        this.switchTab(activeSessionId);
+        // Find the panelId for this session from savedTabs
+        const savedTab = savedTabs.find(t => t.sessionId === activeSessionId);
+        const panelId = savedTab?.panelId || this.getPanelForSession(activeSessionId);
+        this.switchTab(activeSessionId, panelId);
       }, 500);
     }
     
-    // Update mobile tabs dropdown after restoration
+    // Restore layout if saved
+    if (savedLayout && this.layouts) {
+      const layout = this.layouts.find(l => l.id === savedLayout);
+      if (layout) {
+        console.log('[SSHIFT] Restoring layout:', savedLayout);
+        // Pass savedTabs to applyLayout which will handle distribution
+        this.applyLayout(layout, savedTabs);
+      }
+    }
+    
+    // Update mobile tabs Dropdown after restoration
     this.updateMobileTabsDropdown();
     
     // Clear restoring flag after restoration is complete
@@ -1998,6 +2344,20 @@ class SSHIFTClient {
       console.log('[SSHIFT] Layout changed by another client:', data.layoutId);
       if (this.sticky) {
         this.setLayoutFromServer(data.layoutId);
+      }
+    });
+
+    // Handle tabs sync from another client
+    this.socket.on('tabs-sync', (data) => {
+      console.log('[SSHIFT] Tabs sync:', data.tabs?.length || 0, 'tabs, layout:', data.layout);
+      if (this.sticky) {
+        // Apply layout first if it's different
+        if (data.layout && data.layout !== this.currentLayout?.id) {
+          this.setLayoutFromServer(data.layout, data.tabs);
+        } else if (data.tabs && Array.isArray(data.tabs)) {
+          // Just reorder tabs without layout change
+          this.distributeTabsToPanels(data.tabs);
+        }
       }
     });
 
@@ -3288,89 +3648,96 @@ class SSHIFTClient {
     });
   }
 
-  updateMobileTabsDropdown() {
-    const mobileTabsLabel = document.getElementById('mobileTabsLabel');
-    const mobileTabsMenu = document.getElementById('mobileTabsMenu');
-    const mobileTabsToggle = document.getElementById('mobileTabsToggle');
+  updateMobileTabsDropdown(panelId = null) {
+    // If panelId is provided, update only that panel's dropdown
+    // Otherwise, update all mobile dropdowns across all panels
+    const panels = panelId ? [panelId] : this.getAllPanels();
     
-    if (!mobileTabsLabel || !mobileTabsMenu || !mobileTabsToggle) return;
-
-    // Get all tabs
-    const tabsContainer = document.getElementById('tabs');
-    const tabs = tabsContainer ? Array.from(tabsContainer.children) : [];
-
-    // Clear existing menu
-    mobileTabsMenu.innerHTML = '';
-
-    // Find active tab
-    let activeTabName = 'No Active Tabs';
-    let activeTabIcon = 'fa-terminal';
-
-    // Add menu options for each tab
-    tabs.forEach(tab => {
-      const sessionId = tab.dataset.sessionId;
-      const session = this.sessions.get(sessionId) || this.sftpSessions.get(sessionId);
-      const isActive = tab.classList.contains('active');
+    panels.forEach(pid => {
+      const mobileTabsLabel = document.getElementById(pid === 'panel-0' ? 'mobileTabsLabel' : `${pid}-mobileTabsLabel`);
+      const mobileTabsMenu = document.getElementById(pid === 'panel-0' ? 'mobileTabsMenu' : `${pid}-mobileTabsMenu`);
+      const mobileTabsToggle = document.getElementById(pid === 'panel-0' ? 'mobileTabsToggle' : `${pid}-mobileTabsToggle`);
       
-      if (session) {
-        const icon = session.type === 'sftp' ? 'fa-folder-open' : 'fa-terminal';
-        const iconClass = session.type === 'sftp' ? 'sftp' : 'ssh';
-        const name = session.name || sessionId;
+      if (!mobileTabsLabel || !mobileTabsMenu || !mobileTabsToggle) return;
 
-        if (isActive) {
-          activeTabName = name;
-          activeTabIcon = icon;
-        }
+      // Get tabs for this panel
+      const tabsContainer = this.getTabsContainer(pid);
+      const tabs = tabsContainer ? Array.from(tabsContainer.children) : [];
 
-        const option = document.createElement('div');
-        option.className = `mobile-tab-option${isActive ? ' active' : ''}`;
-        option.dataset.sessionId = sessionId;
-        option.innerHTML = `
-          <i class="fas ${icon} tab-icon ${iconClass}"></i>
-          <span class="tab-name">${name}</span>
-          <button class="tab-rename" data-session-id="${sessionId}" title="Rename">
-            <i class="fas fa-pen"></i>
-          </button>
-          <button class="tab-close" data-session-id="${sessionId}" title="Close">
-            <i class="fas fa-times"></i>
-          </button>
-        `;
+      // Clear existing menu
+      mobileTabsMenu.innerHTML = '';
 
-        // Click to switch tab (on the option div, not on the rename/close buttons)
-        option.addEventListener('click', (e) => {
-          if (!e.target.closest('.tab-rename') && !e.target.closest('.tab-close')) {
-            this.switchTab(sessionId);
+      // Find active tab
+      let activeTabName = 'No Active Tabs';
+      let activeTabIcon = 'fa-terminal';
+
+      // Add menu options for each tab
+      tabs.forEach(tab => {
+        const sessionId = tab.dataset.sessionId;
+        const session = this.sessions.get(sessionId) || this.sftpSessions.get(sessionId);
+        const isActive = tab.classList.contains('active');
+        
+        if (session) {
+          const icon = session.type === 'sftp' ? 'fa-folder-open' : 'fa-terminal';
+          const iconClass = session.type === 'sftp' ? 'sftp' : 'ssh';
+          const name = session.name || sessionId;
+
+          if (isActive) {
+            activeTabName = name;
+            activeTabIcon = icon;
+          }
+
+          const option = document.createElement('div');
+          option.className = `mobile-tab-option${isActive ? ' active' : ''}`;
+          option.dataset.sessionId = sessionId;
+          option.innerHTML = `
+            <i class="fas ${icon} tab-icon ${iconClass}"></i>
+            <span class="tab-name">${name}</span>
+            <button class="tab-rename" data-session-id="${sessionId}" title="Rename">
+              <i class="fas fa-pen"></i>
+            </button>
+            <button class="tab-close" data-session-id="${sessionId}" title="Close">
+              <i class="fas fa-times"></i>
+            </button>
+          `;
+
+          // Click to switch tab (on the option div, not on the rename/close buttons)
+          option.addEventListener('click', (e) => {
+            if (!e.target.closest('.tab-rename') && !e.target.closest('.tab-close')) {
+              const panelId = this.getPanelForSession(sessionId);
+              this.switchTab(sessionId, panelId);
+              mobileTabsMenu.classList.remove('show');
+              mobileTabsToggle.classList.remove('active');
+            }
+          });
+
+          mobileTabsMenu.appendChild(option);
+
+          // Rename button
+          const renameBtn = option.querySelector('.tab-rename');
+          renameBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.startTabRename(sessionId);
             mobileTabsMenu.classList.remove('show');
             mobileTabsToggle.classList.remove('active');
-          }
-        });
+          });
 
-        mobileTabsMenu.appendChild(option);
+          // Close button
+          const closeBtn = option.querySelector('.tab-close');
+          closeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.closeTab(sessionId);
+          });
+        }
+      });
 
-        // Rename button
-        const renameBtn = option.querySelector('.tab-rename');
-        renameBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this.startTabRename(sessionId);
-          mobileTabsMenu.classList.remove('show');
-          mobileTabsToggle.classList.remove('active');
-        });
-
-        // Close button
-        const closeBtn = option.querySelector('.tab-close');
-        closeBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this.closeTab(sessionId);
-        });
+      // Update toggle button
+      const iconElement = mobileTabsToggle.querySelector('.tab-icon-active');
+      if (iconElement) {
+        iconElement.className = `fas ${activeTabIcon} tab-icon-active`;
       }
+      mobileTabsLabel.textContent = activeTabName;
     });
-
-    // Update toggle button
-    const iconElement = mobileTabsToggle.querySelector('.tab-icon-active');
-    if (iconElement) {
-      iconElement.className = `fas ${activeTabIcon} tab-icon-active`;
-    }
-    mobileTabsLabel.textContent = activeTabName;
   }
 
   // Scroll tabs left or right
@@ -3628,7 +3995,8 @@ class SSHIFTClient {
     });
 
     // Switch to the new tab FIRST to make the container visible
-    this.switchTab(sessionId);
+    const panelId = this.getPanelForSession(sessionId);
+    this.switchTab(sessionId, panelId);
     this.hideEmptyState();
 
     // Initialize terminal AFTER container is visible
@@ -3714,7 +4082,8 @@ class SSHIFTClient {
         if (window.innerWidth <= 768) {
           this.openModal('specialKeysModal');
         }
-        this.switchTab(sessionId);
+        const panelId = this.getPanelForSession(sessionId);
+        this.switchTab(sessionId, panelId);
       }
     });
 
@@ -3810,6 +4179,7 @@ class SSHIFTClient {
     const wrapper = document.createElement('div');
     wrapper.className = 'terminal-wrapper';
     wrapper.id = `terminal-wrapper-${sessionId}`;
+    wrapper.dataset.sessionId = sessionId; // Add data attribute for easier querying
     
     // Create a dedicated container for xterm
     const terminalContainer = document.createElement('div');
@@ -4403,7 +4773,8 @@ class SSHIFTClient {
     });
 
     console.log('[SSHIFT] Switching to SFTP tab:', sessionId);
-    this.switchTab(sessionId);
+    const panelId = this.getPanelForSession(sessionId);
+    this.switchTab(sessionId, panelId);
     this.hideEmptyState();
 
     // Verify the wrapper is active
@@ -4432,6 +4803,7 @@ class SSHIFTClient {
     const wrapper = document.createElement('div');
     wrapper.className = 'terminal-wrapper';
     wrapper.id = `terminal-wrapper-${sessionId}`;
+    wrapper.dataset.sessionId = sessionId; // Add data attribute for easier querying
     
     const container = document.createElement('div');
     container.className = 'sftp-container';
@@ -4724,23 +5096,40 @@ class SSHIFTClient {
   }
 
   // Tab Management
-  switchTab(sessionId) {
-    console.log('[SSHIFT] switchTab called for session:', sessionId);
+  switchTab(sessionId, panelId = null) {
+    console.log('[SSHIFT] switchTab called for session:', sessionId, 'panel:', panelId);
     
-    // Update active tab
-    document.querySelectorAll('.tab').forEach(tab => {
-      tab.classList.toggle('active', tab.dataset.sessionId === sessionId);
-    });
-
-    // Update active terminal - use wrapper ID
-    document.querySelectorAll('.terminal-wrapper').forEach(wrapper => {
-      const isActive = wrapper.id === `terminal-wrapper-${sessionId}`;
-      console.log('[SSHIFT] Setting wrapper', wrapper.id, 'active:', isActive);
-      wrapper.classList.toggle('active', isActive);
-    });
-
+    // Determine which panel this session belongs to
+    if (!panelId) {
+      panelId = this.getPanelForSession(sessionId);
+    }
+    
+    // Update per-panel active session
+    this.activeSessionsByPanel.set(panelId, sessionId);
+    
+    // Update global active session (for backwards compatibility)
     this.activeSessionId = sessionId;
     
+    // Get the tabs container for this panel
+    const tabsContainer = this.getTabsContainer(panelId);
+    if (tabsContainer) {
+      // Update active tab only within this panel
+      tabsContainer.querySelectorAll('.tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.sessionId === sessionId);
+      });
+    }
+
+    // Get the terminals container for this panel
+    const terminalsContainer = this.getTerminalsContainer(panelId);
+    if (terminalsContainer) {
+      // Update active terminal only within this panel
+      terminalsContainer.querySelectorAll('.terminal-wrapper').forEach(wrapper => {
+        const isActive = wrapper.id === `terminal-wrapper-${sessionId}`;
+        console.log('[SSHIFT] Setting wrapper', wrapper.id, 'active:', isActive, 'in panel:', panelId);
+        wrapper.classList.toggle('active', isActive);
+      });
+    }
+
     // Update mobile keys bar visibility
     this.updateMobileKeysBar();
 
@@ -4768,8 +5157,8 @@ class SSHIFTClient {
       session.terminal.focus();
     }
     
-    // Update mobile tabs dropdown
-    this.updateMobileTabsDropdown();
+    // Update mobile tabs dropdown for this panel
+    this.updateMobileTabsDropdown(panelId);
     
     // Save tabs
     this.saveTabs();
@@ -4778,6 +5167,9 @@ class SSHIFTClient {
   closeTab(sessionId) {
     const session = this.sessions.get(sessionId) || this.sftpSessions.get(sessionId);
     if (!session) return;
+
+    // Get the panel this session belongs to before removing it
+    const panelId = this.getPanelForSession(sessionId);
 
     // Notify server that this tab is closing (for cross-client sync)
     this.socket.emit('tab-close', { sessionId });
@@ -4804,21 +5196,40 @@ class SSHIFTClient {
     // Update scroll arrows visibility
     this.updateTabsScrollArrows();
 
-    // Switch to another tab or show empty state
-    if (this.activeSessionId === sessionId) {
-      const remainingSessions = [...Array.from(this.sessions.keys()), ...Array.from(this.sftpSessions.keys())];
-      if (remainingSessions.length > 0) {
-        this.switchTab(remainingSessions[0]);
+    // Check if this was the active session in its panel
+    const activeInPanel = this.activeSessionsByPanel.get(panelId);
+    if (activeInPanel === sessionId) {
+      // Remove the panel's active session entry
+      this.activeSessionsByPanel.delete(panelId);
+      
+      // Find remaining sessions in the same panel
+      const tabsContainer = this.getTabsContainer(panelId);
+      const remainingInPanel = tabsContainer ? Array.from(tabsContainer.children).map(t => t.dataset.sessionId) : [];
+      
+      if (remainingInPanel.length > 0) {
+        // Switch to the first remaining tab in this panel
+        this.switchTab(remainingInPanel[0], panelId);
       } else {
-        this.activeSessionId = null;
-        this.showEmptyState();
-        // Update mobile keys bar visibility when no active session
-        this.updateMobileKeysBar();
+        // No more tabs in this panel
+        // If this was also the global active session, find another session to activate
+        if (this.activeSessionId === sessionId) {
+          const remainingSessions = [...Array.from(this.sessions.keys()), ...Array.from(this.sftpSessions.keys())];
+          if (remainingSessions.length > 0) {
+            // Find the panel for the first remaining session
+            const firstRemainingPanelId = this.getPanelForSession(remainingSessions[0]);
+            this.switchTab(remainingSessions[0], firstRemainingPanelId);
+          } else {
+            this.activeSessionId = null;
+            this.showEmptyState();
+            // Update mobile keys bar visibility when no active session
+            this.updateMobileKeysBar();
+          }
+        }
       }
     }
-    
+
     // Update mobile tabs dropdown
-    this.updateMobileTabsDropdown();
+    this.updateMobileTabsDropdown(panelId);
     
     // Save tabs
     this.saveTabs();
@@ -4918,21 +5329,12 @@ class SSHIFTClient {
     const order = tabs.map(t => t.sessionId);
     this.reorderTabsInDOM(order);
 
+    // Distribute tabs to panels based on panel assignments
+    if (tabs.some(t => t.panelId)) {
+      this.distributeTabsToPanels(tabs);
+    }
+
     this.isRestoring = false;
-  }
-
-  hideEmptyState() {
-    const emptyState = document.getElementById('emptyState');
-    if (emptyState) {
-      emptyState.classList.add('hidden');
-    }
-  }
-
-  showEmptyState() {
-    const emptyState = document.getElementById('emptyState');
-    if (emptyState) {
-      emptyState.classList.remove('hidden');
-    }
   }
 
   // Special Keys

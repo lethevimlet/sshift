@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test Multi-Panel Active Terminals</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      padding: 20px;
+      background: #1a1a1a;
+      color: #e0e0e0;
+    }
+    h1 {
+      color: #4CAF50;
+    }
+    .test-section {
+      margin: 20px 0;
+      padding: 15px;
+      background: #2a2a2a;
+      border-radius: 8px;
+    }
+    .test-result {
+      margin: 10px 0;
+      padding: 10px;
+      border-radius: 4px;
+    }
+    .pass {
+      background: #1b5e20;
+      color: #a5d6a7;
+    }
+    .fail {
+      background: #b71c1c;
+      color: #ef9a9a;
+    }
+    .info {
+      background: #0d47a1;
+      color: #90caf9;
+    }
+    button {
+      padding: 10px 20px;
+      margin: 5px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:hover {
+      background: #45a049;
+    }
+    #testOutput {
+      margin-top: 20px;
+      padding: 15px;
+      background: #1a1a1a;
+      border: 1px solid #444;
+      border-radius: 4px;
+      font-family: monospace;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <h1>Multi-Panel Active Terminals Test</h1>
+  
+  <div class="test-section">
+    <h2>Test Description</h2>
+    <p>This test verifies that each panel in a multi-panel layout can have its own active terminal.</p>
+    <p>When switching from a single panel layout to a multi-panel layout, each visible panel should display an active terminal.</p>
+  </div>
+
+  <div class="test-section">
+    <h2>Manual Test Steps</h2>
+    <ol>
+      <li>Open the SSHIFT application</li>
+      <li>Create 2-3 SSH tabs in single panel layout</li>
+      <li>Switch to 2-column layout</li>
+      <li>Verify: Each panel should show one active terminal (visible terminal-wrapper with 'active' class)</li>
+      <li>Click on a tab in the left panel - only that panel's terminal should change</li>
+      <li>Click on a tab in the right panel - only that panel's terminal should change</li>
+      <li>Both panels should maintain their own active terminal independently</li>
+    </ol>
+  </div>
+
+  <div class="test-section">
+    <h2>Automated Tests</h2>
+    <button onclick="runTests()">Run Tests</button>
+    <button onclick="clearOutput()">Clear Output</button>
+    <div id="testOutput"></div>
+  </div>
+
+  <script>
+    // Mock app for testing
+    class MockApp {
+      constructor() {
+        this.sessions = new Map();
+        this.sftpSessions = new Map();
+        this.activeSessionId = null;
+        this.activeSessionsByPanel = new Map();
+        this.currentLayout = { id: 'single', name: 'Single' };
+      }
+
+      getAllPanels() {
+        const layoutContainer = document.getElementById('layoutContainer');
+        if (!layoutContainer) return ['panel-0'];
+        
+        const panels = [];
+        layoutContainer.querySelectorAll('.panel').forEach(panel => {
+          panels.push(panel.id);
+        });
+        
+        return panels.length > 0 ? panels : ['panel-0'];
+      }
+
+      getTabsContainer(panelId) {
+        if (panelId === 'panel-0') {
+          return document.getElementById('tabs');
+        }
+        return document.getElementById(`${panelId}-tabs`);
+      }
+
+      getTerminalsContainer(panelId) {
+        if (panelId === 'panel-0') {
+          return document.getElementById('terminals');
+        }
+        return document.getElementById(`${panelId}-terminals`);
+      }
+
+      getPanelForSession(sessionId) {
+        // Check all panels for this session
+        const panels = this.getAllPanels();
+        for (const panelId of panels) {
+          const tabsContainer = this.getTabsContainer(panelId);
+          if (tabsContainer) {
+            const tab = tabsContainer.querySelector(`[data-session-id="${sessionId}"]`);
+            if (tab) return panelId;
+          }
+        }
+        return 'panel-0';
+      }
+
+      switchTab(sessionId, panelId = null) {
+        // Determine which panel this session belongs to
+        if (!panelId) {
+          panelId = this.getPanelForSession(sessionId);
+        }
+        
+        // Update per-panel active session
+        this.activeSessionsByPanel.set(panelId, sessionId);
+        
+        // Update global active session (for backwards compatibility)
+        this.activeSessionId = sessionId;
+        
+        // Get the tabs container for this panel
+        const tabsContainer = this.getTabsContainer(panelId);
+        if (tabsContainer) {
+          // Update active tab only within this panel
+          tabsContainer.querySelectorAll('.tab').forEach(tab => {
+            tab.classList.toggle('active', tab.dataset.sessionId === sessionId);
+          });
+        }
+
+        // Get the terminals container for this panel
+        const terminalsContainer = this.getTerminalsContainer(panelId);
+        if (terminalsContainer) {
+          // Update active terminal only within this panel
+          terminalsContainer.querySelectorAll('.terminal-wrapper').forEach(wrapper => {
+            const isActive = wrapper.id === `terminal-wrapper-${sessionId}`;
+            wrapper.classList.toggle('active', isActive);
+          });
+        }
+      }
+
+      distributeTabsToPanels() {
+        const allSessions = [...this.sessions.keys(), ...this.sftpSessions.keys()];
+        if (allSessions.length === 0) return;
+        
+        const panels = this.getAllPanels();
+        const panelCount = panels.length;
+        
+        // Clear per-panel active sessions before redistribution
+        this.activeSessionsByPanel.clear();
+        
+        // Collect all existing tabs in order
+        const existingTabs = [];
+        panels.forEach(panelId => {
+          const tabsContainer = this.getTabsContainer(panelId);
+          if (tabsContainer) {
+            Array.from(tabsContainer.children).forEach(tab => {
+              existingTabs.push({
+                sessionId: tab.dataset.sessionId,
+                panelId: panelId
+              });
+            });
+          }
+        });
+        
+        // Distribute tabs evenly
+        if (panelCount === 1) {
+          existingTabs.forEach(tabData => {
+            // All stay in panel-0
+          });
+        } else {
+          existingTabs.forEach((tabData, index) => {
+            const targetPanel = panels[index % panelCount];
+            // Move tab to target panel
+            const tabsContainer = this.getTabsContainer(targetPanel);
+            const terminalsContainer = this.getTerminalsContainer(targetPanel);
+            const tab = document.querySelector(`[data-session-id="${tabData.sessionId}"]`);
+            const wrapper = document.getElementById(`terminal-wrapper-${tabData.sessionId}`);
+            
+            if (tab && tabsContainer) tabsContainer.appendChild(tab);
+            if (wrapper && terminalsContainer) terminalsContainer.appendChild(wrapper);
+          });
+        }
+        
+        // Activate first tab in each panel
+        const tabsByPanel = {};
+        panels.forEach(p => tabsByPanel[p] = []);
+        
+        existingTabs.forEach((tabData, index) => {
+          const targetPanel = panelCount === 1 ? 'panel-0' : panels[index % panelCount];
+          tabsByPanel[targetPanel].push(tabData.sessionId);
+        });
+        
+        // Activate first tab in each panel
+        Object.entries(tabsByPanel).forEach(([panelId, sessionIds]) => {
+          if (sessionIds.length > 0) {
+            this.switchTab(sessionIds[0], panelId);
+          }
+        });
+      }
+    }
+
+    let app;
+    let testOutput;
+
+    function log(message, type = 'info') {
+      const div = document.createElement('div');
+      div.className = `test-result ${type}`;
+      div.textContent = message;
+      testOutput.appendChild(div);
+    }
+
+    function clearOutput() {
+      testOutput.innerHTML = '';
+    }
+
+    function setupTestDOM() {
+      // Create test layout
+      const layoutContainer = document.createElement('div');
+      layoutContainer.id = 'layoutContainer';
+      layoutContainer.className = 'layout-container columns';
+      
+      // Create two panels
+      const panel0 = document.createElement('div');
+      panel0.id = 'panel-0';
+      panel0.className = 'panel';
+      
+      const panel1 = document.createElement('div');
+      panel1.id = 'panel-1';
+      panel1.className = 'panel';
+      
+      // Create tabs containers
+      const tabs0 = document.createElement('div');
+      tabs0.id = 'tabs';
+      tabs0.className = 'tabs-container';
+      
+      const tabs1 = document.createElement('div');
+      tabs1.id = 'panel-1-tabs';
+      tabs1.className = 'tabs-container';
+      
+      // Create terminals containers
+      const terminals0 = document.createElement('div');
+      terminals0.id = 'terminals';
+      terminals0.className = 'terminals-container';
+      
+      const terminals1 = document.createElement('div');
+      terminals1.id = 'panel-1-terminals';
+      terminals1.className = 'terminals-container';
+      
+      panel0.appendChild(tabs0);
+      panel0.appendChild(terminals0);
+      panel1.appendChild(tabs1);
+      panel1.appendChild(terminals1);
+      
+      layoutContainer.appendChild(panel0);
+      layoutContainer.appendChild(panel1);
+      
+      document.body.appendChild(layoutContainer);
+      
+      return { layoutContainer, panel0, panel1, tabs0, tabs1, terminals0, terminals1 };
+    }
+
+    function cleanupTestDOM() {
+      const layoutContainer = document.getElementById('layoutContainer');
+      if (layoutContainer) layoutContainer.remove();
+    }
+
+    function createMockSession(id, name) {
+      // Create tab element
+      const tab = document.createElement('div');
+      tab.className = 'tab';
+      tab.dataset.sessionId = id;
+      tab.textContent = name;
+      
+      // Create terminal wrapper
+      const wrapper = document.createElement('div');
+      wrapper.className = 'terminal-wrapper';
+      wrapper.id = `terminal-wrapper-${id}`;
+      wrapper.dataset.sessionId = id;
+      wrapper.textContent = `Terminal ${name}`;
+      
+      return { tab, wrapper };
+    }
+
+    async function runTests() {
+      testOutput = document.getElementById('testOutput');
+      clearOutput();
+      
+      log('Starting Multi-Panel Active Terminals Tests', 'info');
+      log('='.repeat(50), 'info');
+      
+      let passed = 0;
+      let failed = 0;
+      
+      try {
+        // Setup
+        cleanupTestDOM();
+        const dom = setupTestDOM();
+        app = new MockApp();
+        
+        // Test 1: Single panel - one active terminal
+        log('Test 1: Single panel with one session', 'info');
+        app.currentLayout = { id: 'single', name: 'Single' };
+        
+        const session1 = createMockSession('session-1', 'Server 1');
+        dom.tabs0.appendChild(session1.tab);
+        dom.terminals0.appendChild(session1.wrapper);
+        app.sessions.set('session-1', { id: 'session-1', name: 'Server 1' });
+        
+        app.switchTab('session-1', 'panel-0');
+        
+        const activeInPanel0 = dom.terminals0.querySelectorAll('.terminal-wrapper.active');
+        if (activeInPanel0.length === 1 && activeInPanel0[0].id === 'terminal-wrapper-session-1') {
+          log('✓ PASS: Single panel has one active terminal', 'pass');
+          passed++;
+        } else {
+          log('✗ FAIL: Expected 1 active terminal, found ' + activeInPanel0.length, 'fail');
+          failed++;
+        }
+        
+        // Test 2: Add second session to single panel
+        log('Test 2: Add second session to single panel', 'info');
+        const session2 = createMockSession('session-2', 'Server 2');
+        dom.tabs0.appendChild(session2.tab);
+        dom.terminals0.appendChild(session2.wrapper);
+        app.sessions.set('session-2', { id: 'session-2', name: 'Server 2' });
+        
+        app.switchTab('session-2', 'panel-0');
+        
+        const activeAfterSwitch = dom.terminals0.querySelectorAll('.terminal-wrapper.active');
+        if (activeAfterSwitch.length === 1 && activeAfterSwitch[0].id === 'terminal-wrapper-session-2') {
+          log('✓ PASS: Switching tabs updates active terminal', 'pass');
+          passed++;
+        } else {
+          log('✗ FAIL: Expected session-2 to be active', 'fail');
+          failed++;
+        }
+        
+        // Test 3: Switch to 2-column layout
+        log('Test 3: Switch to 2-column layout', 'info');
+        app.currentLayout = { id: 'columns-2', name: '2 Columns' };
+        
+        // Distribute tabs
+        app.distributeTabsToPanels();
+        
+        // Check that each panel has one active terminal
+        const activeInPanel0After = dom.terminals0.querySelectorAll('.terminal-wrapper.active');
+        const activeInPanel1After = dom.terminals1.querySelectorAll('.terminal-wrapper.active');
+        
+        if (activeInPanel0After.length === 1 && activeInPanel1After.length === 1) {
+          log('✓ PASS: Each panel has exactly one active terminal', 'pass');
+          passed++;
+        } else {
+          log(`✗ FAIL: Panel 0 has ${activeInPanel0After.length} active, Panel 1 has ${activeInPanel1After.length} active`, 'fail');
+          failed++;
+        }
+        
+        // Test 4: Verify active sessions are tracked per panel
+        log('Test 4: Verify per-panel active session tracking', 'info');
+        const panel0Active = app.activeSessionsByPanel.get('panel-0');
+        const panel1Active = app.activeSessionsByPanel.get('panel-1');
+        
+        if (panel0Active && panel1Active && panel0Active !== panel1Active) {
+          log(`✓ PASS: Panel 0 active: ${panel0Active}, Panel 1 active: ${panel1Active}`, 'pass');
+          passed++;
+        } else {
+          log(`✗ FAIL: Panel 0: ${panel0Active}, Panel 1: ${panel1Active}`, 'fail');
+          failed++;
+        }
+        
+        // Test 5: Switch tab in one panel doesn't affect other panel
+        log('Test 5: Switching tab in one panel does not affect other panel', 'info');
+        const panel1BeforeSwitch = app.activeSessionsByPanel.get('panel-1');
+        
+        // Switch to session-2 in panel-0 (if session-1 is there)
+        const panel0Tabs = Array.from(dom.tabs0.children);
+        if (panel0Tabs.length > 1) {
+          // Switch to the second tab in panel-0
+          const secondSessionId = panel0Tabs[1].dataset.sessionId;
+          app.switchTab(secondSessionId, 'panel-0');
+          
+          const panel1AfterSwitch = app.activeSessionsByPanel.get('panel-1');
+          if (panel1BeforeSwitch === panel1AfterSwitch) {
+            log('✓ PASS: Panel 1 active session unchanged after Panel 0 switch', 'pass');
+            passed++;
+          } else {
+            log('✗ FAIL: Panel 1 active session changed unexpectedly', 'fail');
+            failed++;
+          }
+        } else {
+          log('⊘ SKIP: Not enough tabs in panel-0 for this test', 'info');
+        }
+        
+        // Test 6: Add third session and verify distribution
+        log('Test 6: Add third session and verify distribution', 'info');
+        const session3 = createMockSession('session-3', 'Server 3');
+        dom.tabs0.appendChild(session3.tab);
+        dom.terminals0.appendChild(session3.wrapper);
+        app.sessions.set('session-3', { id: 'session-3', name: 'Server 3' });
+        
+        app.distributeTabsToPanels();
+        
+        const allPanels = app.getAllPanels();
+        let allPanelsHaveActive = true;
+        allPanels.forEach(panelId => {
+          const terminalsContainer = app.getTerminalsContainer(panelId);
+          const activeCount = terminalsContainer.querySelectorAll('.terminal-wrapper.active').length;
+          if (activeCount !== 1) {
+            allPanelsHaveActive = false;
+            log(`  Panel ${panelId}: ${activeCount} active terminals (expected 1)`, 'info');
+          }
+        });
+        
+        if (allPanelsHaveActive) {
+          log('✓ PASS: All panels have exactly one active terminal after distribution', 'pass');
+          passed++;
+        } else {
+          log('✗ FAIL: Not all panels have exactly one active terminal', 'fail');
+          failed++;
+        }
+        
+        // Cleanup
+        cleanupTestDOM();
+        
+      } catch (error) {
+        log(`✗ ERROR: ${error.message}`, 'fail');
+        console.error(error);
+        cleanupTestDOM();
+      }
+      
+      // Summary
+      log('='.repeat(50), 'info');
+      log(`Tests Complete: ${passed} passed, ${failed} failed`, failed === 0 ? 'pass' : 'fail');
+      
+      if (failed === 0) {
+        log('🎉 All tests passed!', 'pass');
+      } else {
+        log('⚠️ Some tests failed. Please review the implementation.', 'fail');
+      }
+    }
+  </script>
+</body>
+</html>
