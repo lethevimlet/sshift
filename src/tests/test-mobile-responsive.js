@@ -17,7 +17,7 @@ async function testMobileLayout() {
     console.log('🖥️  Testing Desktop View (1920x1080)');
     const desktopPage = await browser.newPage();
     await desktopPage.setViewport({ width: 1920, height: 1080 });
-    await desktopPage.goto('http://localhost:3000', { waitUntil: 'networkidle2' });
+    await desktopPage.goto('process.env.SERVER_URL || 'http://localhost:8022'', { waitUntil: 'networkidle2' });
     
     // Desktop-only controls should be visible
     const desktopOnlyVisible = await desktopPage.evaluate(() => {
@@ -108,7 +108,7 @@ async function testMobileLayout() {
     console.log('\n📱 Testing Mobile View (375x667)');
     const mobilePage = await browser.newPage();
     await mobilePage.setViewport({ width: 375, height: 667 });
-    await mobilePage.goto('http://localhost:3000', { waitUntil: 'networkidle2' });
+    await mobilePage.goto('process.env.SERVER_URL || 'http://localhost:8022'', { waitUntil: 'networkidle2' });
     
     // Desktop-only controls should be hidden
     const desktopOnlyHidden = await mobilePage.evaluate(() => {

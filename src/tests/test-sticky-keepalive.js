@@ -4,7 +4,7 @@ const { getTestConfig } = require('./test-helper');
 
 const TEST_CONFIG = getTestConfig();
 
-const SERVER_URL = 'http://localhost:3000';
+const SERVER_URL = 'process.env.SERVER_URL || 'http://localhost:8022'';
 const CONFIG_PATH = path.join(__dirname, '..', 'config.json');
 
 // Test functions

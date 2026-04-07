@@ -13,7 +13,7 @@ const CONFIG_PATH = path.join(__dirname, '..', 'config.json');
 // Test configuration - loaded from .env files
 const testConfig = getTestConfig();
 
-const SERVER_URL = 'http://localhost:3000';
+const SERVER_URL = 'process.env.SERVER_URL || 'http://localhost:8022'';
 
 // Helper to create a socket connection
 function createSocket() {

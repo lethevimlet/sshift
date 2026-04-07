@@ -37,8 +37,8 @@ async function testBrowser() {
   });
   
   try {
-    console.log('Navigating to http://localhost:3000...');
-    await page.goto('http://localhost:3000', { waitUntil: 'networkidle2', timeout: 10000 });
+    console.log('Navigating to process.env.SERVER_URL || 'http://localhost:8022'...');
+    await page.goto('process.env.SERVER_URL || 'http://localhost:8022'', { waitUntil: 'networkidle2', timeout: 10000 });
     
     console.log('Page loaded, waiting for initialization...');
     await page.waitForTimeout(2000);

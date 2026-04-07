@@ -81,7 +81,7 @@ echo ""
 echo "🎨 Testing CSS Responsive Styles"
 echo ""
 
-CSS=$(cat /home/code/projects/project/sshift/public/css/style.css)
+CSS=$(cat /home/code/projects/project/sshift/src/webapp/css/style.css)
 
 # Check for mobile media query
 if echo "$CSS" | grep -q '@media.*max-width.*768px'; then
@@ -123,7 +123,7 @@ echo ""
 echo "⚙️  Testing JavaScript Event Handlers"
 echo ""
 
-JS=$(cat /home/code/projects/project/sshift/public/js/app.js)
+JS=$(cat /home/code/projects/project/sshift/src/webapp/js/app.js)
 
 # Check for setupMobileOverflowMenu method
 if echo "$JS" | grep -q 'setupMobileOverflowMenu()'; then

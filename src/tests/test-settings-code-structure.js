@@ -9,7 +9,7 @@ let allPassed = true;
 
 // Test 1: Check if initSettingsModalHandlers is called in setupEventListeners
 console.log('Test 1: Checking if initSettingsModalHandlers is called in setupEventListeners...');
-const appJs = fs.readFileSync('/home/code/projects/project/sshift/public/js/app.js', 'utf8');
+const appJs = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'js', 'app.js'), 'utf8');
 
 const setupEventListenersMatch = appJs.match(/setupEventListeners\(\)\s*\{[\s\S]*?\/\/ Settings button[\s\S]*?document\.getElementById\('settingsBtn'\)\.addEventListener[\s\S]*?this\.initSettingsModalHandlers\(\);/);
 
@@ -79,7 +79,7 @@ if (appJs.includes('saveStickyConfig()')) {
 
 // Test 8: Check if HTML has all required elements
 console.log('\nTest 8: Checking if HTML has all required elements...');
-const indexHtml = fs.readFileSync('/home/code/projects/project/sshift/public/index.html', 'utf8');
+const indexHtml = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'index.html'), 'utf8');
 
 const requiredElements = [
   'id="settingsModal"',
@@ -107,7 +107,7 @@ if (htmlOk) {
 
 // Test 9: Check if CSS has required styles
 console.log('\nTest 9: Checking if CSS has required styles...');
-const styleCss = fs.readFileSync('/home/code/projects/project/sshift/public/css/style.css', 'utf8');
+const styleCss = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'css', 'style.css'), 'utf8');
 
 const requiredStyles = [
   '.modal.active',
@@ -133,7 +133,7 @@ if (cssOk) {
 
 // Test 10: Check server API endpoint
 console.log('\nTest 10: Checking server API endpoint...');
-const serverJs = fs.readFileSync('/home/code/projects/project/sshift/server.js', 'utf8');
+const serverJs = fs.readFileSync(path.join(__dirname, '..', 'server', 'server.js'), 'utf8');
 
 if (serverJs.includes("app.get('/api/config'") && serverJs.includes("app.post('/api/config'")) {
   console.log('✓ Server has GET and POST /api/config endpoints');

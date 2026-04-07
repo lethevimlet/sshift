@@ -191,7 +191,7 @@ const fs = require('fs');
 
 // Get the directory where this script is located
 const scriptDir = __dirname;
-const serverPath = path.join(scriptDir, 'server.js');
+const serverPath = path.join(scriptDir, 'src', 'server', 'server.js');
 
 // Check if server.js exists
 if (!fs.existsSync(serverPath)) {

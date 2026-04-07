@@ -5,7 +5,7 @@
 const io = require('socket.io-client');
 const { getTestConfig } = require('./test-helper');
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = 'process.env.SERVER_URL || 'http://localhost:8022'';
 const TEST_CONFIG = getTestConfig();
 
 async function testGracePeriod() {

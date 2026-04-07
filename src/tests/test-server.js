@@ -2,7 +2,7 @@
 
 const http = require('http');
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = process.env.SERVER_URL || 'http://localhost:8022';
 
 function fetch(path) {
   return new Promise((resolve, reject) => {
@@ -115,7 +115,7 @@ async function test() {
   // Test 7: Test pages
   console.log('\n7. Testing test pages...');
   try {
-    const result = await fetch('/test-xterm.html');
+    const result = await fetch('/tests/test-xterm.html');
     if (result.status === 200) {
       console.log('   ✓ test-xterm.html served (status: 200)');
     } else {
@@ -126,7 +126,7 @@ async function test() {
   }
   
   try {
-    const result = await fetch('/test-connection.html');
+    const result = await fetch('/tests/test-connection.html');
     if (result.status === 200) {
       console.log('   ✓ test-connection.html served (status: 200)');
     } else {
@@ -138,10 +138,10 @@ async function test() {
   
   console.log('\n=== Test Complete ===');
   console.log('\nNext steps:');
-  console.log('1. Open http://localhost:3000/ in a browser');
+  console.log('1. Open http://localhost:8022/ in a browser');
   console.log('2. Open browser developer tools (F12)');
   console.log('3. Check console for [SSHIFT] messages');
-  console.log('4. If issues persist, try http://localhost:3000/test-connection.html');
+  console.log('4. If issues persist, try http://localhost:8022/tests/test-connection.html');
 }
 
 test().catch(console.error);

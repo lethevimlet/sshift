@@ -4,11 +4,12 @@ const path = require('path');
 const fs = require('fs');
 
 // Load .env files in priority order (highest priority first)
+// Paths are relative to project root (parent of src/server)
 const envPaths = [
-  path.join(__dirname, '.env', '.env.local'),
-  path.join(__dirname, '.env.local'),
-  path.join(__dirname, '.env', '.env'),
-  path.join(__dirname, '.env')
+  path.join(__dirname, '..', '..', '.env', '.env.local'),
+  path.join(__dirname, '..', '..', '.env.local'),
+  path.join(__dirname, '..', '..', '.env', '.env'),
+  path.join(__dirname, '..', '..', '.env')
 ];
 
 envPaths.forEach(envPath => {
@@ -37,8 +38,8 @@ const io = socketIO(server, {
 });
 
 // Config paths - try .env/config.json first, then fall back to root config.json
-const ENV_CONFIG_PATH = path.join(__dirname, '.env', 'config.json');
-const ROOT_CONFIG_PATH = path.join(__dirname, 'config.json');
+const ENV_CONFIG_PATH = path.join(__dirname, '..', '..', '.env', 'config.json');
+const ROOT_CONFIG_PATH = path.join(__dirname, '..', '..', 'config.json');
 
 // Track open tabs across all clients
 const openTabs = new Map(); // sessionId -> { name, type, connectionData, activeSockets: Set }
@@ -47,7 +48,11 @@ let currentLayout = 'single'; // Current active layout for sync
 
 // Middleware
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, '..', 'webapp')));
+app.use('/js', express.static(path.join(__dirname, '..', 'webapp', 'js')));
+app.use('/css', express.static(path.join(__dirname, '..', 'webapp', 'css')));
+app.use('/libs', express.static(path.join(__dirname, '..', 'webapp', 'libs')));
+app.use('/tests', express.static(path.join(__dirname, '..', 'webapp', 'tests')));
 
 // Default config structure
 const defaultConfig = {
@@ -136,7 +141,7 @@ const BIND = getBindAddress();
 
 // Routes
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, '..', 'webapp', 'index.html'));
 });
 
 // API: Get bookmarks
@@ -1197,7 +1202,7 @@ server.listen(PORT, BIND, () => {
   console.log(`Click to open: ${ESC}]8;;http://localhost:${PORT}${BEL}http://localhost:${PORT}${ESC}]8;;${BEL}`);
   
   // Write PID file for update script to manage process
-  const pidFile = path.join(__dirname, '.sshift.pid');
+  const pidFile = path.join(__dirname, '..', '..', '.sshift.pid');
   try {
     fs.writeFileSync(pidFile, process.pid.toString());
     console.log(`[PID] Written PID ${process.pid} to ${pidFile}`);
@@ -1208,7 +1213,7 @@ server.listen(PORT, BIND, () => {
 
 // Clean up PID file on exit
 process.on('exit', () => {
-  const pidFile = path.join(__dirname, '.sshift.pid');
+  const pidFile = path.join(__dirname, '..', '..', '.sshift.pid');
   try {
     if (fs.existsSync(pidFile)) {
       fs.unlinkSync(pidFile);

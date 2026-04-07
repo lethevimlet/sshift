@@ -21,8 +21,8 @@ async function testSettingsModal() {
     });
     
     // Navigate to the app
-    console.log('Navigating to http://localhost:3000...');
-    await page.goto('http://localhost:3000', { waitUntil: 'networkidle2' });
+    console.log('Navigating to process.env.SERVER_URL || 'http://localhost:8022'...');
+    await page.goto('process.env.SERVER_URL || 'http://localhost:8022'', { waitUntil: 'networkidle2' });
     
     // Wait for app to initialize
     await page.waitForTimeout(1000);

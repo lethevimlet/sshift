@@ -4,12 +4,12 @@
  * Automated Test Script for Folder Drag & Drop Functionality
  * 
  * This script tests the API endpoints and data persistence for folder functionality.
- * Run with: node test/test-folder-functionality.js
+ * Run with: node src/tests/test-folder-functionality.js
  */
 
 const http = require('http');
 
-const API_BASE = 'http://localhost:3000/api';
+const API_BASE = 'process.env.SERVER_URL || 'http://localhost:8022'/api';
 
 // Helper function to make HTTP requests
 function makeRequest(method, path, body = null) {

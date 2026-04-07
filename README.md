@@ -445,7 +445,7 @@ Each row has:
 SSHIFT loads layouts in the following order (first found wins):
 
 1. **`config.json`** (via `/api/config`) - Custom layouts from config
-2. **`public/layouts.json`** - Default layouts file
+2. **`src/webapp/layouts.json`** - Default layouts file
 3. **Built-in defaults** - Hardcoded fallback layouts
 
 **Tips for Custom Layouts:**
@@ -771,7 +771,7 @@ nano .env/.env.local
 npm test
 
 # Run specific test file
-node test/test-client.js
+node src/tests/test-client.js
 
 # Run with verbose output
 DEBUG=* npm test
@@ -779,9 +779,9 @@ DEBUG=* npm test
 
 ### Test Files
 
-- `test/test-client.js` - Socket.IO and SSH connection tests
-- `test/test-server.js` - HTTP server tests
-- `test/test-helper.js` - Test utilities and configuration
+- `src/tests/test-client.js` - Socket.IO and SSH connection tests
+- `src/tests/test-server.js` - HTTP server tests
+- `src/tests/test-helper.js` - Test utilities and configuration
 
 ## 🛠️ Technology Stack
 

@@ -13,7 +13,7 @@ const http = require('http');
 const { Terminal } = require('@xterm/headless');
 const { SerializeAddon } = require('@xterm/addon-serialize');
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = 'process.env.SERVER_URL || 'http://localhost:8022'';
 
 function makeRequest(path, options = {}) {
   return new Promise((resolve, reject) => {
@@ -138,7 +138,7 @@ async function testServerTerminalState() {
   try {
     // Import SSH manager
     const path = require('path');
-    const sshManagerPath = path.join(__dirname, '..', 'ssh-manager.js');
+    const sshManagerPath = path.join(__dirname, '..', 'server', 'ssh-manager.js');
     
     // Check if module exports required methods
     const fs = require('fs');
@@ -193,7 +193,7 @@ async function testClientScreenSync() {
     const path = require('path');
     
     // Check app.js for screen sync handlers
-    const appPath = path.join(__dirname, '..', 'public', 'js', 'app.js');
+    const appPath = path.join(__dirname, '..', 'webapp', 'js', 'app.js');
     const appCode = fs.readFileSync(appPath, 'utf8');
     
     // Verify ssh-screen-sync event handler
@@ -247,7 +247,7 @@ async function testServerEvents() {
     const path = require('path');
     
     // Check server.js for event handlers
-    const serverPath = path.join(__dirname, '..', 'server.js');
+    const serverPath = path.join(__dirname, '..', 'server', 'server.js');
     const serverCode = fs.readFileSync(serverPath, 'utf8');
     
     // Verify ssh-request-sync event handler
@@ -286,16 +286,16 @@ async function testSerializeAddonInPublic() {
     const fs = require('fs');
     const path = require('path');
     
-    // Check if serialize addon is copied to public
-    const serializePath = path.join(__dirname, '..', 'public', 'libs', 'xterm', 'xterm-addon-serialize.js');
+    // Check if serialize addon is copied to webapp
+    const serializePath = path.join(__dirname, '..', 'webapp', 'libs', 'xterm', 'xterm-addon-serialize.js');
     
     if (!fs.existsSync(serializePath)) {
-      console.error('❌ FAIL: xterm-addon-serialize.js not found in public/libs/xterm/');
+      console.error('❌ FAIL: xterm-addon-serialize.js not found in webapp/libs/xterm/');
       return false;
     }
     
     // Check if it's included in index.html
-    const indexPath = path.join(__dirname, '..', 'public', 'index.html');
+    const indexPath = path.join(__dirname, '..', 'webapp', 'index.html');
     const indexCode = fs.readFileSync(indexPath, 'utf8');
     
     if (!indexCode.includes('xterm-addon-serialize.js')) {
@@ -309,13 +309,13 @@ async function testSerializeAddonInPublic() {
       return false;
     }
     
-    console.log('✓ xterm-addon-serialize.js exists in public/libs/xterm/');
+    console.log('✓ xterm-addon-serialize.js exists in webapp/libs/xterm/');
     console.log('✓ xterm-addon-serialize.js is included in index.html');
     console.log('✓ SerializeAddon normalization code exists in index.html');
     
     return true;
   } catch (err) {
-    console.error('❌ FAIL: Error testing SerializeAddon in public:', err.message);
+    console.error('❌ FAIL: Error testing SerializeAddon in webapp:', err.message);
     return false;
   }
 }

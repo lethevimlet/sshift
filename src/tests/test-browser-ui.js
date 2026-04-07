@@ -38,8 +38,8 @@ async function testWebUI() {
   });
   
   try {
-    console.log('\n=== Loading page http://localhost:3000 ===\n');
-    await page.goto('http://localhost:3000', { waitUntil: 'networkidle2', timeout: 10000 });
+    console.log('\n=== Loading page process.env.SERVER_URL || 'http://localhost:8022' ===\n');
+    await page.goto('process.env.SERVER_URL || 'http://localhost:8022'', { waitUntil: 'networkidle2', timeout: 10000 });
     
     // Wait a bit for JS to execute
     await page.waitForTimeout(2000);
@@ -106,8 +106,8 @@ async function testWebUI() {
     console.log('Sessions:', JSON.stringify(sessions, null, 2));
     
     // Take screenshot
-    await page.screenshot({ path: '/home/code/projects/project/shhift/test/screenshot.png', fullPage: true });
-    console.log('\nScreenshot saved to test/screenshot.png');
+    await page.screenshot({ path: '/home/code/projects/project/sshift/src/tests/screenshot.png', fullPage: true });
+    console.log('\nScreenshot saved to src/tests/screenshot.png');
     
     // Get page content
     const html = await page.content();

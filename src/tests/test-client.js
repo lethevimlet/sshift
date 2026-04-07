@@ -7,7 +7,7 @@ const io = require('socket.io-client');
 const assert = require('assert');
 const { getTestConfig } = require('./test-helper');
 
-const SERVER_URL = 'http://localhost:3000';
+const SERVER_URL = process.env.SERVER_URL || 'http://localhost:8022';
 
 // Test configuration - loaded from .env files
 const TEST_CONFIG = getTestConfig();

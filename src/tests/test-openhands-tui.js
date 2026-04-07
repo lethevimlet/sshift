@@ -8,7 +8,7 @@
 const puppeteer = require('puppeteer');
 const assert = require('assert');
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = 'process.env.SERVER_URL || 'http://localhost:8022'';
 
 async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));

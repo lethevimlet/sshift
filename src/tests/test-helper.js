@@ -10,10 +10,10 @@ const fs = require('fs');
 // Priority: .env/.env.local > .env.local > .env/.env > .env
 function loadEnvForTests() {
   const envPaths = [
-    path.join(__dirname, '..', '.env', '.env.local'),
-    path.join(__dirname, '..', '.env.local'),
-    path.join(__dirname, '..', '.env', '.env'),
-    path.join(__dirname, '..', '.env')
+    path.join(__dirname, '..', '..', '.env', '.env.local'),
+    path.join(__dirname, '..', '..', '.env.local'),
+    path.join(__dirname, '..', '..', '.env', '.env'),
+    path.join(__dirname, '..', '..', '.env')
   ];
   
   // Load .env files in priority order (highest priority first)

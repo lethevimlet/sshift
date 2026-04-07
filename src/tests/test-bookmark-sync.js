@@ -52,8 +52,8 @@ async function runTests() {
     // Start server
     console.log('Starting test server...');
     const { spawn } = require('child_process');
-    server = spawn('node', ['server.js'], {
-      cwd: path.join(__dirname, '..'),
+    server = spawn('node', ['src/server/server.js'], {
+      cwd: path.join(__dirname, '..', '..'),
       env: { ...process.env, PORT: TEST_PORT },
       stdio: ['pipe', 'pipe', 'pipe']
     });

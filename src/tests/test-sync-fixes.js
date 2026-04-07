@@ -32,7 +32,7 @@ console.log('========================================\n');
 
 // Test 1: Check that connecting message is conditional
 console.log('=== Test 1: Connecting Message Conditional ===');
-const appContent = fs.readFileSync('public/js/app.js', 'utf8');
+const appContent = fs.readFileSync('src/webapp/js/app.js', 'utf8');
 const hasConditionalMessage = appContent.includes("if (restoreSessionId)") && 
                                appContent.includes("// Show connecting message only for new connections");
 console.log('✓ Connecting message is conditional:', hasConditionalMessage);
@@ -57,7 +57,7 @@ console.log('✓ Syncing flag set in requestScreenSync:', hasSyncingInRequest);
 
 // Test 5: Check server sends sync before joining room
 console.log('\n=== Test 5: Server Sync Before Join ===');
-const sshManagerContent = fs.readFileSync('ssh-manager.js', 'utf8');
+const sshManagerContent = fs.readFileSync(path.join(__dirname, '..', 'server', 'ssh-manager.js'), 'utf8');
 const hasSyncBeforeJoin = sshManagerContent.includes("// Send current terminal state to the joining socket BEFORE joining the room");
 console.log('✓ Server sends sync before joining room:', hasSyncBeforeJoin);
 

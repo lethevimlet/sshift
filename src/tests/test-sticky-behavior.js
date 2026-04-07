@@ -9,7 +9,7 @@
 
 const http = require('http');
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = 'process.env.SERVER_URL || 'http://localhost:8022'';
 
 function makeRequest(path) {
   return new Promise((resolve, reject) => {

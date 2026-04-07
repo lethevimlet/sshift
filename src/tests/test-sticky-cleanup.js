@@ -17,7 +17,7 @@ console.log('========================================\n');
 let allPassed = true;
 
 // Read server.js
-const serverPath = path.join(__dirname, '..', 'server.js');
+const serverPath = path.join(__dirname, '..', 'server', 'server.js');
 const serverCode = fs.readFileSync(serverPath, 'utf8');
 
 // Test 1: Check that sticky sessions don't have a close timer on disconnect
