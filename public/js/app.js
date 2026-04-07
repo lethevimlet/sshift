@@ -1093,6 +1093,13 @@ class SSHIFTClient {
       return;
     }
     
+    // On mobile, always force single panel mode
+    const effectiveLayout = this.isMobile 
+      ? { id: 'single', name: 'Single (Mobile)', icon: 'square', columns: [{ width: '100%', rows: [{ height: '100%' }] }] }
+      : layout;
+    
+    console.log('[SSHIFT] Applying layout:', effectiveLayout.id, this.isMobile ? '(mobile override)' : '');
+    
     // Store tabs before clearing layout (for sync from other tabs)
     const storedTabs = syncedTabs;
     
@@ -1111,7 +1118,7 @@ class SSHIFTClient {
     });
     
     // Check if single layout (use existing structure)
-    if (layout.id === 'single') {
+    if (effectiveLayout.id === 'single') {
       // For single layout, just ensure the container has the right class
       layoutContainer.className = 'layout-container columns';
       
@@ -1719,9 +1726,19 @@ class SSHIFTClient {
       window.visualViewport.addEventListener('resize', setViewportHeight);
     }
     
-    // Update mobile detection on resize
+    // Update mobile detection on resize and re-apply layout if needed
+    let previousIsMobile = this.isMobile;
     window.addEventListener('resize', () => {
+      const wasMobile = previousIsMobile;
+      previousIsMobile = this.isMobile;
       this.isMobile = window.innerWidth <= 768;
+      
+      // If we switched between mobile and desktop, re-apply the layout
+      if (wasMobile !== this.isMobile && this.currentLayout) {
+        console.log('[SSHIFT] Viewport changed, re-applying layout for', this.isMobile ? 'mobile' : 'desktop');
+        this.applyLayout(this.currentLayout);
+        this.updateMobileTabsDropdown();
+      }
     });
   }
 
@@ -3843,41 +3860,40 @@ class SSHIFTClient {
   }
 
   updateMobileTabsDropdown(panelId = null) {
-    // If panelId is provided, update only that panel's dropdown
-    // Otherwise, update all mobile dropdowns across all panels
-    const panels = panelId ? [panelId] : this.getAllPanels();
+    // On mobile, we always show a single dropdown that combines all tabs from all panels
+    // On desktop with multi-panel, we show separate dropdowns per panel
     
-    panels.forEach(pid => {
-      const mobileTabsLabel = document.getElementById(pid === 'panel-0' ? 'mobileTabsLabel' : `${pid}-mobileTabsLabel`);
-      const mobileTabsMenu = document.getElementById(pid === 'panel-0' ? 'mobileTabsMenu' : `${pid}-mobileTabsMenu`);
-      const mobileTabsToggle = document.getElementById(pid === 'panel-0' ? 'mobileTabsToggle' : `${pid}-mobileTabsToggle`);
+    if (this.isMobile) {
+      // Mobile: Single dropdown with all tabs from all panels
+      const mobileTabsLabel = document.getElementById('mobileTabsLabel');
+      const mobileTabsMenu = document.getElementById('mobileTabsMenu');
+      const mobileTabsToggle = document.getElementById('mobileTabsToggle');
       
       if (!mobileTabsLabel || !mobileTabsMenu || !mobileTabsToggle) return;
 
-      // Get tabs for this panel
-      const tabsContainer = this.getTabsContainer(pid);
-      const tabs = tabsContainer ? Array.from(tabsContainer.children) : [];
+      // Get all tabs from all panels in order
+      const allTabs = this.getAllTabsInOrder();
 
       // Clear existing menu
       mobileTabsMenu.innerHTML = '';
 
-      // Find active tab
+      // Find active tab (the globally active one)
       let activeTabName = 'No Active Tabs';
       let activeTabIcon = 'fa-terminal';
 
       // Add menu options for each tab
-      tabs.forEach(tab => {
-        const sessionId = tab.dataset.sessionId;
+      allTabs.forEach(tabData => {
+        const { sessionId, name, type } = tabData;
         const session = this.sessions.get(sessionId) || this.sftpSessions.get(sessionId);
-        const isActive = tab.classList.contains('active');
+        const isActive = sessionId === this.activeSessionId;
         
         if (session) {
-          const icon = session.type === 'sftp' ? 'fa-folder-open' : 'fa-terminal';
-          const iconClass = session.type === 'sftp' ? 'sftp' : 'ssh';
-          const name = session.name || sessionId;
+          const icon = type === 'sftp' ? 'fa-folder-open' : 'fa-terminal';
+          const iconClass = type === 'sftp' ? 'sftp' : 'ssh';
+          const displayName = name || sessionId;
 
           if (isActive) {
-            activeTabName = name;
+            activeTabName = displayName;
             activeTabIcon = icon;
           }
 
@@ -3886,7 +3902,7 @@ class SSHIFTClient {
           option.dataset.sessionId = sessionId;
           option.innerHTML = `
             <i class="fas ${icon} tab-icon ${iconClass}"></i>
-            <span class="tab-name">${name}</span>
+            <span class="tab-name">${displayName}</span>
             <button class="tab-rename" data-session-id="${sessionId}" title="Rename">
               <i class="fas fa-pen"></i>
             </button>
@@ -3898,8 +3914,8 @@ class SSHIFTClient {
           // Click to switch tab (on the option div, not on the rename/close buttons)
           option.addEventListener('click', (e) => {
             if (!e.target.closest('.tab-rename') && !e.target.closest('.tab-close')) {
-              const panelId = this.getPanelForSession(sessionId);
-              this.switchTab(sessionId, panelId);
+              // On mobile, always switch to panel-0 since we're in single panel mode
+              this.switchTab(sessionId, 'panel-0');
               mobileTabsMenu.classList.remove('show');
               mobileTabsToggle.classList.remove('active');
             }
@@ -3931,7 +3947,98 @@ class SSHIFTClient {
         iconElement.className = `fas ${activeTabIcon} tab-icon-active`;
       }
       mobileTabsLabel.textContent = activeTabName;
-    });
+    } else {
+      // Desktop: Update dropdowns per panel (original behavior)
+      // If panelId is provided, update only that panel's dropdown
+      // Otherwise, update all mobile dropdowns across all panels
+      const panels = panelId ? [panelId] : this.getAllPanels();
+      
+      panels.forEach(pid => {
+        const mobileTabsLabel = document.getElementById(pid === 'panel-0' ? 'mobileTabsLabel' : `${pid}-mobileTabsLabel`);
+        const mobileTabsMenu = document.getElementById(pid === 'panel-0' ? 'mobileTabsMenu' : `${pid}-mobileTabsMenu`);
+        const mobileTabsToggle = document.getElementById(pid === 'panel-0' ? 'mobileTabsToggle' : `${pid}-mobileTabsToggle`);
+        
+        if (!mobileTabsLabel || !mobileTabsMenu || !mobileTabsToggle) return;
+
+        // Get tabs for this panel
+        const tabsContainer = this.getTabsContainer(pid);
+        const tabs = tabsContainer ? Array.from(tabsContainer.children) : [];
+
+        // Clear existing menu
+        mobileTabsMenu.innerHTML = '';
+
+        // Find active tab
+        let activeTabName = 'No Active Tabs';
+        let activeTabIcon = 'fa-terminal';
+
+        // Add menu options for each tab
+        tabs.forEach(tab => {
+          const sessionId = tab.dataset.sessionId;
+          const session = this.sessions.get(sessionId) || this.sftpSessions.get(sessionId);
+          const isActive = tab.classList.contains('active');
+          
+          if (session) {
+            const icon = session.type === 'sftp' ? 'fa-folder-open' : 'fa-terminal';
+            const iconClass = session.type === 'sftp' ? 'sftp' : 'ssh';
+            const name = session.name || sessionId;
+
+            if (isActive) {
+              activeTabName = name;
+              activeTabIcon = icon;
+            }
+
+            const option = document.createElement('div');
+            option.className = `mobile-tab-option${isActive ? ' active' : ''}`;
+            option.dataset.sessionId = sessionId;
+            option.innerHTML = `
+              <i class="fas ${icon} tab-icon ${iconClass}"></i>
+              <span class="tab-name">${name}</span>
+              <button class="tab-rename" data-session-id="${sessionId}" title="Rename">
+                <i class="fas fa-pen"></i>
+              </button>
+              <button class="tab-close" data-session-id="${sessionId}" title="Close">
+                <i class="fas fa-times"></i>
+              </button>
+            `;
+
+            // Click to switch tab (on the option div, not on the rename/close buttons)
+            option.addEventListener('click', (e) => {
+              if (!e.target.closest('.tab-rename') && !e.target.closest('.tab-close')) {
+                const panelId = this.getPanelForSession(sessionId);
+                this.switchTab(sessionId, panelId);
+                mobileTabsMenu.classList.remove('show');
+                mobileTabsToggle.classList.remove('active');
+              }
+            });
+
+            mobileTabsMenu.appendChild(option);
+
+            // Rename button
+            const renameBtn = option.querySelector('.tab-rename');
+            renameBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              this.startTabRename(sessionId);
+              mobileTabsMenu.classList.remove('show');
+              mobileTabsToggle.classList.remove('active');
+            });
+
+            // Close button
+            const closeBtn = option.querySelector('.tab-close');
+            closeBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              this.closeTab(sessionId);
+            });
+          }
+        });
+
+        // Update toggle button
+        const iconElement = mobileTabsToggle.querySelector('.tab-icon-active');
+        if (iconElement) {
+          iconElement.className = `fas ${activeTabIcon} tab-icon-active`;
+        }
+        mobileTabsLabel.textContent = activeTabName;
+      });
+    }
   }
 
   // Scroll tabs left or right
