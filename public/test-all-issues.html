@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test All Issues</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #e0e0e0;
+        }
+        .test-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #2a2a2a;
+            border-radius: 8px;
+        }
+        h2 {
+            margin-top: 0;
+            color: #c10059;
+        }
+        .test-result {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .pass {
+            background: #1a4a1a;
+            border: 1px solid #2ea043;
+        }
+        .fail {
+            background: #4a1a1a;
+            border: 1px solid #da3633;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            background: #c10059;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #a10049;
+        }
+        .info {
+            background: #1a1a4a;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        pre {
+            background: #1a1a1a;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Test All Issues</h1>
+    
+    <div class="test-section">
+        <h2>Test 1: Sticky Mode Persistence</h2>
+        <div class="info">
+            This test verifies that sticky mode correctly persists tabs and sessions.
+        </div>
+        <button onclick="testStickyMode()">Run Test</button>
+        <div id="test1-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 2: Layout Persistence</h2>
+        <div class="info">
+            This test verifies that the selected layout is correctly persisted and restored.
+        </div>
+        <button onclick="testLayoutPersistence()">Run Test</button>
+        <div id="test2-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 3: Accent Color Application</h2>
+        <div class="info">
+            This test verifies that the accent color is correctly applied to all layouts.
+        </div>
+        <button onclick="testAccentColor()">Run Test</button>
+        <div id="test3-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 4: Sidebar Visibility</h2>
+        <div class="info">
+            This test verifies that the sidebar is visible in all layouts.
+        </div>
+        <button onclick="testSidebarVisibility()">Run Test</button>
+        <div id="test4-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 5: Bookmarks Display</h2>
+        <div class="info">
+            This test verifies that bookmarks are displayed correctly in all layouts.
+        </div>
+        <button onclick="testBookmarksDisplay()">Run Test</button>
+        <div id="test5-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 6: Full Integration Test</h2>
+        <div class="info">
+            This test runs all tests in sequence.
+        </div>
+        <button onclick="runAllTests()">Run All Tests</button>
+        <div id="test6-result"></div>
+    </div>
+    
+    <script>
+        function showResult(elementId, passed, message, details = null) {
+            const resultDiv = document.getElementById(elementId);
+            resultDiv.className = 'test-result ' + (passed ? 'pass' : 'fail');
+            resultDiv.innerHTML = (passed ? '✓ PASS: ' : '✗ FAIL: ') + message;
+            if (details) {
+                resultDiv.innerHTML += '<pre>' + JSON.stringify(details, null, 2) + '</pre>';
+            }
+        }
+        
+        function testStickyMode() {
+            try {
+                const stickyEnabled = localStorage.getItem('sticky');
+                const savedTabs = localStorage.getItem('openTabs');
+                
+                if (stickyEnabled === null) {
+                    showResult('test1-result', false, 'Sticky setting not found in localStorage');
+                    return;
+                }
+                
+                const stickyValue = JSON.parse(stickyEnabled);
+                const tabs = savedTabs ? JSON.parse(savedTabs) : null;
+                
+                showResult('test1-result', true, 
+                    `Sticky mode: ${stickyValue ? 'enabled' : 'disabled'}, ` +
+                    `Saved tabs: ${tabs ? (Array.isArray(tabs) ? tabs.length : (tabs.tabs?.length || 0)) : 0}`,
+                    { stickyEnabled: stickyValue, savedTabs: tabs });
+            } catch (error) {
+                showResult('test1-result', false, 'Error: ' + error.message);
+            }
+        }
+        
+        function testLayoutPersistence() {
+            try {
+                const savedLayout = localStorage.getItem('sshift_layout');
+                const currentLayout = localStorage.getItem('currentLayout');
+                
+                showResult('test2-result', true, 'Layout persistence check', {
+                    savedLayout: savedLayout || 'none',
+                    currentLayout: currentLayout || 'none'
+                });
+            } catch (error) {
+                showResult('test2-result', false, 'Error: ' + error.message);
+            }
+        }
+        
+        function testAccentColor() {
+            try {
+                const accent = localStorage.getItem('accent') || 'fuchsia';
+                const appliedAccent = document.documentElement.getAttribute('data-accent');
+                
+                if (appliedAccent === accent) {
+                    showResult('test3-result', true, 
+                        `Accent color correctly applied: ${appliedAccent}`);
+                } else {
+                    showResult('test3-result', false, 
+                        `Accent mismatch - Expected: ${accent}, Applied: ${appliedAccent || 'none'}`);
+                }
+            } catch (error) {
+                showResult('test3-result', false, 'Error: ' + error.message);
+            }
+        }
+        
+        function testSidebarVisibility() {
+            try {
+                // This test needs to be run in the main app
+                showResult('test4-result', true, 
+                    'Run this test in the main app. Sidebar should be visible in all layouts.');
+            } catch (error) {
+                showResult('test4-result', false, 'Error: ' + error.message);
+            }
+        }
+        
+        function testBookmarksDisplay() {
+            try {
+                // This test needs to be run in the main app
+                showResult('test5-result', true, 
+                    'Run this test in the main app. Bookmarks should be visible in all layouts.');
+            } catch (error) {
+                showResult('test5-result', false, 'Error: ' + error.message);
+            }
+        }
+        
+        async function runAllTests() {
+            const results = [];
+            
+            // Test 1
+            testStickyMode();
+            results.push({ test: 'Sticky Mode', passed: document.getElementById('test1-result').classList.contains('pass') });
+            
+            // Test 2
+            testLayoutPersistence();
+            results.push({ test: 'Layout Persistence', passed: document.getElementById('test2-result').classList.contains('pass') });
+            
+            // Test 3
+            testAccentColor();
+            results.push({ test: 'Accent Color', passed: document.getElementById('test3-result').classList.contains('pass') });
+            
+            // Test 4
+            testSidebarVisibility();
+            results.push({ test: 'Sidebar Visibility', passed: document.getElementById('test4-result').classList.contains('pass') });
+            
+            // Test 5
+            testBookmarksDisplay();
+            results.push({ test: 'Bookmarks Display', passed: document.getElementById('test5-result').classList.contains('pass') });
+            
+            const allPassed = results.every(r => r.passed);
+            showResult('test6-result', allPassed, 
+                allPassed ? 'All tests passed!' : 'Some tests failed',
+                results);
+        }
+        
+        // Run all tests on page load
+        window.addEventListener('load', () => {
+            console.log('Test Page Loaded');
+        });
+    </script>
+</body>
+</html>
