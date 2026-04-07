@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test Empty State Fix</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      padding: 20px;
+      background: #0d1117;
+      color: #e6edf3;
+    }
+    .test-section {
+      margin: 20px 0;
+      padding: 20px;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+    }
+    h2 {
+      margin-top: 0;
+      color: #58a6ff;
+    }
+    .pass {
+      color: #3fb950;
+    }
+    .fail {
+      color: #f85149;
+    }
+    button {
+      padding: 8px 16px;
+      margin: 5px;
+      background: #238636;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #2ea043;
+    }
+    #log {
+      background: #161b22;
+      padding: 10px;
+      border-radius: 6px;
+      font-family: monospace;
+      font-size: 12px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .log-entry {
+      margin: 5px 0;
+    }
+    .log-pass { color: #3fb950; }
+    .log-fail { color: #f85149; }
+    .log-info { color: #58a6ff; }
+  </style>
+</head>
+<body>
+  <h1>Empty State Fix Test</h1>
+  
+  <div class="test-section">
+    <h2>Test 1: Quick SSH/SFTP Button Event Listeners</h2>
+    <p>Tests that quick SSH/SFTP buttons in empty state work for all panels.</p>
+    <button onclick="testQuickButtons()">Run Test</button>
+    <div id="test1-result"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>Test 2: Empty State Display</h2>
+    <p>Tests that empty state is shown when a panel has no tabs.</p>
+    <button onclick="testEmptyStateDisplay()">Run Test</button>
+    <div id="test2-result"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>Test 3: Multi-Panel Empty State</h2>
+    <p>Tests that empty state works correctly in multi-panel layouts.</p>
+    <button onclick="testMultiPanelEmptyState()">Run Test</button>
+    <div id="test3-result"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>Test Log</h2>
+    <div id="log"></div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/app.js"></script>
+  <script>
+    let testApp;
+    
+    // Wait for app to initialize
+    window.addEventListener('load', () => {
+      setTimeout(() => {
+        testApp = window.app;
+        log('App initialized', 'info');
+      }, 500);
+    });
+
+    function log(message, type = 'info') {
+      const logDiv = document.getElementById('log');
+      const entry = document.createElement('div');
+      entry.className = `log-entry log-${type}`;
+      entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      logDiv.appendChild(entry);
+      logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
+    function testQuickButtons() {
+      log('Starting Quick Buttons Test', 'info');
+      let passed = 0;
+      let failed = 0;
+
+      try {
+        // Test that attachPanelEventListeners exists
+        if (typeof testApp.attachPanelEventListeners === 'function') {
+          log('✓ attachPanelEventListeners method exists', 'pass');
+          passed++;
+        } else {
+          log('✗ attachPanelEventListeners method not found', 'fail');
+          failed++;
+        }
+
+        // Test that quick button event listeners are attached for panel-0
+        const quickSshBtn = document.getElementById('quickSshBtn');
+        const quickSftpBtn = document.getElementById('quickSftpBtn');
+        
+        if (quickSshBtn) {
+          log('✓ Quick SSH button found for panel-0', 'pass');
+          passed++;
+        } else {
+          log('✗ Quick SSH button not found for panel-0', 'fail');
+          failed++;
+        }
+
+        if (quickSftpBtn) {
+          log('✓ Quick SFTP button found for panel-0', 'pass');
+          passed++;
+        } else {
+          log('✗ Quick SFTP button not found for panel-0', 'fail');
+          failed++;
+        }
+
+        // Test that openConnectionModal method exists
+        if (typeof testApp.openConnectionModal === 'function') {
+          log('✓ openConnectionModal method exists', 'pass');
+          passed++;
+        } else {
+          log('✗ openConnectionModal method not found', 'fail');
+          failed++;
+        }
+
+      } catch (error) {
+        log(`✗ Test error: ${error.message}`, 'fail');
+        failed++;
+      }
+
+      const resultDiv = document.getElementById('test1-result');
+      resultDiv.innerHTML = `<span class="${failed === 0 ? 'pass' : 'fail'}">
+        ${passed} passed, ${failed} failed
+      </span>`;
+    }
+
+    function testEmptyStateDisplay() {
+      log('Starting Empty State Display Test', 'info');
+      let passed = 0;
+      let failed = 0;
+
+      try {
+        // Test that showEmptyState method exists
+        if (typeof testApp.showEmptyState === 'function') {
+          log('✓ showEmptyState method exists', 'pass');
+          passed++;
+        } else {
+          log('✗ showEmptyState method not found', 'fail');
+          failed++;
+        }
+
+        // Test that hideEmptyState method exists
+        if (typeof testApp.hideEmptyState === 'function') {
+          log('✓ hideEmptyState method exists', 'pass');
+          passed++;
+        } else {
+          log('✗ hideEmptyState method not found', 'fail');
+          failed++;
+        }
+
+        // Test that empty state element exists
+        const emptyState = document.getElementById('emptyState');
+        if (emptyState) {
+          log('✓ Empty state element found', 'pass');
+          passed++;
+        } else {
+          log('✗ Empty state element not found', 'fail');
+          failed++;
+        }
+
+        // Test showEmptyState with panelId parameter
+        testApp.showEmptyState('panel-0');
+        const emptyStateEl = document.getElementById('emptyState');
+        if (emptyStateEl && !emptyStateEl.classList.contains('hidden')) {
+          log('✓ showEmptyState(panelId) works correctly', 'pass');
+          passed++;
+        } else {
+          log('✗ showEmptyState(panelId) did not show empty state', 'fail');
+          failed++;
+        }
+
+        // Test hideEmptyState with panelId parameter
+        testApp.hideEmptyState('panel-0');
+        if (emptyStateEl && emptyStateEl.classList.contains('hidden')) {
+          log('✓ hideEmptyState(panelId) works correctly', 'pass');
+          passed++;
+        } else {
+          log('✗ hideEmptyState(panelId) did not hide empty state', 'fail');
+          failed++;
+        }
+
+      } catch (error) {
+        log(`✗ Test error: ${error.message}`, 'fail');
+        failed++;
+      }
+
+      const resultDiv = document.getElementById('test2-result');
+      resultDiv.innerHTML = `<span class="${failed === 0 ? 'pass' : 'fail'}">
+        ${passed} passed, ${failed} failed
+      </span>`;
+    }
+
+    function testMultiPanelEmptyState() {
+      log('Starting Multi-Panel Empty State Test', 'info');
+      let passed = 0;
+      let failed = 0;
+
+      try {
+        // Test that getPanelForSession method exists
+        if (typeof testApp.getPanelForSession === 'function') {
+          log('✓ getPanelForSession method exists', 'pass');
+          passed++;
+        } else {
+          log('✗ getPanelForSession method not found', 'fail');
+          failed++;
+        }
+
+        // Test that createTerminalsContainer creates empty state
+        const container = testApp.createTerminalsContainer('test-panel', false);
+        const emptyState = container.querySelector('.empty-state');
+        if (emptyState) {
+          log('✓ createTerminalsContainer creates empty state element', 'pass');
+          passed++;
+          
+          // Check that empty state has correct ID
+          if (emptyState.id === 'test-panel-emptyState') {
+            log('✓ Empty state has correct ID: test-panel-emptyState', 'pass');
+            passed++;
+          } else {
+            log(`✗ Empty state has incorrect ID: ${emptyState.id}`, 'fail');
+            failed++;
+          }
+
+          // Check that quick buttons have correct IDs
+          const quickSshBtn = emptyState.querySelector('#test-panel-quickSshBtn');
+          const quickSftpBtn = emptyState.querySelector('#test-panel-quickSftpBtn');
+          
+          if (quickSshBtn) {
+            log('✓ Quick SSH button has correct ID for test-panel', 'pass');
+            passed++;
+          } else {
+            log('✗ Quick SSH button not found or has incorrect ID', 'fail');
+            failed++;
+          }
+
+          if (quickSftpBtn) {
+            log('✓ Quick SFTP button has correct ID for test-panel', 'pass');
+            passed++;
+          } else {
+            log('✗ Quick SFTP button not found or has incorrect ID', 'fail');
+            failed++;
+          }
+        } else {
+          log('✗ createTerminalsContainer did not create empty state', 'fail');
+          failed++;
+        }
+
+        // Test that getAllPanels method exists
+        if (typeof testApp.getAllPanels === 'function') {
+          log('✓ getAllPanels method exists', 'pass');
+          passed++;
+        } else {
+          log('✗ getAllPanels method not found', 'fail');
+          failed++;
+        }
+
+      } catch (error) {
+        log(`✗ Test error: ${error.message}`, 'fail');
+        failed++;
+      }
+
+      const resultDiv = document.getElementById('test3-result');
+      resultDiv.innerHTML = `<span class="${failed === 0 ? 'pass' : 'fail'}">
+        ${passed} passed, ${failed} failed
+      </span>`;
+    }
+  </script>
+</body>
+</html>

@@ -1545,6 +1545,21 @@ class SSHIFTClient {
       specialKeysBtn.addEventListener('click', () => this.handleSpecialKeys(panelId));
     }
     
+    // Quick SSH/SFTP buttons in empty state
+    const quickSshBtn = document.getElementById(isSingle ? 'quickSshBtn' : `${panelId}-quickSshBtn`);
+    const quickSftpBtn = document.getElementById(isSingle ? 'quickSftpBtn' : `${panelId}-quickSftpBtn`);
+    
+    if (quickSshBtn) {
+      quickSshBtn.addEventListener('click', () => {
+        this.openConnectionModal('ssh');
+      });
+    }
+    if (quickSftpBtn) {
+      quickSftpBtn.addEventListener('click', () => {
+        this.openConnectionModal('sftp');
+      });
+    }
+    
     // Scroll arrows
     const scrollLeftBtn = document.getElementById(isSingle ? 'scrollLeftBtn' : `${panelId}-scrollLeftBtn`);
     const scrollRightBtn = document.getElementById(isSingle ? 'scrollRightBtn' : `${panelId}-scrollRightBtn`);
@@ -4400,7 +4415,7 @@ class SSHIFTClient {
     // Switch to the new tab FIRST to make the container visible
     const panelId = this.getPanelForSession(sessionId);
     this.switchTab(sessionId, panelId);
-    this.hideEmptyState();
+    this.hideEmptyState(panelId);
 
     // Initialize terminal AFTER container is visible
     // Use multiple requestAnimationFrame to ensure DOM is fully rendered
@@ -5246,7 +5261,7 @@ class SSHIFTClient {
     console.log('[SSHIFT] Switching to SFTP tab:', sessionId);
     const panelId = this.getPanelForSession(sessionId);
     this.switchTab(sessionId, panelId);
-    this.hideEmptyState();
+    this.hideEmptyState(panelId);
 
     // Verify the wrapper is active
     const wrapper = document.getElementById(`terminal-wrapper-${sessionId}`);
@@ -5702,7 +5717,9 @@ class SSHIFTClient {
         // Switch to the first remaining tab in this panel
         this.switchTab(remainingInPanel[0], panelId);
       } else {
-        // No more tabs in this panel
+        // No more tabs in this panel - show empty state for this panel
+        this.showEmptyState(panelId);
+        
         // If this was also the global active session, find another session to activate
         if (this.activeSessionId === sessionId) {
           const remainingSessions = [...Array.from(this.sessions.keys()), ...Array.from(this.sftpSessions.keys())];
@@ -5712,7 +5729,6 @@ class SSHIFTClient {
             this.switchTab(remainingSessions[0], firstRemainingPanelId);
           } else {
             this.activeSessionId = null;
-            this.showEmptyState();
             // Update mobile keys bar visibility when no active session
             this.updateMobileKeysBar();
           }
@@ -5756,6 +5772,9 @@ class SSHIFTClient {
 
     console.log('[SSHIFT] Closing tab from another client:', sessionId);
     
+    // Get the panel for this session before removing
+    const panelId = this.getPanelForSession(sessionId);
+    
     // Clean up the session locally (don't emit tab-close again)
     if (session.type === 'ssh') {
       if (session.terminal) {
@@ -5773,6 +5792,15 @@ class SSHIFTClient {
     if (tab) tab.remove();
     if (wrapper) wrapper.remove();
 
+    // Check if there are remaining tabs in the panel
+    const tabsContainer = this.getTabsContainer(panelId);
+    const remainingInPanel = tabsContainer ? Array.from(tabsContainer.children).map(t => t.dataset.sessionId) : [];
+    
+    if (remainingInPanel.length === 0) {
+      // No more tabs in this panel - show empty state for this panel
+      this.showEmptyState(panelId);
+    }
+    
     // Switch to another tab or show empty state
     if (this.activeSessionId === sessionId) {
       const remainingSessions = [...Array.from(this.sessions.keys()), ...Array.from(this.sftpSessions.keys())];
@@ -5780,7 +5808,6 @@ class SSHIFTClient {
         this.switchTab(remainingSessions[0]);
       } else {
         this.activeSessionId = null;
-        this.showEmptyState();
         // Update mobile keys bar visibility when no active session
         this.updateMobileKeysBar();
       }
