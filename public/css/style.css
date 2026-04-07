@@ -1869,6 +1869,17 @@ body {
   font-size: 10px;
 }
 
+/* Drag and drop styles for multi-panel tabs */
+.tabs-container.drag-target {
+  background: var(--bg-hover);
+  border-radius: 4px;
+}
+
+.tabs-container.drag-over {
+  background: var(--bg-tertiary);
+  box-shadow: inset 0 0 0 2px var(--accent-primary);
+}
+
 .tab-close:hover {
   background: var(--accent-danger);
   color: #fff;
