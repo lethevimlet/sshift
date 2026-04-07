@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Panel Buttons Test - Font Size & Special Keys</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      padding: 20px;
+      background: #0d1117;
+      color: #e6edf3;
+    }
+    .test-section {
+      margin: 20px 0;
+      padding: 15px;
+      background: #161b22;
+      border-radius: 6px;
+    }
+    h2 {
+      margin-top: 0;
+      color: #58a6ff;
+    }
+    .test-result {
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 4px;
+    }
+    .pass {
+      background: #238636;
+      color: white;
+    }
+    .fail {
+      background: #da3633;
+      color: white;
+    }
+    .info {
+      background: #1f6feb;
+      color: white;
+    }
+    button {
+      padding: 8px 16px;
+      margin: 5px;
+      background: #238636;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #2ea043;
+    }
+    #testFrame {
+      width: 100%;
+      height: 600px;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      background: white;
+    }
+  </style>
+</head>
+<body>
+  <h1>Panel Buttons Test - Font Size & Special Keys</h1>
+  
+  <div class="test-section">
+    <h2>Test Controls</h2>
+    <button onclick="runAllTests()">Run All Tests</button>
+    <button onclick="testFontSizeButtons()">Test Font Size Buttons</button>
+    <button onclick="testSpecialKeysButton()">Test Special Keys Button</button>
+    <button onclick="testMultiPanelButtons()">Test Multi-Panel Buttons</button>
+  </div>
+  
+  <div class="test-section">
+    <h2>Test Results</h2>
+    <div id="results"></div>
+  </div>
+  
+  <div class="test-section">
+    <h2>Application Frame</h2>
+    <iframe id="testFrame" src="http://localhost:3000"></iframe>
+  </div>
+  
+  <script>
+    const resultsDiv = document.getElementById('results');
+    const testFrame = document.getElementById('testFrame');
+    
+    function log(message, type = 'info') {
+      const div = document.createElement('div');
+      div.className = `test-result ${type}`;
+      div.textContent = message;
+      resultsDiv.appendChild(div);
+    }
+    
+    function clearResults() {
+      resultsDiv.innerHTML = '';
+    }
+    
+    async function waitForApp() {
+      return new Promise((resolve) => {
+        const check = () => {
+          try {
+            const app = testFrame.contentWindow.app;
+            if (app && app.sessions) {
+              resolve(app);
+            } else {
+              setTimeout(check, 100);
+            }
+          } catch (e) {
+            setTimeout(check, 100);
+          }
+        };
+        check();
+      });
+    }
+    
+    async function runAllTests() {
+      clearResults();
+      log('Starting all tests...', 'info');
+      
+      try {
+        await testFontSizeButtons();
+        await testSpecialKeysButton();
+        await testMultiPanelButtons();
+        log('✓ All tests passed!', 'pass');
+      } catch (error) {
+        log(`✗ Test failed: ${error.message}`, 'fail');
+      }
+    }
+    
+    async function testFontSizeButtons() {
+      log('Testing font size buttons in single panel...', 'info');
+      
+      try {
+        const app = await waitForApp();
+        
+        // Ensure single panel layout
+        app.setLayout('single');
+        await new Promise(r => setTimeout(r, 500));
+        
+        // Get initial font size
+        const initialSize = app.terminalFontSize;
+        log(`Initial font size: ${initialSize}`, 'info');
+        
+        // Find increase font button
+        const increaseBtn = testFrame.contentDocument.getElementById('increaseFontBtn');
+        if (!increaseBtn) {
+          throw new Error('Increase font button not found in single panel');
+        }
+        
+        // Click increase button
+        increaseBtn.click();
+        await new Promise(r => setTimeout(r, 300));
+        
+        // Check if font size increased
+        const newSize = app.terminalFontSize;
+        if (newSize !== initialSize + 1) {
+          throw new Error(`Font size did not increase. Expected ${initialSize + 1}, got ${newSize}`);
+        }
+        
+        log(`✓ Font size increased to ${newSize}`, 'pass');
+        
+        // Find decrease font button
+        const decreaseBtn = testFrame.contentDocument.getElementById('decreaseFontBtn');
+        if (!decreaseBtn) {
+          throw new Error('Decrease font button not found in single panel');
+        }
+        
+        // Click decrease button
+        decreaseBtn.click();
+        await new Promise(r => setTimeout(r, 300));
+        
+        // Check if font size decreased
+        const finalSize = app.terminalFontSize;
+        if (finalSize !== initialSize) {
+          throw new Error(`Font size did not decrease. Expected ${initialSize}, got ${finalSize}`);
+        }
+        
+        log('✓ Font size buttons test passed in single panel', 'pass');
+        
+      } catch (error) {
+        log(`✗ Font size buttons test failed: ${error.message}`, 'fail');
+        throw error;
+      }
+    }
+    
+    async function testSpecialKeysButton() {
+      log('Testing special keys button in single panel...', 'info');
+      
+      try {
+        const app = await waitForApp();
+        
+        // Ensure single panel layout
+        app.setLayout('single');
+        await new Promise(r => setTimeout(r, 500));
+        
+        // Find special keys button
+        const specialKeysBtn = testFrame.contentDocument.getElementById('specialKeysBtn');
+        if (!specialKeysBtn) {
+          throw new Error('Special keys button not found in single panel');
+        }
+        
+        // Click special keys button (should show warning if no session)
+        specialKeysBtn.click();
+        await new Promise(r => setTimeout(r, 300));
+        
+        // Check if modal is visible or toast was shown
+        const modal = testFrame.contentDocument.getElementById('specialKeysModal');
+        if (!modal) {
+          throw new Error('Special keys modal not found');
+        }
+        
+        // Modal should be visible (or toast shown if no session)
+        const isModalVisible = modal.classList.contains('show') || modal.style.display === 'block';
+        
+        // Close modal if open
+        const closeBtn = testFrame.contentDocument.getElementById('closeSpecialKeysModal');
+        if (closeBtn && isModalVisible) {
+          closeBtn.click();
+          await new Promise(r => setTimeout(r, 200));
+        }
+        
+        log('✓ Special keys button test passed in single panel', 'pass');
+        
+      } catch (error) {
+        log(`✗ Special keys button test failed: ${error.message}`, 'fail');
+        throw error;
+      }
+    }
+    
+    async function testMultiPanelButtons() {
+      log('Testing buttons in multi-panel layout...', 'info');
+      
+      try {
+        const app = await waitForApp();
+        
+        // Switch to 2-column layout
+        app.setLayout('2-columns');
+        await new Promise(r => setTimeout(r, 500));
+        
+        // Test panel-0 buttons
+        log('Testing panel-0 buttons...', 'info');
+        
+        const panel0IncreaseBtn = testFrame.contentDocument.getElementById('panel-0-increaseFontBtn');
+        if (!panel0IncreaseBtn) {
+          throw new Error('Panel-0 increase font button not found');
+        }
+        
+        const panel0DecreaseBtn = testFrame.contentDocument.getElementById('panel-0-decreaseFontBtn');
+        if (!panel0DecreaseBtn) {
+          throw new Error('Panel-0 decrease font button not found');
+        }
+        
+        const panel0SpecialKeysBtn = testFrame.contentDocument.getElementById('panel-0-specialKeysBtn');
+        if (!panel0SpecialKeysBtn) {
+          throw new Error('Panel-0 special keys button not found');
+        }
+        
+        log('✓ All panel-0 buttons found', 'pass');
+        
+        // Test panel-1 buttons
+        log('Testing panel-1 buttons...', 'info');
+        
+        const panel1IncreaseBtn = testFrame.contentDocument.getElementById('panel-1-increaseFontBtn');
+        if (!panel1IncreaseBtn) {
+          throw new Error('Panel-1 increase font button not found');
+        }
+        
+        const panel1DecreaseBtn = testFrame.contentDocument.getElementById('panel-1-decreaseFontBtn');
+        if (!panel1DecreaseBtn) {
+          throw new Error('Panel-1 decrease font button not found');
+        }
+        
+        const panel1SpecialKeysBtn = testFrame.contentDocument.getElementById('panel-1-specialKeysBtn');
+        if (!panel1SpecialKeysBtn) {
+          throw new Error('Panel-1 special keys button not found');
+        }
+        
+        log('✓ All panel-1 buttons found', 'pass');
+        
+        // Test font size buttons work
+        const initialSize = app.terminalFontSize;
+        
+        panel0IncreaseBtn.click();
+        await new Promise(r => setTimeout(r, 300));
+        
+        if (app.terminalFontSize !== initialSize + 1) {
+          throw new Error(`Panel-0 increase button did not work. Expected ${initialSize + 1}, got ${app.terminalFontSize}`);
+        }
+        
+        log('✓ Panel-0 increase font button works', 'pass');
+        
+        panel1DecreaseBtn.click();
+        await new Promise(r => setTimeout(r, 300));
+        
+        if (app.terminalFontSize !== initialSize) {
+          throw new Error(`Panel-1 decrease button did not work. Expected ${initialSize}, got ${app.terminalFontSize}`);
+        }
+        
+        log('✓ Panel-1 decrease font button works', 'pass');
+        
+        // Test special keys buttons (should show warning if no session)
+        panel0SpecialKeysBtn.click();
+        await new Promise(r => setTimeout(r, 300));
+        
+        log('✓ Panel-0 special keys button responds', 'pass');
+        
+        // Close modal if open
+        const closeBtn = testFrame.contentDocument.getElementById('closeSpecialKeysModal');
+        if (closeBtn) {
+          closeBtn.click();
+          await new Promise(r => setTimeout(r, 200));
+        }
+        
+        panel1SpecialKeysBtn.click();
+        await new Promise(r => setTimeout(r, 300));
+        
+        log('✓ Panel-1 special keys button responds', 'pass');
+        
+        // Close modal if open
+        if (closeBtn) {
+          closeBtn.click();
+          await new Promise(r => setTimeout(r, 200));
+        }
+        
+        log('✓ Multi-panel buttons test passed', 'pass');
+        
+        // Clean up
+        app.setLayout('single');
+        
+      } catch (error) {
+        log(`✗ Multi-panel buttons test failed: ${error.message}`, 'fail');
+        throw error;
+      }
+    }
+  </script>
+</body>
+</html>

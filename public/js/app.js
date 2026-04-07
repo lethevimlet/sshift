@@ -528,6 +528,33 @@ class SSHIFTClient {
     // Don't persist - font size is session-only
   }
 
+  // Set font size for a specific session
+  setSessionFontSize(sessionId, size) {
+    const session = this.sessions.get(sessionId);
+    if (!session || !session.terminal) {
+      console.log('[SSHIFT] Cannot set font size: session not found or no terminal');
+      return;
+    }
+    
+    // Clamp size to min/max bounds
+    size = Math.max(this.minFontSize, Math.min(this.maxFontSize, size));
+    
+    // Update session's font size
+    session.fontSize = size;
+    
+    // Update the terminal
+    session.terminal.options.fontSize = size;
+    session.terminal.refresh(0, session.terminal.rows - 1);
+    
+    // Refit if this client is the controller
+    if (session.fitAddon && session.isController) {
+      session.fitAddon.fit();
+    }
+    
+    console.log('[SSHIFT] Font size set to', size, 'for session', sessionId);
+  }
+
+  // Legacy method for global font size (kept for compatibility)
   setTerminalFontSize(size) {
     // Clamp size to min/max bounds
     size = Math.max(this.minFontSize, Math.min(this.maxFontSize, size));
@@ -1506,16 +1533,16 @@ class SSHIFTClient {
     const increaseBtn = document.getElementById(isSingle ? 'increaseFontBtn' : `${panelId}-increaseFontBtn`);
     
     if (decreaseBtn) {
-      decreaseBtn.addEventListener('click', () => this.decreaseFontSize(panelId));
+      decreaseBtn.addEventListener('click', () => this.handleFontSizeChange(panelId, -1));
     }
     if (increaseBtn) {
-      increaseBtn.addEventListener('click', () => this.increaseFontSize(panelId));
+      increaseBtn.addEventListener('click', () => this.handleFontSizeChange(panelId, 1));
     }
     
     // Special keys button
     const specialKeysBtn = document.getElementById(isSingle ? 'specialKeysBtn' : `${panelId}-specialKeysBtn`);
     if (specialKeysBtn) {
-      specialKeysBtn.addEventListener('click', () => this.toggleSpecialKeys(panelId));
+      specialKeysBtn.addEventListener('click', () => this.handleSpecialKeys(panelId));
     }
     
     // Scroll arrows
@@ -1558,23 +1585,75 @@ class SSHIFTClient {
     }
   }
 
-  // Placeholder methods for panel-specific actions
-  decreaseFontSize(panelId) {
-    console.log('[SSHIFT] Decrease font size for panel:', panelId);
-    // TODO: Implement panel-specific font size
-    this.changeFontSize(-1);
+  // Panel-specific button handlers
+  handleFontSizeChange(panelId, delta) {
+    console.log('[SSHIFT] Font size change for panel:', panelId, 'delta:', delta);
+    
+    // Get the active session for this panel
+    const activeSessionId = this.activeSessionsByPanel.get(panelId);
+    
+    if (!activeSessionId) {
+      this.showToast('No active session in this panel', 'warning');
+      return;
+    }
+    
+    // Check if it's an SSH session
+    const session = this.sessions.get(activeSessionId);
+    if (session && session.terminal) {
+      // Get current font size for this session (or use default)
+      const currentSize = session.fontSize || this.terminalFontSize;
+      const newSize = currentSize + delta;
+      
+      // Set font size for this session only
+      this.setSessionFontSize(activeSessionId, newSize);
+      return;
+    }
+    
+    // Check if it's an SFTP session
+    const sftpSession = this.sftpSessions.get(activeSessionId);
+    if (sftpSession && sftpSession.terminal) {
+      // Get current font size for this session (or use default)
+      const currentSize = sftpSession.fontSize || this.terminalFontSize;
+      const newSize = currentSize + delta;
+      
+      // Set font size for this SFTP session
+      sftpSession.fontSize = Math.max(this.minFontSize, Math.min(this.maxFontSize, newSize));
+      sftpSession.terminal.options.fontSize = sftpSession.fontSize;
+      sftpSession.terminal.refresh(0, sftpSession.terminal.rows - 1);
+      
+      if (sftpSession.fitAddon) {
+        sftpSession.fitAddon.fit();
+      }
+      
+      console.log('[SSHIFT] SFTP font size set to', sftpSession.fontSize, 'for session', activeSessionId);
+      return;
+    }
+    
+    this.showToast('No terminal found for this session', 'warning');
   }
 
-  increaseFontSize(panelId) {
-    console.log('[SSHIFT] Increase font size for panel:', panelId);
-    // TODO: Implement panel-specific font size
-    this.changeFontSize(1);
-  }
-
-  toggleSpecialKeys(panelId) {
+  handleSpecialKeys(panelId) {
     console.log('[SSHIFT] Toggle special keys for panel:', panelId);
-    // TODO: Implement panel-specific special keys
-    this.toggleSpecialKeysBar();
+    
+    // Get the active session for this panel
+    const activeSessionId = this.activeSessionsByPanel.get(panelId);
+    
+    if (!activeSessionId) {
+      this.showToast('No active session in this panel', 'warning');
+      return;
+    }
+    
+    const session = this.sessions.get(activeSessionId);
+    if (!session || session.type !== 'ssh') {
+      this.showToast('Special keys only work in SSH sessions', 'warning');
+      return;
+    }
+    
+    // Set this as the active session for special keys
+    this.activeSessionId = activeSessionId;
+    
+    // Open the special keys modal
+    this.openModal('specialKeysModal');
   }
 
   async initLayoutSystem() {
@@ -3244,7 +3323,8 @@ class SSHIFTClient {
 
     // Special keys modal
     document.getElementById('specialKeysBtn').addEventListener('click', () => {
-      this.openModal('specialKeysModal');
+      // Use the handler to check for active session
+      this.handleSpecialKeys('panel-0');
     });
 
     document.getElementById('closeSpecialKeysModal').addEventListener('click', () => {
@@ -3260,11 +3340,13 @@ class SSHIFTClient {
 
     // Font size buttons
     document.getElementById('increaseFontBtn').addEventListener('click', () => {
-      this.increaseFontSize();
+      // Use the handler for consistency
+      this.handleFontSizeChange('panel-0', 1);
     });
 
     document.getElementById('decreaseFontBtn').addEventListener('click', () => {
-      this.decreaseFontSize();
+      // Use the handler for consistency
+      this.handleFontSizeChange('panel-0', -1);
     });
 
     // SFTP modal - now handled via tabs, keeping for backward compatibility
@@ -4311,7 +4393,8 @@ class SSHIFTClient {
       isRestoring: !!restoreSessionId, // Flag to indicate if this is a restored session
       isAtBottom: true, // Auto-scroll by default when new data arrives
       isController: false, // Default to observer - will be set to true for session creator or when taking control
-      syncing: false // Flag to prevent data writes during screen sync
+      syncing: false, // Flag to prevent data writes during screen sync
+      fontSize: this.terminalFontSize // Initialize with default font size
     });
 
     // Switch to the new tab FIRST to make the container visible
@@ -5156,7 +5239,8 @@ class SSHIFTClient {
       name,
       type: 'sftp',
       currentPath: '/',
-      connectionData // Store for sticky sessions
+      connectionData, // Store for sticky sessions
+      fontSize: this.terminalFontSize // Initialize with default font size
     });
 
     console.log('[SSHIFT] Switching to SFTP tab:', sessionId);
@@ -5525,6 +5609,13 @@ class SSHIFTClient {
     const session = this.sessions.get(sessionId);
     if (session && session.terminal && session.fitAddon && session.isController) {
       setTimeout(() => {
+        // Restore font size for this session
+        if (session.fontSize && session.terminal) {
+          session.terminal.options.fontSize = session.fontSize;
+          session.terminal.refresh(0, session.terminal.rows - 1);
+          console.log('[SSHIFT] Restored font size', session.fontSize, 'for session', sessionId);
+        }
+        
         session.fitAddon.fit();
         // Focus the terminal so user can type
         if (session.terminal) {
@@ -5540,8 +5631,22 @@ class SSHIFTClient {
         }
       }, 100);
     } else if (session && session.terminal) {
-      // For non-controllers, just focus the terminal
+      // For non-controllers, just focus the terminal and restore font size
+      if (session.fontSize) {
+        session.terminal.options.fontSize = session.fontSize;
+        session.terminal.refresh(0, session.terminal.rows - 1);
+      }
       session.terminal.focus();
+    }
+    
+    // Handle SFTP sessions
+    const sftpSession = this.sftpSessions.get(sessionId);
+    if (sftpSession && sftpSession.terminal) {
+      // Restore font size for SFTP session
+      if (sftpSession.fontSize) {
+        sftpSession.terminal.options.fontSize = sftpSession.fontSize;
+        sftpSession.terminal.refresh(0, sftpSession.terminal.rows - 1);
+      }
     }
     
     // Update mobile tabs dropdown for this panel

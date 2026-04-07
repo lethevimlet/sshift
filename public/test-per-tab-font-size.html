@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Per-Tab Font Size Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #1a1a2e;
+            color: #eee;
+        }
+        h1 {
+            color: #00d4ff;
+            border-bottom: 2px solid #00d4ff;
+            padding-bottom: 10px;
+        }
+        .test-section {
+            background: #16213e;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            border: 1px solid #0f3460;
+        }
+        .test-section h2 {
+            color: #00d4ff;
+            margin-top: 0;
+        }
+        .instruction {
+            background: #0f3460;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .instruction code {
+            background: #1a1a2e;
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: #ffd700;
+        }
+        .expected {
+            color: #4ade80;
+            margin: 10px 0;
+        }
+        .note {
+            color: #fbbf24;
+            font-style: italic;
+        }
+        .status {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .status.pending {
+            background: #fbbf24;
+            color: #1a1a2e;
+        }
+        .status.pass {
+            background: #4ade80;
+            color: #1a1a2e;
+        }
+        .status.fail {
+            background: #ef4444;
+            color: white;
+        }
+        ul {
+            line-height: 1.8;
+        }
+        .key-point {
+            background: #1e3a5f;
+            border-left: 4px solid #00d4ff;
+            padding: 10px 15px;
+            margin: 15px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Per-Tab Font Size Independence Test</h1>
+    
+    <div class="test-section">
+        <h2>Overview</h2>
+        <p>This test verifies that font size changes are now <strong>independent per tab</strong>, rather than global across all terminals.</p>
+        
+        <div class="key-point">
+            <strong>Key Change:</strong> Each session (tab) now maintains its own font size. The -/+ buttons only affect the <em>active tab in that panel</em>.
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 1: Single Panel - Multiple Tabs</h2>
+        <div class="instruction">
+            <strong>Steps:</strong>
+            <ol>
+                <li>Open the application in single panel mode</li>
+                <li>Connect to a server (Tab 1)</li>
+                <li>Open a second connection (Tab 2)</li>
+                <li>Switch to Tab 1 and increase font size using + button (3-4 times)</li>
+                <li>Switch to Tab 2 - font size should be <strong>default</strong></li>
+                <li>Increase font size in Tab 2 (2 times)</li>
+                <li>Switch back to Tab 1 - font size should still be <strong>larger</strong></li>
+            </ol>
+        </div>
+        <div class="expected">
+            <strong>Expected Result:</strong>
+            <ul>
+                <li>Each tab maintains its own font size</li>
+                <li>Switching between tabs preserves their individual font sizes</li>
+                <li>Font size changes only affect the active tab</li>
+            </ul>
+        </div>
+        <p class="note">Status: <span class="status pending" id="test1-status">PENDING</span></p>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 2: Multi-Panel Layout</h2>
+        <div class="instruction">
+            <strong>Steps:</strong>
+            <ol>
+                <li>Switch to 2-panel layout (horizontal or vertical split)</li>
+                <li>Connect to a server in Panel 1 (Tab 1)</li>
+                <li>Connect to a server in Panel 2 (Tab 2)</li>
+                <li>In Panel 1, increase font size using + button</li>
+                <li>In Panel 2, font size should remain <strong>default</strong></li>
+                <li>Decrease font size in Panel 2</li>
+                <li>Panel 1's font size should be <strong>unchanged</strong></li>
+            </ol>
+        </div>
+        <div class="expected">
+            <strong>Expected Result:</strong>
+            <ul>
+                <li>Each panel's active tab has independent font size</li>
+                <li>Font size changes in one panel don't affect other panels</li>
+                <li>-/+ buttons work correctly in all panel layouts</li>
+            </ul>
+        </div>
+        <p class="note">Status: <span class="status pending" id="test2-status">PENDING</span></p>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 3: Font Size Persistence During Session</h2>
+        <div class="instruction">
+            <strong>Steps:</strong>
+            <ol>
+                <li>Open multiple tabs with different font sizes</li>
+                <li>Set Tab 1 to font size 18</li>
+                <li>Set Tab 2 to font size 14</li>
+                <li>Set Tab 3 to font size 20</li>
+                <li>Cycle through all tabs multiple times</li>
+                <li>Verify each tab retains its font size</li>
+            </ol>
+        </div>
+        <div class="expected">
+            <strong>Expected Result:</strong>
+            <ul>
+                <li>Tab 1 consistently shows font size 18</li>
+                <li>Tab 2 consistently shows font size 14</li>
+                <li>Tab 3 consistently shows font size 20</li>
+                <li>No "bleed" of font size between tabs</li>
+            </ul>
+        </div>
+        <p class="note">Status: <span class="status pending" id="test3-status">PENDING</span></p>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 4: New Tab Font Size</h2>
+        <div class="instruction">
+            <strong>Steps:</strong>
+            <ol>
+                <li>Open Tab 1 and increase font size to 20</li>
+                <li>Open a new Tab 2</li>
+                <li>Tab 2 should start with <strong>default font size</strong></li>
+                <li>Tab 1 should still have font size 20</li>
+            </ol>
+        </div>
+        <div class="expected">
+            <strong>Expected Result:</strong>
+            <ul>
+                <li>New tabs start with the default font size</li>
+                <li>Existing tabs maintain their font sizes</li>
+                <li>Font size is not inherited from other tabs</li>
+            </ul>
+        </div>
+        <p class="note">Status: <span class="status pending" id="test4-status">PENDING</span></p>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 5: Special Keys Dialog</h2>
+        <div class="instruction">
+            <strong>Steps:</strong>
+            <ol>
+                <li>Open application in multi-panel layout</li>
+                <li>Click "Special Keys" button in Panel 1</li>
+                <li>Dialog should appear and work correctly</li>
+                <li>Click "Special Keys" button in Panel 2</li>
+                <li>Dialog should appear and work correctly</li>
+                <li>Verify buttons work in all panel layouts</li>
+            </ol>
+        </div>
+        <div class="expected">
+            <strong>Expected Result:</strong>
+            <ul>
+                <li>Special keys dialog opens from any panel</li>
+                <li>Special keys work correctly in all panels</li>
+                <li>No errors in console</li>
+            </ul>
+        </div>
+        <p class="note">Status: <span class="status pending" id="test5-status">PENDING</span></p>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 6: SFTP Sessions</h2>
+        <div class="instruction">
+            <strong>Steps:</strong>
+            <ol>
+                <li>Open an SFTP session</li>
+                <li>Increase font size using + button</li>
+                <li>Open another SFTP or SSH session</li>
+                <li>Verify font sizes are independent</li>
+            </ol>
+        </div>
+        <div class="expected">
+            <strong>Expected Result:</strong>
+            <ul>
+                <li>SFTP sessions support per-tab font size</li>
+                <li>Font size changes only affect the active SFTP tab</li>
+                <li>Switching between SFTP tabs preserves font sizes</li>
+            </ul>
+        </div>
+        <p class="note">Status: <span class="status pending" id="test6-status">PENDING</span></p>
+    </div>
+
+    <div class="test-section">
+        <h2>Implementation Details</h2>
+        <ul>
+            <li><code>session.fontSize</code> - Each session now stores its own font size</li>
+            <li><code>setSessionFontSize(sessionId, size)</code> - New method to set font size for specific session</li>
+            <li><code>handleFontSizeChange(panelId, delta)</code> - Updated to only affect active tab in panel</li>
+            <li><code>switchTab()</code> - Restores font size when switching tabs</li>
+            <li>Font size is initialized from <code>this.terminalFontSize</code> (default) when creating new sessions</li>
+        </ul>
+    </div>
+
+    <div class="test-section">
+        <h2>Console Verification</h2>
+        <p>Open browser console and check for these log messages:</p>
+        <div class="instruction">
+            <code>[SSHIFT] Font size set to 18 for session session-123</code><br>
+            <code>[SSHIFT] Restored font size 18 for session session-123</code><br>
+            <code>[SSHIFT] Font size change for panel: panel-left delta: 1</code>
+        </div>
+        <p class="note">These messages confirm per-session font size is working correctly.</p>
+    </div>
+
+    <script>
+        // Helper to update test status
+        function setTestStatus(testId, status) {
+            const element = document.getElementById(testId);
+            element.textContent = status.toUpperCase();
+            element.className = 'status ' + status.toLowerCase();
+        }
+        
+        // Example: setTestStatus('test1-status', 'pass');
+        // Example: setTestStatus('test2-status', 'fail');
+    </script>
+</body>
+</html>

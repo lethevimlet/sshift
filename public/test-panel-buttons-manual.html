@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manual Test - Panel Buttons</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      padding: 20px;
+      background: #0d1117;
+      color: #e6edf3;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    h1 {
+      color: #58a6ff;
+      border-bottom: 1px solid #30363d;
+      padding-bottom: 10px;
+    }
+    h2 {
+      color: #7ee787;
+      margin-top: 30px;
+    }
+    .test-section {
+      margin: 20px 0;
+      padding: 15px;
+      background: #161b22;
+      border-radius: 6px;
+      border: 1px solid #30363d;
+    }
+    .instruction {
+      background: #1f6feb;
+      color: white;
+      padding: 10px;
+      border-radius: 4px;
+      margin: 10px 0;
+    }
+    .expected {
+      background: #238636;
+      color: white;
+      padding: 10px;
+      border-radius: 4px;
+      margin: 10px 0;
+    }
+    .note {
+      background: #d29922;
+      color: white;
+      padding: 10px;
+      border-radius: 4px;
+      margin: 10px 0;
+    }
+    ul {
+      line-height: 1.8;
+    }
+    code {
+      background: #0d1117;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: 'Courier New', monospace;
+    }
+    #testFrame {
+      width: 100%;
+      height: 800px;
+      border: 2px solid #30363d;
+      border-radius: 6px;
+      background: white;
+    }
+  </style>
+</head>
+<body>
+  <h1>Manual Test: Font Size & Special Keys Buttons in Multi-Panel Layouts</h1>
+  
+  <div class="test-section">
+    <h2>Test Objective</h2>
+    <p>Verify that the font size increase/decrease buttons and special keys button work correctly in all panel layouts, not just single panel layout.</p>
+  </div>
+  
+  <div class="test-section">
+    <h2>Prerequisites</h2>
+    <ul>
+      <li>SSHIFT server running on localhost:3000</li>
+      <li>At least one SSH connection configured (for special keys test)</li>
+    </ul>
+  </div>
+  
+  <div class="test-section">
+    <h2>Test 1: Font Size Buttons in Single Panel</h2>
+    <div class="instruction">
+      <strong>Steps:</strong>
+      <ol>
+        <li>Open the application in single panel layout (default)</li>
+        <li>Note the current font size (check console: <code>app.terminalFontSize</code>)</li>
+        <li>Click the <strong>-</strong> button (decrease font size)</li>
+        <li>Observe the terminal font size decreases</li>
+        <li>Click the <strong>+</strong> button (increase font size)</li>
+        <li>Observe the terminal font size increases</li>
+      </ol>
+    </div>
+    <div class="expected">
+      <strong>Expected Result:</strong> Font size buttons work correctly in single panel layout. All terminals update their font size.
+    </div>
+  </div>
+  
+  <div class="test-section">
+    <h2>Test 2: Font Size Buttons in Multi-Panel Layout</h2>
+    <div class="instruction">
+      <strong>Steps:</strong>
+      <ol>
+        <li>Switch to 2-column layout (click layout button in header)</li>
+        <li>Note the current font size</li>
+        <li>Click the <strong>-</strong> button in <strong>panel-0</strong> (left panel)</li>
+        <li>Observe ALL terminals decrease font size (not just panel-0)</li>
+        <li>Click the <strong>+</strong> button in <strong>panel-1</strong> (right panel)</li>
+        <li>Observe ALL terminals increase font size</li>
+        <li>Switch to 2-rows layout</li>
+        <li>Repeat font size button tests in both panels</li>
+        <li>Switch to 2x2 grid layout</li>
+        <li>Repeat font size button tests in all four panels</li>
+      </ol>
+    </div>
+    <div class="expected">
+      <strong>Expected Result:</strong> Font size buttons work in ALL panels across ALL layouts. Font size is global and affects all terminals.
+    </div>
+  </div>
+  
+  <div class="test-section">
+    <h2>Test 3: Special Keys Button in Single Panel</h2>
+    <div class="instruction">
+      <strong>Steps:</strong>
+      <ol>
+        <li>Return to single panel layout</li>
+        <li>Open an SSH connection</li>
+        <li>Click the <strong>keyboard</strong> button (special keys)</li>
+        <li>Observe the special keys modal opens</li>
+        <li>Click a special key (e.g., Ctrl+C)</li>
+        <li>Observe the key is sent to the active SSH session</li>
+      </ol>
+    </div>
+    <div class="expected">
+      <strong>Expected Result:</strong> Special keys modal opens and keys are sent to the active SSH session.
+    </div>
+  </div>
+  
+  <div class="test-section">
+    <h2>Test 4: Special Keys Button in Multi-Panel Layout</h2>
+    <div class="instruction">
+      <strong>Steps:</strong>
+      <ol>
+        <li>Switch to 2-column layout</li>
+        <li>Open an SSH connection in panel-0 (left panel)</li>
+        <li>Open another SSH connection in panel-1 (right panel)</li>
+        <li>Click the <strong>keyboard</strong> button in panel-0</li>
+        <li>Observe the special keys modal opens</li>
+        <li>Click Ctrl+C and verify it goes to panel-0's session</li>
+        <li>Close the modal</li>
+        <li>Click the <strong>keyboard</strong> button in panel-1</li>
+        <li>Observe the special keys modal opens</li>
+        <li>Click Ctrl+D and verify it goes to panel-1's session</li>
+      </ol>
+    </div>
+    <div class="expected">
+      <strong>Expected Result:</strong> Special keys button works in ALL panels. Each panel's special keys button sends keys to that panel's active session.
+    </div>
+    <div class="note">
+      <strong>Note:</strong> If a panel has no active session, clicking the special keys button should show a warning toast: "No active session in this panel"
+    </div>
+  </div>
+  
+  <div class="test-section">
+    <h2>Test 5: Edge Cases</h2>
+    <div class="instruction">
+      <strong>Steps:</strong>
+      <ol>
+        <li>In multi-panel layout, click special keys button on an empty panel (no session)</li>
+        <li>Observe warning toast appears</li>
+        <li>Open an SFTP session in a panel</li>
+        <li>Click special keys button on that panel</li>
+        <li>Observe warning toast: "Special keys only work in SSH sessions"</li>
+        <li>Switch between layouts rapidly while clicking font size buttons</li>
+      </ol>
+    </div>
+    <div class="expected">
+      <strong>Expected Result:</strong> Appropriate error messages shown. No JavaScript errors in console. Buttons remain functional across layout changes.
+    </div>
+  </div>
+  
+  <div class="test-section">
+    <h2>Application Frame</h2>
+    <p>Open the application below to perform the tests:</p>
+    <iframe id="testFrame" src="http://localhost:3000"></iframe>
+  </div>
+  
+  <div class="test-section">
+    <h2>Console Commands</h2>
+    <p>Use these commands in the browser console to verify functionality:</p>
+    <ul>
+      <li><code>app.terminalFontSize</code> - Check current font size</li>
+      <li><code>app.activeSessionsByPanel</code> - See active sessions per panel</li>
+      <li><code>app.activeSessionId</code> - Check current active session</li>
+      <li><code>app.setLayout('2-columns')</code> - Switch to 2-column layout</li>
+      <li><code>app.setLayout('single')</code> - Switch to single panel layout</li>
+    </ul>
+  </div>
+  
+  <div class="test-section">
+    <h2>Implementation Details</h2>
+    <p><strong>Changes Made:</strong></p>
+    <ul>
+      <li>Created <code>handleFontSizeChange(panelId, delta)</code> method to handle font size changes from any panel</li>
+      <li>Created <code>handleSpecialKeys(panelId)</code> method to handle special keys button from any panel</li>
+      <li>Font size is global - changes affect all terminals across all panels</li>
+      <li>Special keys are panel-specific - each panel's button targets that panel's active session</li>
+      <li>Proper error handling for empty panels and non-SSH sessions</li>
+    </ul>
+  </div>
+</body>
+</html>
