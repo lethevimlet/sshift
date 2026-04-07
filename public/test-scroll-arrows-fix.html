@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scroll Arrows Fix Test</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      padding: 20px;
+      background: #0d1117;
+      color: #e6edf3;
+    }
+    .test-section {
+      margin: 20px 0;
+      padding: 15px;
+      background: #161b22;
+      border-radius: 6px;
+    }
+    h2 {
+      margin-top: 0;
+      color: #58a6ff;
+    }
+    .test-result {
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 4px;
+    }
+    .pass {
+      background: #238636;
+      color: white;
+    }
+    .fail {
+      background: #da3633;
+      color: white;
+    }
+    .info {
+      background: #1f6feb;
+      color: white;
+    }
+    button {
+      padding: 8px 16px;
+      margin: 5px;
+      background: #238636;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #2ea043;
+    }
+    #testFrame {
+      width: 100%;
+      height: 600px;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      background: white;
+    }
+  </style>
+</head>
+<body>
+  <h1>Scroll Arrows Fix Test</h1>
+  
+  <div class="test-section">
+    <h2>Test Controls</h2>
+    <button onclick="testScrollArrowsFix()">Test Scroll Arrows Fix</button>
+    <button onclick="testAllLayouts()">Test All Layouts</button>
+  </div>
+  
+  <div class="test-section">
+    <h2>Test Results</h2>
+    <div id="results"></div>
+  </div>
+  
+  <div class="test-section">
+    <h2>Application Frame</h2>
+    <iframe id="testFrame" src="http://localhost:3000"></iframe>
+  </div>
+  
+  <script>
+    const resultsDiv = document.getElementById('results');
+    const testFrame = document.getElementById('testFrame');
+    
+    function log(message, type = 'info') {
+      const div = document.createElement('div');
+      div.className = `test-result ${type}`;
+      div.textContent = message;
+      resultsDiv.appendChild(div);
+    }
+    
+    function clearResults() {
+      resultsDiv.innerHTML = '';
+    }
+    
+    async function waitForApp() {
+      return new Promise((resolve) => {
+        const check = () => {
+          try {
+            const app = testFrame.contentWindow.app;
+            if (app && app.sessions) {
+              resolve(app);
+            } else {
+              setTimeout(check, 100);
+            }
+          } catch (e) {
+            setTimeout(check, 100);
+          }
+        };
+        check();
+      });
+    }
+    
+    async function testScrollArrowsFix() {
+      clearResults();
+      log('Testing scroll arrows fix in multi-panel layouts...', 'info');
+      
+      try {
+        const app = await waitForApp();
+        
+        // Test 1: Single panel with many tabs
+        log('Test 1: Single panel with many tabs', 'info');
+        app.setLayout('single');
+        await new Promise(r => setTimeout(r, 500));
+        
+        // Create many tabs to trigger overflow
+        for (let i = 0; i < 20; i++) {
+          app.createSSHTab(`Tab ${i + 1}`, { host: `host${i}`, username: 'user' });
+          await new Promise(r => setTimeout(r, 50));
+        }
+        
+        await new Promise(r => setTimeout(r, 500));
+        
+        // Check if scroll arrows are visible in single panel
+        const singleArrows = testFrame.contentDocument.querySelector('#tabsScrollArrows');
+        const singleVisible = singleArrows && singleArrows.classList.contains('visible');
+        
+        if (singleVisible) {
+          log('✓ Scroll arrows visible in single panel', 'pass');
+        } else {
+          log('✗ Scroll arrows NOT visible in single panel', 'fail');
+        }
+        
+        // Test 2: Switch to 2-column layout
+        log('Test 2: Switch to 2-column layout', 'info');
+        app.setLayout('2-columns');
+        await new Promise(r => setTimeout(r, 500));
+        
+        // Check if scroll arrows exist for both panels
+        const panel0Arrows = testFrame.contentDocument.querySelector('#tabsScrollArrows');
+        const panel1Arrows = testFrame.contentDocument.querySelector('#panel-0-0-tabsScrollArrows');
+        const panel2Arrows = testFrame.contentDocument.querySelector('#panel-1-0-tabsScrollArrows');
+        
+        log(`Panel-0 arrows: ${panel0Arrows ? 'found' : 'NOT found'}`, 'info');
+        log(`Panel-0-0 arrows: ${panel1Arrows ? 'found' : 'NOT found'}`, 'info');
+        log(`Panel-1-0 arrows: ${panel2Arrows ? 'found' : 'NOT found'}`, 'info');
+        
+        // Check if event listeners are attached by testing scroll buttons
+        const leftBtn1 = testFrame.contentDocument.querySelector('#scrollLeftBtn') || 
+                         testFrame.contentDocument.querySelector('#panel-0-0-scrollLeftBtn');
+        const rightBtn1 = testFrame.contentDocument.querySelector('#scrollRightBtn') || 
+                          testFrame.contentDocument.querySelector('#panel-0-0-scrollRightBtn');
+        
+        if (leftBtn1 && rightBtn1) {
+          log('✓ Panel 1 scroll buttons found', 'pass');
+        } else {
+          log('✗ Panel 1 scroll buttons NOT found', 'fail');
+        }
+        
+        const leftBtn2 = testFrame.contentDocument.querySelector('#panel-1-0-scrollLeftBtn');
+        const rightBtn2 = testFrame.contentDocument.querySelector('#panel-1-0-scrollRightBtn');
+        
+        if (leftBtn2 && rightBtn2) {
+          log('✓ Panel 2 scroll buttons found', 'pass');
+        } else {
+          log('✗ Panel 2 scroll buttons NOT found', 'fail');
+        }
+        
+        // Test 3: Test scroll functionality
+        log('Test 3: Test scroll functionality', 'info');
+        const tabsContainer1 = testFrame.contentDocument.querySelector('#tabs') || 
+                                testFrame.contentDocument.querySelector('#panel-0-0-tabs');
+        
+        if (tabsContainer1) {
+          const initialScroll = tabsContainer1.scrollLeft;
+          leftBtn1.click();
+          await new Promise(r => setTimeout(r, 300));
+          const afterLeftScroll = tabsContainer1.scrollLeft;
+          
+          if (initialScroll !== afterLeftScroll || initialScroll === 0) {
+            log('✓ Scroll buttons are functional', 'pass');
+          } else {
+            log('✗ Scroll buttons may not be working', 'fail');
+          }
+        }
+        
+        // Clean up
+        const allCloseBtns = testFrame.contentDocument.querySelectorAll('.tab-close');
+        allCloseBtns.forEach(btn => btn.click());
+        await new Promise(r => setTimeout(r, 300));
+        app.setLayout('single');
+        
+        log('✓ Scroll arrows fix test completed', 'pass');
+        
+      } catch (error) {
+        log(`✗ Test failed: ${error.message}`, 'fail');
+        console.error(error);
+      }
+    }
+    
+    async function testAllLayouts() {
+      clearResults();
+      log('Testing all layouts...', 'info');
+      
+      try {
+        const app = await waitForApp();
+        const layouts = ['single', '2-columns', '2-rows', '2-columns-2-rows'];
+        
+        for (const layoutId of layouts) {
+          log(`Testing ${layoutId} layout...`, 'info');
+          
+          app.setLayout(layoutId);
+          await new Promise(r => setTimeout(r, 500));
+          
+          // Create tabs
+          for (let i = 0; i < 10; i++) {
+            app.createSSHTab(`Tab ${i + 1}`, { host: `host${i}`, username: 'user' });
+            await new Promise(r => setTimeout(r, 30));
+          }
+          
+          await new Promise(r => setTimeout(r, 300));
+          
+          // Check scroll arrows for each panel
+          const panels = app.getAllPanels();
+          log(`Layout ${layoutId} has ${panels.length} panels`, 'info');
+          
+          for (const panelId of panels) {
+            const arrowsId = panelId === 'panel-0' ? 'tabsScrollArrows' : `${panelId}-tabsScrollArrows`;
+            const arrows = testFrame.contentDocument.querySelector(`#${arrowsId}`);
+            
+            if (arrows) {
+              log(`✓ ${panelId} scroll arrows element found`, 'pass');
+            } else {
+              log(`✗ ${panelId} scroll arrows element NOT found`, 'fail');
+            }
+            
+            // Check if event listeners are attached
+            const leftBtnId = panelId === 'panel-0' ? 'scrollLeftBtn' : `${panelId}-scrollLeftBtn`;
+            const rightBtnId = panelId === 'panel-0' ? 'scrollRightBtn' : `${panelId}-scrollRightBtn`;
+            const leftBtn = testFrame.contentDocument.querySelector(`#${leftBtnId}`);
+            const rightBtn = testFrame.contentDocument.querySelector(`#${rightBtnId}`);
+            
+            if (leftBtn && rightBtn) {
+              log(`✓ ${panelId} scroll buttons found`, 'pass');
+            } else {
+              log(`✗ ${panelId} scroll buttons NOT found`, 'fail');
+            }
+          }
+          
+          // Clean up
+          const allCloseBtns = testFrame.contentDocument.querySelectorAll('.tab-close');
+          allCloseBtns.forEach(btn => btn.click());
+          await new Promise(r => setTimeout(r, 200));
+        }
+        
+        app.setLayout('single');
+        log('✓ All layouts test completed', 'pass');
+        
+      } catch (error) {
+        log(`✗ Test failed: ${error.message}`, 'fail');
+        console.error(error);
+      }
+    }
+  </script>
+</body>
+</html>

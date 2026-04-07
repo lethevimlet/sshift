@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Panel Layout Test</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      padding: 20px;
+      background: #0d1117;
+      color: #e6edf3;
+    }
+    .test-section {
+      margin: 20px 0;
+      padding: 15px;
+      background: #161b22;
+      border-radius: 6px;
+    }
+    h2 {
+      margin-top: 0;
+      color: #58a6ff;
+    }
+    .test-result {
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 4px;
+    }
+    .pass {
+      background: #238636;
+      color: white;
+    }
+    .fail {
+      background: #da3633;
+      color: white;
+    }
+    .info {
+      background: #1f6feb;
+      color: white;
+    }
+    button {
+      padding: 8px 16px;
+      margin: 5px;
+      background: #238636;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #2ea043;
+    }
+    #testFrame {
+      width: 100%;
+      height: 600px;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      background: white;
+    }
+  </style>
+</head>
+<body>
+  <h1>Panel Layout System Test</h1>
+  
+  <div class="test-section">
+    <h2>Test Controls</h2>
+    <button onclick="runAllTests()">Run All Tests</button>
+    <button onclick="testBookmarkOpening()">Test Bookmark Opening</button>
+    <button onclick="testTabDragging()">Test Tab Dragging</button>
+    <button onclick="testEmptyPanelDrop()">Test Empty Panel Drop</button>
+    <button onclick="testActiveTabSelection()">Test Active Tab Selection</button>
+  </div>
+  
+  <div class="test-section">
+    <h2>Test Results</h2>
+    <div id="results"></div>
+  </div>
+  
+  <div class="test-section">
+    <h2>Application Frame</h2>
+    <iframe id="testFrame" src="http://localhost:3000"></iframe>
+  </div>
+  
+  <script>
+    const resultsDiv = document.getElementById('results');
+    const testFrame = document.getElementById('testFrame');
+    
+    function log(message, type = 'info') {
+      const div = document.createElement('div');
+      div.className = `test-result ${type}`;
+      div.textContent = message;
+      resultsDiv.appendChild(div);
+    }
+    
+    function clearResults() {
+      resultsDiv.innerHTML = '';
+    }
+    
+    async function waitForApp() {
+      return new Promise((resolve) => {
+        const check = () => {
+          try {
+            const app = testFrame.contentWindow.app;
+            if (app && app.sessions) {
+              resolve(app);
+            } else {
+              setTimeout(check, 100);
+            }
+          } catch (e) {
+            setTimeout(check, 100);
+          }
+        };
+        check();
+      });
+    }
+    
+    async function runAllTests() {
+      clearResults();
+      log('Starting all tests...', 'info');
+      
+      try {
+        await testBookmarkOpening();
+        await testTabDragging();
+        await testEmptyPanelDrop();
+        await testActiveTabSelection();
+        log('✓ All tests passed!', 'pass');
+      } catch (error) {
+        log(`✗ Test failed: ${error.message}`, 'fail');
+      }
+    }
+    
+    async function testBookmarkOpening() {
+      log('Testing bookmark opening on first panel...', 'info');
+      
+      try {
+        const app = await waitForApp();
+        
+        // Create a test bookmark
+        app.bookmarks = [{
+          id: 'test-ssh-1',
+          name: 'Test SSH',
+          type: 'ssh',
+          host: 'localhost',
+          port: 22,
+          username: 'testuser'
+        }];
+        app.renderBookmarks();
+        
+        // Test in single panel layout
+        app.setLayout('single');
+        await new Promise(r => setTimeout(r, 500));
+        
+        // Open bookmark
+        const bookmarkEl = testFrame.contentDocument.querySelector('[data-bookmark-id="test-ssh-1"]');
+        if (!bookmarkEl) {
+          throw new Error('Bookmark element not found');
+        }
+        bookmarkEl.click();
+        
+        await new Promise(r => setTimeout(r, 500));
+        
+        // Check if tab is in first panel
+        const activeTab = testFrame.contentDocument.querySelector('.tab.active');
+        if (!activeTab) {
+          throw new Error('No active tab found');
+        }
+        
+        const panelId = activeTab.closest('.panel')?.id;
+        if (panelId !== 'panel-0') {
+          throw new Error(`Expected tab in panel-0, got ${panelId}`);
+        }
+        
+        log('✓ Bookmark opening test passed - tab opened in panel-0', 'pass');
+        
+        // Close the tab
+        const closeBtn = activeTab.querySelector('.tab-close');
+        if (closeBtn) closeBtn.click();
+        await new Promise(r => setTimeout(r, 300));
+        
+        // Test in 2-column layout
+        app.setLayout('2-columns');
+        await new Promise(r => setTimeout(r, 500));
+        
+        // Open bookmark again
+        app.renderBookmarks();
+        await new Promise(r => setTimeout(r, 100));
+        
+        const bookmarkEl2 = testFrame.contentDocument.querySelector('[data-bookmark-id="test-ssh-1"]');
+        if (bookmarkEl2) bookmarkEl2.click();
+        
+        await new Promise(r => setTimeout(r, 500));
+        
+        // Check if tab is in first panel
+        const activeTab2 = testFrame.contentDocument.querySelector('.tab.active');
+        const panelId2 = activeTab2?.closest('.panel')?.id;
+        
+        if (panelId2 !== 'panel-0') {
+          throw new Error(`Expected tab in panel-0 for 2-column layout, got ${panelId2}`);
+        }
+        
+        log('✓ Bookmark opening test passed in 2-column layout', 'pass');
+        
+        // Clean up
+        const closeBtn2 = activeTab2?.querySelector('.tab-close');
+        if (closeBtn2) closeBtn2.click();
+        app.setLayout('single');
+        
+      } catch (error) {
+        log(`✗ Bookmark opening test failed: ${error.message}`, 'fail');
+        throw error;
+      }
+    }
+    
+    async function testTabDragging() {
+      log('Testing tab dragging between panels...', 'info');
+      
+      try {
+        const app = await waitForApp();
+        
+        // Switch to 2-column layout
+        app.setLayout('2-columns');
+        await new Promise(r => setTimeout(r, 500));
+        
+        // Create two tabs in first panel
+        app.createSSHTab('Tab1', { host: 'host1', username: 'user1' });
+        await new Promise(r => setTimeout(r, 300));
+        
+        app.createSSHTab('Tab2', { host: 'host2', username: 'user2' });
+        await new Promise(r => setTimeout(r, 300));
+        
+        // Verify both tabs are in first panel
+        const panel0Tabs = testFrame.contentDocument.querySelectorAll('#panel-0 .tab');
+        const panel1Tabs = testFrame.contentDocument.querySelectorAll('#panel-1 .tab');
+        
+        if (panel0Tabs.length !== 2) {
+          throw new Error(`Expected 2 tabs in panel-0, got ${panel0Tabs.length}`);
+        }
+        
+        log(`✓ Initial state: ${panel0Tabs.length} tabs in panel-0, ${panel1Tabs.length} in panel-1`, 'pass');
+        
+        // Move first tab to second panel
+        const sessionId = panel0Tabs[0].dataset.sessionId;
+        app.moveTabToPanel(sessionId, 'panel-1');
+        
+        await new Promise(r => setTimeout(r, 300));
+        
+        // Verify tabs are distributed
+        const panel0TabsAfter = testFrame.contentDocument.querySelectorAll('#panel-0 .tab');
+        const panel1TabsAfter = testFrame.contentDocument.querySelectorAll('#panel-1 .tab');
+        
+        if (panel0TabsAfter.length !== 1 || panel1TabsAfter.length !== 1) {
+          throw new Error(`Expected 1 tab in each panel, got panel-0: ${panel0TabsAfter.length}, panel-1: ${panel1TabsAfter.length}`);
+        }
+        
+        log('✓ Tab dragging test passed - tabs distributed correctly', 'pass');
+        
+        // Clean up
+        const allTabs = testFrame.contentDocument.querySelectorAll('.tab-close');
+        allTabs.forEach(btn => btn.click());
+        await new Promise(r => setTimeout(r, 300));
+        app.setLayout('single');
+        
+      } catch (error) {
+        log(`✗ Tab dragging test failed: ${error.message}`, 'fail');
+        throw error;
+      }
+    }
+    
+    async function testEmptyPanelDrop() {
+      log('Testing empty panel drop support...', 'info');
+      
+      try {
+        const app = await waitForApp();
+        
+        // Switch to 2-column layout
+        app.setLayout('2-columns');
+        await new Promise(r => setTimeout(r, 500));
+        
+        // Create one tab in first panel
+        app.createSSHTab('Tab1', { host: 'host1', username: 'user1' });
+        await new Promise(r => setTimeout(r, 300));
+        
+        // Verify second panel is empty
+        const panel1Tabs = testFrame.contentDocument.querySelectorAll('#panel-1 .tab');
+        if (panel1Tabs.length !== 0) {
+          throw new Error(`Expected 0 tabs in panel-1, got ${panel1Tabs.length}`);
+        }
+        
+        log('✓ Panel-1 is initially empty', 'pass');
+        
+        // Move tab to empty panel
+        const sessionId = testFrame.contentDocument.querySelector('#panel-0 .tab').dataset.sessionId;
+        app.moveTabToPanel(sessionId, 'panel-1');
+        
+        await new Promise(r => setTimeout(r, 300));
+        
+        // Verify tab moved
+        const panel0TabsAfter = testFrame.contentDocument.querySelectorAll('#panel-0 .tab');
+        const panel1TabsAfter = testFrame.contentDocument.querySelectorAll('#panel-1 .tab');
+        
+        if (panel1TabsAfter.length !== 1) {
+          throw new Error(`Expected 1 tab in panel-1, got ${panel1TabsAfter.length}`);
+        }
+        
+        if (panel0TabsAfter.length !== 0) {
+          throw new Error(`Expected 0 tabs in panel-0, got ${panel0TabsAfter.length}`);
+        }
+        
+        log('✓ Empty panel drop test passed - tab moved to empty panel', 'pass');
+        
+        // Clean up
+        const closeBtn = testFrame.contentDocument.querySelector('.tab-close');
+        if (closeBtn) closeBtn.click();
+        await new Promise(r => setTimeout(r, 300));
+        app.setLayout('single');
+        
+      } catch (error) {
+        log(`✗ Empty panel drop test failed: ${error.message}`, 'fail');
+        throw error;
+      }
+    }
+    
+    async function testActiveTabSelection() {
+      log('Testing active tab selection during layout changes...', 'info');
+      
+      try {
+        const app = await waitForApp();
+        
+        // Create two tabs in single panel
+        app.createSSHTab('Tab1', { host: 'host1', username: 'user1' });
+        await new Promise(r => setTimeout(r, 300));
+        
+        app.createSSHTab('Tab2', { host: 'host2', username: 'user2' });
+        await new Promise(r => setTimeout(r, 300));
+        
+        // Activate second tab
+        const tabs = testFrame.contentDocument.querySelectorAll('.tab');
+        if (tabs.length >= 2) {
+          tabs[1].click();
+          await new Promise(r => setTimeout(r, 300));
+        }
+        
+        // Get active tab name
+        const activeTabBefore = testFrame.contentDocument.querySelector('.tab.active');
+        const activeNameBefore = activeTabBefore?.querySelector('.tab-name')?.textContent;
+        
+        log(`Active tab before layout change: ${activeNameBefore}`, 'info');
+        
+        // Switch to 2-column layout
+        app.setLayout('2-columns');
+        await new Promise(r => setTimeout(r, 500));
+        
+        // Verify active tab is still the same
+        const activeTabAfter = testFrame.contentDocument.querySelector('.tab.active');
+        const activeNameAfter = activeTabAfter?.querySelector('.tab-name')?.textContent;
+        
+        log(`Active tab after layout change: ${activeNameAfter}`, 'info');
+        
+        if (activeNameBefore !== activeNameAfter) {
+          throw new Error(`Active tab changed from "${activeNameBefore}" to "${activeNameAfter}"`);
+        }
+        
+        log('✓ Active tab preserved during layout change', 'pass');
+        
+        // Switch back to single panel
+        app.setLayout('single');
+        await new Promise(r => setTimeout(r, 500));
+        
+        // Verify active tab is still the same
+        const activeTabFinal = testFrame.contentDocument.querySelector('.tab.active');
+        const activeNameFinal = activeTabFinal?.querySelector('.tab-name')?.textContent;
+        
+        log(`Active tab after returning to single panel: ${activeNameFinal}`, 'info');
+        
+        if (activeNameBefore !== activeNameFinal) {
+          throw new Error(`Active tab changed from "${activeNameBefore}" to "${activeNameFinal}" after returning to single panel`);
+        }
+        
+        log('✓ Active tab selection test passed', 'pass');
+        
+        // Clean up
+        const allCloseBtns = testFrame.contentDocument.querySelectorAll('.tab-close');
+        allCloseBtns.forEach(btn => btn.click());
+        await new Promise(r => setTimeout(r, 300));
+        
+      } catch (error) {
+        log(`✗ Active tab selection test failed: ${error.message}`, 'fail');
+        throw error;
+      }
+    }
+  </script>
+</body>
+</html>
