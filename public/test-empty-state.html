@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Empty State Overlay Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: #f5f5f5;
+        }
+        .test-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background-color: white;
+        }
+        h1 {
+            color: #333;
+        }
+        h2 {
+            margin-top: 0;
+            color: #555;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status.pass {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.fail {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.pending {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        button.primary {
+            background-color: #007bff;
+            color: white;
+        }
+        button.primary:hover {
+            background-color: #0056b3;
+        }
+        button.secondary {
+            background-color: #6c757d;
+            color: white;
+        }
+        button.secondary:hover {
+            background-color: #545b62;
+        }
+        .log {
+            background-color: #f8f9fa;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #dee2e6;
+        }
+        .instructions {
+            background-color: #e7f3ff;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            border-left: 4px solid #007bff;
+        }
+        .instructions h3 {
+            margin-top: 0;
+            color: #007bff;
+        }
+        .instructions ol {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        .instructions li {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Empty State Overlay Test</h1>
+    
+    <div class="instructions">
+        <h3>Test Instructions</h3>
+        <p>This test verifies that the "No active session" overlay is properly hidden when:</p>
+        <ol>
+            <li>Tabs are restored from server sync</li>
+            <li>Layout is changed and tabs are redistributed</li>
+            <li>Tabs are created programmatically</li>
+        </ol>
+        <p><strong>Note:</strong> Open the browser console to see detailed logs.</p>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 1: Empty State on Fresh Load</h2>
+        <div id="test1-status" class="status pending">Pending</div>
+        <button class="primary" onclick="runTest1()">Run Test</button>
+        <div id="test1-log" class="log"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 2: Empty State Hidden After Tab Creation</h2>
+        <div id="test2-status" class="status pending">Pending</div>
+        <button class="primary" onclick="runTest2()">Run Test</button>
+        <div id="test2-log" class="log"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 3: Empty State Hidden After Layout Change</h2>
+        <div id="test3-status" class="status pending">Pending</div>
+        <button class="primary" onclick="runTest3()">Run Test</button>
+        <div id="test3-log" class="log"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 4: Empty State Hidden After Tab Sync</h2>
+        <div id="test4-status" class="status pending">Pending</div>
+        <button class="primary" onclick="runTest4()">Run Test</button>
+        <div id="test4-log" class="log"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 5: Multi-Panel Empty State</h2>
+        <div id="test5-status" class="status pending">Pending</div>
+        <button class="primary" onclick="runTest5()">Run Test</button>
+        <div id="test5-log" class="log"></div>
+    </div>
+    
+    <div class="test-section">
+        <button class="primary" onclick="runAllTests()">Run All Tests</button>
+        <button class="secondary" onclick="clearLogs()">Clear Logs</button>
+    </div>
+    
+    <script>
+        // Helper functions
+        function log(testId, message) {
+            const logDiv = document.getElementById(`test${testId}-log`);
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}<br>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        function setStatus(testId, status, message) {
+            const statusDiv = document.getElementById(`test${testId}-status`);
+            statusDiv.className = `status ${status}`;
+            statusDiv.textContent = message;
+        }
+        
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+        
+        // Test 1: Empty State on Fresh Load
+        async function runTest1() {
+            log(1, 'Starting empty state test on fresh load...');
+            setStatus(1, 'pending', 'Running...');
+            
+            try {
+                const mainTab = window.open('/index.html', '_blank');
+                await sleep(3000);
+                
+                if (!mainTab || !mainTab.app) {
+                    throw new Error('Failed to open main application');
+                }
+                
+                log(1, 'Main application opened');
+                
+                // Check if empty state is visible
+                const emptyState = mainTab.document.getElementById('emptyState');
+                if (!emptyState) {
+                    throw new Error('Empty state element not found');
+                }
+                
+                const isVisible = !emptyState.classList.contains('hidden');
+                log(1, `Empty state visible: ${isVisible}`);
+                
+                if (!isVisible) {
+                    throw new Error('Empty state should be visible on fresh load');
+                }
+                
+                log(1, 'Empty state is correctly visible on fresh load');
+                
+                mainTab.close();
+                
+                setStatus(1, 'pass', 'Test passed');
+            } catch (error) {
+                log(1, `Error: ${error.message}`);
+                setStatus(1, 'fail', `Test failed: ${error.message}`);
+            }
+        }
+        
+        // Test 2: Empty State Hidden After Tab Creation
+        async function runTest2() {
+            log(2, 'Starting empty state test after tab creation...');
+            setStatus(2, 'pending', 'Running...');
+            
+            try {
+                const mainTab = window.open('/index.html', '_blank');
+                await sleep(3000);
+                
+                if (!mainTab || !mainTab.app) {
+                    throw new Error('Failed to open main application');
+                }
+                
+                log(2, 'Main application opened');
+                
+                // Create a mock session
+                const sessionId = 'test-session-' + Date.now();
+                mainTab.app.sessions.set(sessionId, {
+                    id: sessionId,
+                    name: 'Test Session',
+                    type: 'ssh',
+                    panelId: 'panel-0'
+                });
+                
+                // Create tab element
+                const tab = mainTab.app.createTabElement(sessionId, 'Test Session', 'ssh');
+                const tabsContainer = mainTab.app.getTabsContainer('panel-0');
+                tabsContainer.appendChild(tab);
+                
+                await sleep(500);
+                
+                // Check if empty state is hidden
+                const emptyState = mainTab.document.getElementById('emptyState');
+                if (!emptyState) {
+                    throw new Error('Empty state element not found');
+                }
+                
+                const isHidden = emptyState.classList.contains('hidden');
+                log(2, `Empty state hidden: ${isHidden}`);
+                
+                if (!isHidden) {
+                    throw new Error('Empty state should be hidden after tab creation');
+                }
+                
+                log(2, 'Empty state is correctly hidden after tab creation');
+                
+                mainTab.close();
+                
+                setStatus(2, 'pass', 'Test passed');
+            } catch (error) {
+                log(2, `Error: ${error.message}`);
+                setStatus(2, 'fail', `Test failed: ${error.message}`);
+            }
+        }
+        
+        // Test 3: Empty State Hidden After Layout Change
+        async function runTest3() {
+            log(3, 'Starting empty state test after layout change...');
+            setStatus(3, 'pending', 'Running...');
+            
+            try {
+                const mainTab = window.open('/index.html', '_blank');
+                await sleep(3000);
+                
+                if (!mainTab || !mainTab.app) {
+                    throw new Error('Failed to open main application');
+                }
+                
+                log(3, 'Main application opened');
+                
+                // Create mock sessions
+                const sessions = ['session-1', 'session-2'];
+                sessions.forEach(sessionId => {
+                    mainTab.app.sessions.set(sessionId, {
+                        id: sessionId,
+                        name: `Test ${sessionId}`,
+                        type: 'ssh',
+                        panelId: 'panel-0'
+                    });
+                    
+                    const tab = mainTab.app.createTabElement(sessionId, `Test ${sessionId}`, 'ssh');
+                    const tabsContainer = mainTab.app.getTabsContainer('panel-0');
+                    tabsContainer.appendChild(tab);
+                });
+                
+                await sleep(500);
+                
+                log(3, 'Created 2 mock sessions');
+                
+                // Change layout to 2-panel horizontal
+                mainTab.app.setLayout('2-panel-horizontal');
+                await sleep(1000);
+                
+                log(3, 'Changed layout to 2-panel-horizontal');
+                
+                // Check empty state for all panels
+                const panels = mainTab.app.getAllPanels();
+                let allHidden = true;
+                
+                panels.forEach(panelId => {
+                    const emptyStateId = panelId === 'panel-0' ? 'emptyState' : `${panelId}-emptyState`;
+                    const emptyState = mainTab.document.getElementById(emptyStateId);
+                    
+                    if (emptyState && !emptyState.classList.contains('hidden')) {
+                        log(3, `Empty state still visible for panel ${panelId}`);
+                        allHidden = false;
+                    } else {
+                        log(3, `Empty state correctly hidden for panel ${panelId}`);
+                    }
+                });
+                
+                if (!allHidden) {
+                    throw new Error('Empty state should be hidden for all panels after layout change');
+                }
+                
+                log(3, 'Empty state is correctly hidden for all panels');
+                
+                mainTab.close();
+                
+                setStatus(3, 'pass', 'Test passed');
+            } catch (error) {
+                log(3, `Error: ${error.message}`);
+                setStatus(3, 'fail', `Test failed: ${error.message}`);
+            }
+        }
+        
+        // Test 4: Empty State Hidden After Tab Sync
+        async function runTest4() {
+            log(4, 'Starting empty state test after tab sync...');
+            setStatus(4, 'pending', 'Running...');
+            
+            try {
+                const mainTab = window.open('/index.html', '_blank');
+                await sleep(3000);
+                
+                if (!mainTab || !mainTab.app) {
+                    throw new Error('Failed to open main application');
+                }
+                
+                log(4, 'Main application opened');
+                
+                // Simulate tab sync from server
+                const mockTabs = [
+                    { sessionId: 'sync-session-1', name: 'Sync Session 1', type: 'ssh', panelId: 'panel-0' },
+                    { sessionId: 'sync-session-2', name: 'Sync Session 2', type: 'ssh', panelId: 'panel-0' }
+                ];
+                
+                // Call syncTabsFromServer
+                await mainTab.app.syncTabsFromServer(mockTabs);
+                
+                await sleep(500);
+                
+                log(4, 'Synced tabs from server');
+                
+                // Check if empty state is hidden
+                const emptyState = mainTab.document.getElementById('emptyState');
+                if (!emptyState) {
+                    throw new Error('Empty state element not found');
+                }
+                
+                const isHidden = emptyState.classList.contains('hidden');
+                log(4, `Empty state hidden: ${isHidden}`);
+                
+                if (!isHidden) {
+                    throw new Error('Empty state should be hidden after tab sync');
+                }
+                
+                log(4, 'Empty state is correctly hidden after tab sync');
+                
+                mainTab.close();
+                
+                setStatus(4, 'pass', 'Test passed');
+            } catch (error) {
+                log(4, `Error: ${error.message}`);
+                setStatus(4, 'fail', `Test failed: ${error.message}`);
+            }
+        }
+        
+        // Test 5: Multi-Panel Empty State
+        async function runTest5() {
+            log(5, 'Starting multi-panel empty state test...');
+            setStatus(5, 'pending', 'Running...');
+            
+            try {
+                const mainTab = window.open('/index.html', '_blank');
+                await sleep(3000);
+                
+                if (!mainTab || !mainTab.app) {
+                    throw new Error('Failed to open main application');
+                }
+                
+                log(5, 'Main application opened');
+                
+                // Set layout to 2-panel horizontal
+                mainTab.app.setLayout('2-panel-horizontal');
+                await sleep(1000);
+                
+                log(5, 'Set layout to 2-panel-horizontal');
+                
+                // Create mock sessions for both panels
+                const sessions = [
+                    { id: 'session-1', panelId: 'panel-0' },
+                    { id: 'session-2', panelId: 'panel-1' }
+                ];
+                
+                sessions.forEach(({ id, panelId }) => {
+                    mainTab.app.sessions.set(id, {
+                        id: id,
+                        name: `Test ${id}`,
+                        type: 'ssh',
+                        panelId: panelId
+                    });
+                    
+                    const tab = mainTab.app.createTabElement(id, `Test ${id}`, 'ssh');
+                    const tabsContainer = mainTab.app.getTabsContainer(panelId);
+                    tabsContainer.appendChild(tab);
+                });
+                
+                await sleep(500);
+                
+                log(5, 'Created sessions for both panels');
+                
+                // Distribute tabs to panels
+                mainTab.app.distributeTabsToPanels();
+                
+                await sleep(500);
+                
+                // Check empty state for all panels
+                const panels = mainTab.app.getAllPanels();
+                let allHidden = true;
+                
+                panels.forEach(panelId => {
+                    const emptyStateId = panelId === 'panel-0' ? 'emptyState' : `${panelId}-emptyState`;
+                    const emptyState = mainTab.document.getElementById(emptyStateId);
+                    
+                    if (emptyState && !emptyState.classList.contains('hidden')) {
+                        log(5, `Empty state still visible for panel ${panelId}`);
+                        allHidden = false;
+                    } else {
+                        log(5, `Empty state correctly hidden for panel ${panelId}`);
+                    }
+                });
+                
+                if (!allHidden) {
+                    throw new Error('Empty state should be hidden for all panels with tabs');
+                }
+                
+                log(5, 'Empty state is correctly hidden for all panels');
+                
+                mainTab.close();
+                
+                setStatus(5, 'pass', 'Test passed');
+            } catch (error) {
+                log(5, `Error: ${error.message}`);
+                setStatus(5, 'fail', `Test failed: ${error.message}`);
+            }
+        }
+        
+        // Run all tests
+        async function runAllTests() {
+            for (let i = 1; i <= 5; i++) {
+                await window[`runTest${i}`]();
+                await sleep(1000);
+            }
+        }
+        
+        // Clear logs
+        function clearLogs() {
+            for (let i = 1; i <= 5; i++) {
+                document.getElementById(`test${i}-log`).innerHTML = '';
+            }
+        }
+    </script>
+</body>
+</html>

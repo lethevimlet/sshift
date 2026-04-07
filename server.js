@@ -706,7 +706,8 @@ io.on('connection', (socket) => {
           name: tab.connectionData?.name
           // Exclude password, privateKey, and other sensitive data
         },
-        sticky: tab.sticky
+        sticky: tab.sticky,
+        panelId: tab.panelId || 'panel-0' // Include panel assignment
         // Exclude activeSockets (Set) to avoid serialization issues
       };
     });
@@ -912,11 +913,65 @@ io.on('connection', (socket) => {
 
   // Tab reorder event
   socket.on('tab-reorder', (data) => {
-    console.log('[TAB] Tab reorder:', data.order);
-    tabOrder = data.order;
+    console.log('[TAB] Tab reorder:', data.tabs?.length || 0, 'tabs, layout:', data.layout);
+    
+    // Update tab order with panel assignments
+    if (data.tabs && Array.isArray(data.tabs)) {
+      tabOrder = data.tabs.map(t => typeof t === 'string' ? t : t.sessionId);
+      
+      // Update panel assignments in openTabs
+      data.tabs.forEach(tabData => {
+        if (typeof tabData === 'object' && tabData.sessionId && tabData.panelId) {
+          const tab = openTabs.get(tabData.sessionId);
+          if (tab) {
+            tab.panelId = tabData.panelId;
+            openTabs.set(tabData.sessionId, tab);
+          }
+        }
+      });
+    } else if (data.order) {
+      // Legacy format support
+      tabOrder = data.order;
+    }
     
     // Broadcast new order to all other clients
-    socket.broadcast.emit('tab-order', { order: tabOrder });
+    socket.broadcast.emit('tab-order', { 
+      tabs: data.tabs,
+      order: tabOrder,
+      layout: data.layout
+    });
+  });
+
+  // Tabs save event - for cross-tab sync
+  socket.on('tabs-save', (data) => {
+    console.log('[TAB] Tabs save:', data.tabs?.length || 0, 'tabs, layout:', data.layout);
+    
+    // Update tab order with panel assignments
+    if (data.tabs && Array.isArray(data.tabs)) {
+      tabOrder = data.tabs.map(t => typeof t === 'string' ? t : t.sessionId);
+      
+      // Update panel assignments in openTabs
+      data.tabs.forEach(tabData => {
+        if (typeof tabData === 'object' && tabData.sessionId && tabData.panelId) {
+          const tab = openTabs.get(tabData.sessionId);
+          if (tab) {
+            tab.panelId = tabData.panelId;
+            openTabs.set(tabData.sessionId, tab);
+          }
+        }
+      });
+    }
+    
+    // Update current layout
+    if (data.layout) {
+      currentLayout = data.layout;
+    }
+    
+    // Broadcast to all other clients
+    socket.broadcast.emit('tabs-sync', { 
+      tabs: data.tabs,
+      layout: data.layout
+    });
   });
 
   // Tab rename - sync across all sessions
