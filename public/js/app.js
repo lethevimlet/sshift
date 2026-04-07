@@ -4776,7 +4776,7 @@ class SSHIFTClient {
         theme: terminalTheme,
         fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', 'Courier New', monospace",
         fontSize: this.terminalFontSize,
-        lineHeight: 1.2,
+        lineHeight: 1.0,
         cursorBlink: true,
         cursorStyle: 'block',
         scrollback: 10000,
