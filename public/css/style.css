@@ -1807,9 +1807,11 @@ body {
 
 .tabs {
   display: flex;
-  overflow-x: auto;
+  align-items: center;
   flex: 1;
+  overflow-x: auto;
   scrollbar-width: none;
+  min-height: 40px; /* Ensure there's always a drop target */
 }
 
 .tabs::-webkit-scrollbar {
@@ -1825,7 +1827,6 @@ body {
   border: none;
   border-bottom: 2px solid transparent;
   color: var(--text-secondary);
-  cursor: pointer;
   transition: var(--transition-fast);
   white-space: nowrap;
   font-size: 13px;
@@ -1864,7 +1865,6 @@ body {
   background: transparent;
   border: none;
   color: var(--text-muted);
-  cursor: pointer;
   transition: var(--transition-fast);
   font-size: 10px;
 }
@@ -1878,6 +1878,19 @@ body {
 .tabs-container.drag-over {
   background: var(--bg-tertiary);
   box-shadow: inset 0 0 0 2px var(--accent-primary);
+}
+
+/* Prevent cursor changes during tab drag */
+body.dragging-tabs .tab,
+body.dragging-tabs .tabs,
+body.dragging-tabs .tabs-container {
+  cursor: default !important;
+}
+
+/* Highlight entire tabs container when dragging over it */
+.tabs.drag-over {
+  background: var(--bg-hover);
+  border-radius: 4px;
 }
 
 .tab-close:hover {
@@ -1915,7 +1928,6 @@ body {
   border: none;
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
-  cursor: pointer;
   transition: var(--transition-fast);
   font-size: 12px;
 }

@@ -1135,13 +1135,51 @@ class SSHIFTClient {
         this.hideEmptyState('panel-0');
       }
       
-      // Distribute tabs (use syncedTabs if available, otherwise just update mobile dropdown)
-      if (syncedTabs) {
-        this.distributeTabsToPanels(syncedTabs);
-      } else {
-        // Just update mobile dropdown and save tabs
+      // When switching to single panel, ensure only one tab is active
+      // Priority: first panel's active tab, then second panel's, etc.
+      if (!syncedTabs) {
+        // Find the first active tab across all panels
+        let activeTabToKeep = null;
+        const panels = this.getAllPanels();
+        
+        // Check each panel in order for an active session
+        for (const panelId of panels) {
+          const activeSessionId = this.activeSessionsByPanel.get(panelId);
+          if (activeSessionId && this.sessions.has(activeSessionId)) {
+            activeTabToKeep = activeSessionId;
+            break;
+          }
+        }
+        
+        // Deactivate all tabs first
+        tabsContainer.querySelectorAll('.tab').forEach(tab => {
+          tab.classList.remove('active');
+        });
+        
+        // Hide all terminal wrappers
+        terminalsContainer.querySelectorAll('.terminal-wrapper').forEach(wrapper => {
+          wrapper.classList.remove('active');
+        });
+        
+        // Activate only the selected tab
+        if (activeTabToKeep) {
+          const activeTab = tabsContainer.querySelector(`[data-session-id="${activeTabToKeep}"]`);
+          const activeWrapper = terminalsContainer.querySelector(`[data-session-id="${activeTabToKeep}"]`);
+          
+          if (activeTab) activeTab.classList.add('active');
+          if (activeWrapper) activeWrapper.classList.add('active');
+          
+          // Update activeSessionsByPanel for single panel
+          this.activeSessionsByPanel.clear();
+          this.activeSessionsByPanel.set('panel-0', activeTabToKeep);
+        }
+        
+        // Update mobile dropdown and save tabs
         this.updateMobileTabsDropdown('panel-0');
         this.saveTabs();
+      } else {
+        // Use syncedTabs distribution
+        this.distributeTabsToPanels(syncedTabs);
       }
       
       // Resize terminals after restoration
@@ -1157,6 +1195,12 @@ class SSHIFTClient {
     layout.columns.forEach((columnDef, colIndex) => {
       const column = this.createColumn(columnDef, colIndex);
       layoutContainer.appendChild(column);
+    });
+    
+    // Attach event listeners to all panels
+    const panels = this.getAllPanels();
+    panels.forEach(panelId => {
+      this.attachPanelEventListeners(panelId);
     });
     
     this.currentLayout = layout;
@@ -1189,6 +1233,9 @@ class SSHIFTClient {
     
     // Resize terminals after restoration
     setTimeout(() => this.handleResize(), 100);
+    
+    // Update scroll arrows for all panels
+    setTimeout(() => this.updateTabsScrollArrows(), 150);
   }
 
   // Get all tabs in order across all panels
@@ -1284,6 +1331,41 @@ class SSHIFTClient {
     const tabs = document.createElement('div');
     tabs.className = 'tabs';
     tabs.id = isSingle ? 'tabs' : `${panelId}-tabs`;
+    
+    // Add drag-and-drop event listeners to the tabs container for dropping tabs on empty panels
+    tabs.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      
+      // Highlight tabs container when dragging over it
+      if (this.draggedTab) {
+        tabs.classList.add('drag-over');
+      }
+    });
+    
+    tabs.addEventListener('dragleave', (e) => {
+      // Remove highlight when leaving
+      tabs.classList.remove('drag-over');
+    });
+    
+    tabs.addEventListener('drop', (e) => {
+      e.preventDefault();
+      tabs.classList.remove('drag-over');
+      
+      // Handle drop on tabs container (empty or with tabs)
+      if (this.draggedTab) {
+        const sourcePanelId = this.getPanelForSession(this.draggedTab);
+        const targetPanelId = panelId;
+        
+        // If dropping on a different panel or empty container
+        if (sourcePanelId !== targetPanelId) {
+          console.log('[SSHIFT] Moving tab from panel', sourcePanelId, 'to panel', targetPanelId);
+          this.moveTabToPanel(this.draggedTab, targetPanelId);
+          this.saveTabs();
+        }
+      }
+    });
+    
     container.appendChild(tabs);
     
     // Scroll arrows
@@ -1422,6 +1504,19 @@ class SSHIFTClient {
       scrollRightBtn.addEventListener('click', () => {
         tabsContainer.scrollBy({ left: 100, behavior: 'smooth' });
       });
+    }
+    
+    // Add scroll event listener to update arrow states
+    if (tabsContainer) {
+      tabsContainer.addEventListener('scroll', () => {
+        this.updateTabsScrollArrows();
+      });
+      
+      // Add ResizeObserver to update arrows when container size changes
+      const resizeObserver = new ResizeObserver(() => {
+        this.updateTabsScrollArrows();
+      });
+      resizeObserver.observe(tabsContainer);
     }
     
     // Mobile tabs dropdown
@@ -4059,12 +4154,14 @@ class SSHIFTClient {
     const tab = this.createTabElement(sessionId, name, 'ssh');
     const terminalWrapper = this.createTerminalElement(sessionId);
 
-    // Always add new tabs to the first panel (panel-0)
-    const tabsContainer = this.getTabsContainer('panel-0');
-    const terminalsContainer = this.getTerminalsContainer('panel-0');
+    // Always add new tabs to the first panel
+    const panels = this.getAllPanels();
+    const firstPanelId = panels[0];
+    const tabsContainer = this.getTabsContainer(firstPanelId);
+    const terminalsContainer = this.getTerminalsContainer(firstPanelId);
     
     if (!tabsContainer || !terminalsContainer) {
-      console.error('[SSHIFT] Could not find tabs or terminals container for panel-0');
+      console.error('[SSHIFT] Could not find tabs or terminals container for first panel:', firstPanelId);
       return null;
     }
     
@@ -4198,15 +4295,28 @@ class SSHIFTClient {
     this.draggedTab = sessionId;
     e.target.style.opacity = '0.5';
     e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', sessionId); // Store sessionId for cross-panel drops
+    
+    // Add dragging class to prevent cursor changes
+    document.body.classList.add('dragging-tabs');
   }
 
   handleTabDragOver(e) {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     
-    const target = e.target.closest('.tab');
-    if (target && target.dataset.sessionId !== this.draggedTab) {
-      target.style.borderLeft = '2px solid var(--accent-primary)';
+    // Find the tabs container (full width drop zone)
+    const tabsContainer = e.target.closest('.tabs');
+    
+    if (tabsContainer) {
+      // Highlight the entire tabs container
+      tabsContainer.classList.add('drag-over');
+      
+      // Also highlight individual tabs for reordering indication
+      const target = e.target.closest('.tab');
+      if (target && target.dataset.sessionId !== this.draggedTab) {
+        target.style.borderLeft = '2px solid var(--accent-primary)';
+      }
     }
   }
 
@@ -4219,6 +4329,7 @@ class SSHIFTClient {
 
     // Find the panel containing the target tab
     const targetPanelId = this.getPanelForSession(targetSessionId);
+    const sourcePanelId = this.getPanelForSession(this.draggedTab);
     const tabsContainer = this.getTabsContainer(targetPanelId);
     
     if (!tabsContainer) {
@@ -4226,31 +4337,61 @@ class SSHIFTClient {
       return;
     }
     
-    const tabs = Array.from(tabsContainer.children);
-    
-    // Find indices
-    const draggedIndex = tabs.findIndex(t => t.dataset.sessionId === this.draggedTab);
-    const targetIndex = tabs.findIndex(t => t.dataset.sessionId === targetSessionId);
-
-    if (draggedIndex !== -1 && targetIndex !== -1) {
-      // Reorder tabs in DOM
-      const draggedTab = tabs[draggedIndex];
+    // If dragging to a different panel, move the tab
+    if (sourcePanelId !== targetPanelId) {
+      console.log('[SSHIFT] Moving tab from panel', sourcePanelId, 'to panel', targetPanelId);
+      this.moveTabToPanel(this.draggedTab, targetPanelId);
       
-      if (draggedIndex < targetIndex) {
-        tabsContainer.insertBefore(draggedTab, tabs[targetIndex].nextSibling);
-      } else {
-        tabsContainer.insertBefore(draggedTab, tabs[targetIndex]);
+      // Reorder within the target panel after moving
+      const tabs = Array.from(tabsContainer.children);
+      const targetIndex = tabs.findIndex(t => t.dataset.sessionId === targetSessionId);
+      const draggedTabElement = tabs.find(t => t.dataset.sessionId === this.draggedTab);
+      
+      if (draggedTabElement && targetIndex !== -1) {
+        // Insert at the position of the target tab
+        const draggedIndex = tabs.indexOf(draggedTabElement);
+        if (draggedIndex < targetIndex) {
+          tabsContainer.insertBefore(draggedTabElement, tabs[targetIndex].nextSibling);
+        } else {
+          tabsContainer.insertBefore(draggedTabElement, tabs[targetIndex]);
+        }
+      }
+    } else {
+      // Same panel - just reorder
+      const tabs = Array.from(tabsContainer.children);
+      const draggedIndex = tabs.findIndex(t => t.dataset.sessionId === this.draggedTab);
+      const targetIndex = tabs.findIndex(t => t.dataset.sessionId === targetSessionId);
+
+      if (draggedIndex !== -1 && targetIndex !== -1) {
+        const draggedTab = tabs[draggedIndex];
+        
+        if (draggedIndex < targetIndex) {
+          tabsContainer.insertBefore(draggedTab, tabs[targetIndex].nextSibling);
+        } else {
+          tabsContainer.insertBefore(draggedTab, tabs[targetIndex]);
+        }
       }
     }
+    
+    // Save tabs after reordering
+    this.saveTabs();
   }
 
   handleTabDragEnd(e) {
     e.target.style.opacity = '1';
     this.draggedTab = null;
     
-    // Remove all border styles
+    // Remove dragging class
+    document.body.classList.remove('dragging-tabs');
+    
+    // Remove all border styles from tabs
     document.querySelectorAll('.tab').forEach(tab => {
       tab.style.borderLeft = '';
+    });
+    
+    // Remove drag-over class from all tabs containers
+    document.querySelectorAll('.tabs').forEach(container => {
+      container.classList.remove('drag-over');
     });
     
     // Save tabs order when sticky is enabled
@@ -4258,9 +4399,14 @@ class SSHIFTClient {
     
     // Emit tab reorder to server for cross-client sync
     if (this.sticky && this.socket && this.socket.connected) {
-      const tabsContainer = document.getElementById('tabs');
-      const order = Array.from(tabsContainer.children).map(tab => tab.dataset.sessionId);
-      this.socket.emit('tab-reorder', { order });
+      const panels = this.getAllPanels();
+      panels.forEach(panelId => {
+        const tabsContainer = this.getTabsContainer(panelId);
+        if (tabsContainer) {
+          const order = Array.from(tabsContainer.children).map(tab => tab.dataset.sessionId);
+          this.socket.emit('tab-reorder', { order, panelId });
+        }
+      });
     }
   }
   
@@ -4856,12 +5002,14 @@ class SSHIFTClient {
     
     const tab = this.createTabElement(sessionId, name, 'sftp');
     
-    // Always add new tabs to the first panel (panel-0)
-    const tabsContainer = this.getTabsContainer('panel-0');
-    const terminalsContainer = this.getTerminalsContainer('panel-0');
+    // Always add new tabs to the first panel
+    const panels = this.getAllPanels();
+    const firstPanelId = panels[0];
+    const tabsContainer = this.getTabsContainer(firstPanelId);
+    const terminalsContainer = this.getTerminalsContainer(firstPanelId);
     
     if (!tabsContainer || !terminalsContainer) {
-      console.error('[SSHIFT] Could not find tabs or terminals container for panel-0');
+      console.error('[SSHIFT] Could not find tabs or terminals container for first panel:', firstPanelId);
       return null;
     }
     
