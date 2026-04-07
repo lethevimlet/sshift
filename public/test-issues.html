@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test Issues - Sticky, Accent, Bookmarks</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .test-section {
+      padding: 20px;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .test-section h3 {
+      margin-bottom: 10px;
+      color: var(--accent-primary);
+    }
+    .test-result {
+      padding: 10px;
+      margin: 5px 0;
+      border-radius: 4px;
+      font-family: monospace;
+    }
+    .test-result.pass {
+      background: #2ea043;
+      color: white;
+    }
+    .test-result.fail {
+      background: #da3633;
+      color: white;
+    }
+    .test-result.info {
+      background: #1f6feb;
+      color: white;
+    }
+    button {
+      margin: 5px;
+      padding: 8px 16px;
+      background: var(--accent-primary);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: var(--accent-hover);
+    }
+  </style>
+</head>
+<body>
+  <div class="test-section">
+    <h3>1. Sticky Mode Test</h3>
+    <button onclick="testStickyConfig()">Test Sticky Config</button>
+    <button onclick="testStickyToggle()">Test Sticky Toggle</button>
+    <button onclick="testStickyPersistence()">Test Sticky Persistence</button>
+    <div id="sticky-results"></div>
+  </div>
+
+  <div class="test-section">
+    <h3>2. Accent Color Test</h3>
+    <button onclick="testAccentConfig()">Test Accent Config</button>
+    <button onclick="testAccentApplication()">Test Accent Application</button>
+    <button onclick="testAccentPersistence()">Test Accent Persistence</button>
+    <div id="accent-results"></div>
+  </div>
+
+  <div class="test-section">
+    <h3>3. Bookmarks Display Test</h3>
+    <button onclick="testBookmarksRender()">Test Bookmarks Render</button>
+    <button onclick="testBookmarksVisibility()">Test Bookmarks Visibility</button>
+    <button onclick="testBookmarksInLayouts()">Test Bookmarks in Layouts</button>
+    <div id="bookmarks-results"></div>
+  </div>
+
+  <div class="test-section">
+    <h3>4. Layout System Test</h3>
+    <button onclick="testLayoutSwitching()">Test Layout Switching</button>
+    <button onclick="testLayoutPersistence()">Test Layout Persistence</button>
+    <div id="layout-results"></div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    let socket;
+    let app;
+
+    function logResult(containerId, message, type) {
+      const container = document.getElementById(containerId);
+      const div = document.createElement('div');
+      div.className = `test-result ${type}`;
+      div.textContent = message;
+      container.appendChild(div);
+    }
+
+    async function testStickyConfig() {
+      const container = 'sticky-results';
+      document.getElementById(container).innerHTML = '';
+      
+      try {
+        // Test localStorage
+        const localSticky = localStorage.getItem('sticky');
+        logResult(container, `localStorage sticky: ${localSticky}`, 'info');
+        
+        // Test server config
+        const response = await fetch('/api/config');
+        const config = await response.json();
+        logResult(container, `Server config sticky: ${config.sticky}`, 'info');
+        
+        // Test if they match
+        if (localSticky !== null) {
+          const localValue = JSON.parse(localSticky);
+          if (localValue === config.sticky) {
+            logResult(container, 'PASS: Sticky config matches', 'pass');
+          } else {
+            logResult(container, 'FAIL: Sticky config mismatch', 'fail');
+          }
+        } else {
+          logResult(container, 'INFO: No localStorage sticky, using server default', 'info');
+        }
+      } catch (err) {
+        logResult(container, `ERROR: ${err.message}`, 'fail');
+      }
+    }
+
+    function testStickyToggle() {
+      const container = 'sticky-results';
+      const checkbox = document.getElementById('stickyToggle');
+      
+      if (checkbox) {
+        logResult(container, `Sticky toggle found: ${checkbox.checked}`, 'pass');
+      } else {
+        logResult(container, 'FAIL: Sticky toggle not found', 'fail');
+      }
+    }
+
+    function testStickyPersistence() {
+      const container = 'sticky-results';
+      
+      // Test if sticky is saved on toggle
+      const originalValue = localStorage.getItem('sticky');
+      logResult(container, `Original sticky value: ${originalValue}`, 'info');
+      
+      // Toggle it
+      const newValue = originalValue === 'true' ? false : true;
+      localStorage.setItem('sticky', JSON.stringify(newValue));
+      
+      // Check if it was saved
+      const savedValue = localStorage.getItem('sticky');
+      if (JSON.parse(savedValue) === newValue) {
+        logResult(container, 'PASS: Sticky persistence works', 'pass');
+      } else {
+        logResult(container, 'FAIL: Sticky persistence failed', 'fail');
+      }
+      
+      // Restore original
+      if (originalValue !== null) {
+        localStorage.setItem('sticky', originalValue);
+      } else {
+        localStorage.removeItem('sticky');
+      }
+    }
+
+    async function testAccentConfig() {
+      const container = 'accent-results';
+      document.getElementById(container).innerHTML = '';
+      
+      try {
+        const accent = localStorage.getItem('accent');
+        logResult(container, `localStorage accent: ${accent}`, 'info');
+        
+        const docAccent = document.documentElement.getAttribute('data-accent');
+        logResult(container, `Document data-accent: ${docAccent}`, 'info');
+        
+        if (accent === docAccent) {
+          logResult(container, 'PASS: Accent config matches', 'pass');
+        } else {
+          logResult(container, 'FAIL: Accent config mismatch', 'fail');
+        }
+      } catch (err) {
+        logResult(container, `ERROR: ${err.message}`, 'fail');
+      }
+    }
+
+    function testAccentApplication() {
+      const container = 'accent-results';
+      
+      // Test if accent color is applied to CSS variables
+      const testElement = document.createElement('div');
+      testElement.style.background = 'var(--accent-primary)';
+      document.body.appendChild(testElement);
+      
+      const computedStyle = window.getComputedStyle(testElement);
+      const bgColor = computedStyle.backgroundColor;
+      
+      logResult(container, `Accent primary color: ${bgColor}`, 'info');
+      
+      // Check if it's not default (should be one of the accent colors)
+      const accentColors = {
+        fuchsia: 'rgb(193, 0, 89)',
+        green: 'rgb(46, 160, 67)',
+        purple: 'rgb(163, 113, 242)',
+        orange: 'rgb(209, 134, 22)',
+        red: 'rgb(218, 54, 51)',
+        cyan: 'rgb(31, 111, 235)',
+        blue: 'rgb(88, 166, 255)',
+        yellow: 'rgb(210, 153, 34)'
+      };
+      
+      const currentAccent = document.documentElement.getAttribute('data-accent');
+      const expectedColor = accentColors[currentAccent];
+      
+      if (expectedColor && bgColor === expectedColor) {
+        logResult(container, 'PASS: Accent color applied correctly', 'pass');
+      } else {
+        logResult(container, `FAIL: Accent color mismatch. Expected: ${expectedColor}, Got: ${bgColor}`, 'fail');
+      }
+      
+      document.body.removeChild(testElement);
+    }
+
+    function testAccentPersistence() {
+      const container = 'accent-results';
+      
+      const accents = ['fuchsia', 'green', 'purple', 'orange', 'red', 'cyan', 'blue', 'yellow'];
+      const testAccent = accents[Math.floor(Math.random() * accents.length)];
+      
+      // Save original
+      const originalAccent = localStorage.getItem('accent');
+      
+      // Set new accent
+      localStorage.setItem('accent', testAccent);
+      document.documentElement.setAttribute('data-accent', testAccent);
+      
+      // Check if it was applied
+      const appliedAccent = document.documentElement.getAttribute('data-accent');
+      
+      if (appliedAccent === testAccent) {
+        logResult(container, `PASS: Accent persistence works (${testAccent})`, 'pass');
+      } else {
+        logResult(container, 'FAIL: Accent persistence failed', 'fail');
+      }
+      
+      // Restore original
+      if (originalAccent) {
+        localStorage.setItem('accent', originalAccent);
+        document.documentElement.setAttribute('data-accent', originalAccent);
+      } else {
+        localStorage.removeItem('accent');
+      }
+    }
+
+    async function testBookmarksRender() {
+      const container = 'bookmarks-results';
+      document.getElementById(container).innerHTML = '';
+      
+      try {
+        const response = await fetch('/api/bookmarks');
+        const bookmarks = await response.json();
+        
+        logResult(container, `Server bookmarks: ${bookmarks.length}`, 'info');
+        
+        const bookmarksList = document.getElementById('bookmarksList');
+        if (bookmarksList) {
+          const renderedBookmarks = bookmarksList.querySelectorAll('.bookmark-item');
+          logResult(container, `Rendered bookmarks: ${renderedBookmarks.length}`, 'info');
+          
+          if (renderedBookmarks.length === bookmarks.length) {
+            logResult(container, 'PASS: Bookmarks rendered correctly', 'pass');
+          } else {
+            logResult(container, 'FAIL: Bookmarks count mismatch', 'fail');
+          }
+        } else {
+          logResult(container, 'FAIL: bookmarksList element not found', 'fail');
+        }
+      } catch (err) {
+        logResult(container, `ERROR: ${err.message}`, 'fail');
+      }
+    }
+
+    function testBookmarksVisibility() {
+      const container = 'bookmarks-results';
+      
+      const sidebar = document.getElementById('sidebar');
+      if (sidebar) {
+        const computedStyle = window.getComputedStyle(sidebar);
+        const display = computedStyle.display;
+        const visibility = computedStyle.visibility;
+        const width = computedStyle.width;
+        
+        logResult(container, `Sidebar display: ${display}`, 'info');
+        logResult(container, `Sidebar visibility: ${visibility}`, 'info');
+        logResult(container, `Sidebar width: ${width}`, 'info');
+        
+        if (display !== 'none' && visibility !== 'hidden') {
+          logResult(container, 'PASS: Sidebar is visible', 'pass');
+        } else {
+          logResult(container, 'FAIL: Sidebar is hidden', 'fail');
+        }
+      } else {
+        logResult(container, 'FAIL: Sidebar element not found', 'fail');
+      }
+    }
+
+    function testBookmarksInLayouts() {
+      const container = 'bookmarks-results';
+      
+      // Test if sidebar is visible in different layouts
+      const sidebar = document.getElementById('sidebar');
+      const layoutContainer = document.getElementById('layoutContainer');
+      
+      if (sidebar && layoutContainer) {
+        // Check if sidebar is a sibling of terminal-area (which contains layoutContainer)
+        const terminalArea = document.querySelector('.terminal-area');
+        
+        if (terminalArea) {
+          const sidebarParent = sidebar.parentElement;
+          const terminalAreaParent = terminalArea.parentElement;
+          
+          if (sidebarParent === terminalAreaParent) {
+            logResult(container, 'PASS: Sidebar and terminal-area are siblings', 'pass');
+          } else {
+            logResult(container, 'FAIL: Sidebar and terminal-area are not siblings', 'fail');
+          }
+        } else {
+          logResult(container, 'FAIL: terminal-area not found', 'fail');
+        }
+      } else {
+        logResult(container, 'FAIL: Sidebar or layoutContainer not found', 'fail');
+      }
+    }
+
+    function testLayoutSwitching() {
+      const container = 'layout-results';
+      document.getElementById(container).innerHTML = '';
+      
+      // Test if layout switching works
+      const layoutContainer = document.getElementById('layoutContainer');
+      
+      if (layoutContainer) {
+        const initialClasses = layoutContainer.className;
+        logResult(container, `Initial layout classes: ${initialClasses}`, 'info');
+        
+        // Check if panels exist
+        const panels = layoutContainer.querySelectorAll('.layout-panel');
+        logResult(container, `Number of panels: ${panels.length}`, 'info');
+        
+        if (panels.length > 0) {
+          logResult(container, 'PASS: Layout panels exist', 'pass');
+        } else {
+          logResult(container, 'FAIL: No layout panels found', 'fail');
+        }
+      } else {
+        logResult(container, 'FAIL: layoutContainer not found', 'fail');
+      }
+    }
+
+    function testLayoutPersistence() {
+      const container = 'layout-results';
+      
+      // Test if layout is saved and restored
+      const savedLayout = localStorage.getItem('currentLayout');
+      logResult(container, `Saved layout: ${savedLayout}`, 'info');
+      
+      // Check if app.currentLayout matches
+      if (window.app && window.app.currentLayout) {
+        logResult(container, `App current layout: ${window.app.currentLayout.id}`, 'info');
+        
+        if (savedLayout === window.app.currentLayout.id) {
+          logResult(container, 'PASS: Layout persistence works', 'pass');
+        } else {
+          logResult(container, 'FAIL: Layout persistence mismatch', 'fail');
+        }
+      } else {
+        logResult(container, 'INFO: App not initialized or no current layout', 'info');
+      }
+    }
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      socket = io();
+      logResult('sticky-results', 'Test page loaded', 'info');
+      logResult('accent-results', 'Test page loaded', 'info');
+      logResult('bookmarks-results', 'Test page loaded', 'info');
+      logResult('layout-results', 'Test page loaded', 'info');
+    });
+  </script>
+</body>
+</html>

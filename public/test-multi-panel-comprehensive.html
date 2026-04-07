@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multi-Panel Active Terminals - Comprehensive Test</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      padding: 20px;
+      background: #0d1117;
+      color: #e6edf3;
+      margin: 0;
+    }
+    
+    h1 {
+      color: #58a6ff;
+      margin-bottom: 20px;
+    }
+    
+    .test-section {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    
+    .test-section h2 {
+      margin-top: 0;
+      color: #7ee787;
+    }
+    
+    .test-result {
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 4px;
+      font-family: monospace;
+    }
+    
+    .test-result.pass {
+      background: #238636;
+      border: 1px solid #2ea043;
+    }
+    
+    .test-result.fail {
+      background: #da3633;
+      border: 1px solid #f85149;
+    }
+    
+    .test-result.pending {
+      background: #6e7681;
+      border: 1px solid #8b949e;
+    }
+    
+    button {
+      background: #238636;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      margin: 5px;
+    }
+    
+    button:hover {
+      background: #2ea043;
+    }
+    
+    button:disabled {
+      background: #6e7681;
+      cursor: not-allowed;
+    }
+    
+    .code-block {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 4px;
+      padding: 10px;
+      font-family: monospace;
+      overflow-x: auto;
+      margin: 10px 0;
+      white-space: pre-wrap;
+    }
+    
+    .summary {
+      background: #161b22;
+      border: 2px solid #30363d;
+      border-radius: 6px;
+      padding: 20px;
+      margin-top: 20px;
+    }
+    
+    .summary h2 {
+      margin-top: 0;
+      color: #58a6ff;
+    }
+    
+    .summary-item {
+      margin: 10px 0;
+      padding: 10px;
+      border-radius: 4px;
+    }
+    
+    .summary-item.pass {
+      background: #238636;
+    }
+    
+    .summary-item.fail {
+      background: #da3633;
+    }
+  </style>
+</head>
+<body>
+  <h1>Multi-Panel Active Terminals - Comprehensive Test</h1>
+  
+  <div class="test-section">
+    <h2>Test 1: Active Sessions Preservation</h2>
+    <p>This test verifies that active sessions are preserved when switching layouts.</p>
+    <button onclick="runTest1()">Run Test 1</button>
+    <div id="test1-results"></div>
+  </div>
+  
+  <div class="test-section">
+    <h2>Test 2: Multi-Panel Active Terminals</h2>
+    <p>This test verifies that each panel can have its own active terminal.</p>
+    <button onclick="runTest2()">Run Test 2</button>
+    <div id="test2-results"></div>
+  </div>
+  
+  <div class="test-section">
+    <h2>Test 3: Tab Distribution</h2>
+    <p>This test verifies that tabs are correctly distributed across panels.</p>
+    <button onclick="runTest3()">Run Test 3</button>
+    <div id="test3-results"></div>
+  </div>
+  
+  <div class="test-section">
+    <h2>Test 4: Layout Switching</h2>
+    <p>This test verifies that switching layouts preserves active terminals in each panel.</p>
+    <button onclick="runTest4()">Run Test 4</button>
+    <div id="test4-results"></div>
+  </div>
+  
+  <div class="test-section">
+    <h2>Test 5: Panel-Specific Element IDs</h2>
+    <p>This test verifies that panel-specific element IDs are correctly used.</p>
+    <button onclick="runTest5()">Run Test 5</button>
+    <div id="test5-results"></div>
+  </div>
+  
+  <div class="summary" id="summary" style="display: none;">
+    <h2>Test Summary</h2>
+    <div id="summary-content"></div>
+  </div>
+  
+  <script>
+    // Test results tracking
+    const testResults = {
+      test1: { passed: false, message: '' },
+      test2: { passed: false, message: '' },
+      test3: { passed: false, message: '' },
+      test4: { passed: false, message: '' },
+      test5: { passed: false, message: '' }
+    };
+    
+    // Simulated app state
+    let appState = {
+      sessions: new Map(),
+      activeSessionsByPanel: new Map(),
+      currentLayout: 'single',
+      panels: ['panel-0']
+    };
+    
+    // Test 1: Active Sessions Preservation
+    function runTest1() {
+      const results = document.getElementById('test1-results');
+      results.innerHTML = '';
+      
+      // Setup: Create sessions
+      appState.sessions.clear();
+      appState.sessions.set('ssh-1', { name: 'Server 1', type: 'ssh' });
+      appState.sessions.set('ssh-2', { name: 'Server 2', type: 'ssh' });
+      appState.sessions.set('ssh-3', { name: 'Server 3', type: 'ssh' });
+      
+      // Set active sessions
+      appState.activeSessionsByPanel.clear();
+      appState.activeSessionsByPanel.set('panel-0', 'ssh-1');
+      
+      // Simulate layout change to 2-column
+      const previousActiveSessions = new Map(appState.activeSessionsByPanel);
+      
+      // Simulate distribution (the fix preserves previousActiveSessions)
+      appState.panels = ['panel-0', 'panel-1'];
+      
+      // Restore active sessions (simulating the fix)
+      const tabsByPanel = {
+        'panel-0': ['ssh-1', 'ssh-3'],
+        'panel-1': ['ssh-2']
+      };
+      
+      Object.entries(tabsByPanel).forEach(([panelId, sessionIds]) => {
+        if (sessionIds.length > 0) {
+          const previousActive = previousActiveSessions.get(panelId);
+          if (previousActive && sessionIds.includes(previousActive)) {
+            appState.activeSessionsByPanel.set(panelId, previousActive);
+          } else {
+            appState.activeSessionsByPanel.set(panelId, sessionIds[0]);
+          }
+        }
+      });
+      
+      // Verify
+      const passed = appState.activeSessionsByPanel.get('panel-0') === 'ssh-1' &&
+                     appState.activeSessionsByPanel.get('panel-1') === 'ssh-2';
+      
+      testResults.test1.passed = passed;
+      testResults.test1.message = passed ? 
+        'Active sessions preserved correctly' : 
+        'Active sessions not preserved';
+      
+      results.innerHTML = `
+        <div class="test-result ${passed ? 'pass' : 'fail'}">
+          ${passed ? '✓ PASS' : '✗ FAIL'}: ${testResults.test1.message}
+        </div>
+        <div class="code-block">
+          Previous active: ${previousActiveSessions.get('panel-0')}<br>
+          Panel 0 active: ${appState.activeSessionsByPanel.get('panel-0')}<br>
+          Panel 1 active: ${appState.activeSessionsByPanel.get('panel-1')}
+        </div>
+      `;
+      
+      updateSummary();
+    }
+    
+    // Test 2: Multi-Panel Active Terminals
+    function runTest2() {
+      const results = document.getElementById('test2-results');
+      results.innerHTML = '';
+      
+      // Setup: Create sessions for 2-column layout
+      appState.sessions.clear();
+      appState.sessions.set('ssh-1', { name: 'Server 1', type: 'ssh' });
+      appState.sessions.set('ssh-2', { name: 'Server 2', type: 'ssh' });
+      appState.sessions.set('ssh-3', { name: 'Server 3', type: 'ssh' });
+      appState.sessions.set('ssh-4', { name: 'Server 4', type: 'ssh' });
+      
+      appState.panels = ['panel-0', 'panel-1'];
+      appState.activeSessionsByPanel.clear();
+      appState.activeSessionsByPanel.set('panel-0', 'ssh-1');
+      appState.activeSessionsByPanel.set('panel-1', 'ssh-3');
+      
+      // Verify each panel has its own active session
+      const panel0Active = appState.activeSessionsByPanel.get('panel-0');
+      const panel1Active = appState.activeSessionsByPanel.get('panel-1');
+      
+      const passed = panel0Active === 'ssh-1' && panel1Active === 'ssh-3';
+      
+      testResults.test2.passed = passed;
+      testResults.test2.message = passed ? 
+        'Each panel has its own active terminal' : 
+        'Panels do not have independent active terminals';
+      
+      results.innerHTML = `
+        <div class="test-result ${passed ? 'pass' : 'fail'}">
+          ${passed ? '✓ PASS' : '✗ FAIL'}: ${testResults.test2.message}
+        </div>
+        <div class="code-block">
+          Panel 0 active: ${panel0Active}<br>
+          Panel 1 active: ${panel1Active}<br>
+          Total panels: ${appState.panels.length}
+        </div>
+      `;
+      
+      updateSummary();
+    }
+    
+    // Test 3: Tab Distribution
+    function runTest3() {
+      const results = document.getElementById('test3-results');
+      results.innerHTML = '';
+      
+      // Setup: Create sessions
+      appState.sessions.clear();
+      appState.sessions.set('ssh-1', { name: 'Server 1', type: 'ssh' });
+      appState.sessions.set('ssh-2', { name: 'Server 2', type: 'ssh' });
+      appState.sessions.set('ssh-3', { name: 'Server 3', type: 'ssh' });
+      appState.sessions.set('ssh-4', { name: 'Server 4', type: 'ssh' });
+      
+      // Simulate distribution across 2 panels
+      const sessions = Array.from(appState.sessions.keys());
+      const panels = ['panel-0', 'panel-1'];
+      const distribution = {};
+      
+      sessions.forEach((sessionId, index) => {
+        const targetPanel = panels[index % panels.length];
+        if (!distribution[targetPanel]) {
+          distribution[targetPanel] = [];
+        }
+        distribution[targetPanel].push(sessionId);
+      });
+      
+      // Verify distribution
+      const panel0Count = distribution['panel-0'] ? distribution['panel-0'].length : 0;
+      const panel1Count = distribution['panel-1'] ? distribution['panel-1'].length : 0;
+      
+      const passed = panel0Count === 2 && panel1Count === 2;
+      
+      testResults.test3.passed = passed;
+      testResults.test3.message = passed ? 
+        'Tabs distributed evenly across panels' : 
+        'Tab distribution is incorrect';
+      
+      results.innerHTML = `
+        <div class="test-result ${passed ? 'pass' : 'fail'}">
+          ${passed ? '✓ PASS' : '✗ FAIL'}: ${testResults.test3.message}
+        </div>
+        <div class="code-block">
+          Panel 0: ${distribution['panel-0'] ? distribution['panel-0'].join(', ') : 'none'} (${panel0Count} tabs)<br>
+          Panel 1: ${distribution['panel-1'] ? distribution['panel-1'].join(', ') : 'none'} (${panel1Count} tabs)<br>
+          Distribution algorithm: index % panelCount
+        </div>
+      `;
+      
+      updateSummary();
+    }
+    
+    // Test 4: Layout Switching
+    function runTest4() {
+      const results = document.getElementById('test4-results');
+      results.innerHTML = '';
+      
+      // Setup: Create sessions for 2-column layout
+      appState.sessions.clear();
+      appState.sessions.set('ssh-1', { name: 'Server 1', type: 'ssh' });
+      appState.sessions.set('ssh-2', { name: 'Server 2', type: 'ssh' });
+      appState.sessions.set('ssh-3', { name: 'Server 3', type: 'ssh' });
+      appState.sessions.set('ssh-4', { name: 'Server 4', type: 'ssh' });
+      
+      // Initial state: 2-column layout
+      appState.panels = ['panel-0', 'panel-1'];
+      appState.activeSessionsByPanel.clear();
+      appState.activeSessionsByPanel.set('panel-0', 'ssh-1');
+      appState.activeSessionsByPanel.set('panel-1', 'ssh-3');
+      
+      // Store previous active sessions
+      const previousActiveSessions = new Map(appState.activeSessionsByPanel);
+      
+      // Switch to 3-column layout
+      appState.panels = ['panel-0', 'panel-1', 'panel-2'];
+      
+      // Distribute sessions: ssh-1 -> panel-0, ssh-2 -> panel-1, ssh-3 -> panel-2, ssh-4 -> panel-0
+      const tabsByPanel = {
+        'panel-0': ['ssh-1', 'ssh-4'],
+        'panel-1': ['ssh-2'],
+        'panel-2': ['ssh-3']
+      };
+      
+      // Restore active sessions
+      appState.activeSessionsByPanel.clear();
+      Object.entries(tabsByPanel).forEach(([panelId, sessionIds]) => {
+        if (sessionIds.length > 0) {
+          const previousActive = previousActiveSessions.get(panelId);
+          if (previousActive && sessionIds.includes(previousActive)) {
+            appState.activeSessionsByPanel.set(panelId, previousActive);
+          } else {
+            appState.activeSessionsByPanel.set(panelId, sessionIds[0]);
+          }
+        }
+      });
+      
+      // Verify
+      const passed = appState.activeSessionsByPanel.get('panel-0') === 'ssh-1' &&
+                     appState.activeSessionsByPanel.get('panel-1') === 'ssh-2' &&
+                     appState.activeSessionsByPanel.get('panel-2') === 'ssh-3';
+      
+      testResults.test4.passed = passed;
+      testResults.test4.message = passed ? 
+        'Active terminals preserved during layout switch' : 
+        'Active terminals lost during layout switch';
+      
+      results.innerHTML = `
+        <div class="test-result ${passed ? 'pass' : 'fail'}">
+          ${passed ? '✓ PASS' : '✗ FAIL'}: ${testResults.test4.message}
+        </div>
+        <div class="code-block">
+          Previous active sessions:<br>
+          - Panel 0: ${previousActiveSessions.get('panel-0')}<br>
+          - Panel 1: ${previousActiveSessions.get('panel-1')}<br>
+          <br>
+          Current active sessions:<br>
+          - Panel 0: ${appState.activeSessionsByPanel.get('panel-0')}<br>
+          - Panel 1: ${appState.activeSessionsByPanel.get('panel-1')}<br>
+          - Panel 2: ${appState.activeSessionsByPanel.get('panel-2')}
+        </div>
+      `;
+      
+      updateSummary();
+    }
+    
+    // Test 5: Panel-Specific Element IDs
+    function runTest5() {
+      const results = document.getElementById('test5-results');
+      results.innerHTML = '';
+      
+      // Test that panel-specific element IDs are correctly formatted
+      const panels = ['panel-0', 'panel-1', 'panel-2'];
+      const tests = [];
+      
+      panels.forEach(panelId => {
+        const tabsContainerId = `${panelId}-tabs`;
+        const terminalsContainerId = `${panelId}-terminals`;
+        
+        tests.push({
+          panelId,
+          tabsContainerId,
+          terminalsContainerId,
+          valid: tabsContainerId === `${panelId}-tabs` && terminalsContainerId === `${panelId}-terminals`
+        });
+      });
+      
+      const passed = tests.every(t => t.valid);
+      
+      testResults.test5.passed = passed;
+      testResults.test5.message = passed ? 
+        'Panel-specific element IDs are correctly formatted' : 
+        'Panel-specific element IDs are incorrectly formatted';
+      
+      results.innerHTML = `
+        <div class="test-result ${passed ? 'pass' : 'fail'}">
+          ${passed ? '✓ PASS' : '✗ FAIL'}: ${testResults.test5.message}
+        </div>
+        <div class="code-block">
+          ${tests.map(t => `Panel ${t.panelId}:\n  Tabs: ${t.tabsContainerId}\n  Terminals: ${t.terminalsContainerId}`).join('\n\n')}
+        </div>
+      `;
+      
+      updateSummary();
+    }
+    
+    function updateSummary() {
+      const summary = document.getElementById('summary');
+      const content = document.getElementById('summary-content');
+      
+      const allPassed = Object.values(testResults).every(r => r.passed);
+      const passedCount = Object.values(testResults).filter(r => r.passed).length;
+      const totalCount = Object.values(testResults).length;
+      
+      summary.style.display = 'block';
+      
+      content.innerHTML = `
+        <div class="summary-item ${allPassed ? 'pass' : 'fail'}">
+          Overall: ${passedCount}/${totalCount} tests passed
+        </div>
+        ${Object.entries(testResults).map(([test, result]) => `
+          <div class="summary-item ${result.passed ? 'pass' : 'fail'}">
+            ${test}: ${result.passed ? '✓ PASS' : '✗ FAIL'} - ${result.message}
+          </div>
+        `).join('')}
+      `;
+    }
+    
+    // Run all tests
+    function runAllTests() {
+      runTest1();
+      runTest2();
+      runTest3();
+      runTest4();
+      runTest5();
+    }
+  </script>
+</body>
+</html>

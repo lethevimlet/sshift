@@ -61,6 +61,29 @@ class SSHIFTClient {
   }
 
   async loadStickyConfig() {
+    // First, try to load from localStorage (user's last saved preference)
+    const localSticky = localStorage.getItem('sticky');
+    const localTakeControl = localStorage.getItem('takeControlDefault');
+    const localKeepaliveInterval = localStorage.getItem('sshKeepaliveInterval');
+    const localKeepaliveCountMax = localStorage.getItem('sshKeepaliveCountMax');
+    const localMobileKeysBar = localStorage.getItem('mobileKeysBarEnabled');
+    
+    // If we have localStorage values, use them
+    if (localSticky !== null) {
+      this.sticky = JSON.parse(localSticky);
+      this.takeControlDefault = localTakeControl !== null ? JSON.parse(localTakeControl) : true;
+      this.sshKeepaliveInterval = localKeepaliveInterval !== null ? parseInt(localKeepaliveInterval) : 10000;
+      this.sshKeepaliveCountMax = localKeepaliveCountMax !== null ? parseInt(localKeepaliveCountMax) : 1000;
+      this.mobileKeysBarEnabled = localMobileKeysBar !== null ? JSON.parse(localMobileKeysBar) : true;
+      console.log('[SSHIFT] Loaded from localStorage - Sticky:', this.sticky ? 'enabled' : 'disabled',
+                  'Take Control Default:', this.takeControlDefault ? 'enabled' : 'disabled',
+                  'Keepalive Interval:', this.sshKeepaliveInterval,
+                  'Keepalive Count Max:', this.sshKeepaliveCountMax,
+                  'Mobile Keys Bar:', this.mobileKeysBarEnabled ? 'enabled' : 'disabled');
+      return;
+    }
+    
+    // Otherwise, load from server config
     try {
       const response = await fetch('/api/config');
       const config = await response.json();
@@ -73,7 +96,7 @@ class SSHIFTClient {
       this.sshKeepaliveCountMax = config.sshKeepaliveCountMax || 1000;
       // Load mobile keys bar setting
       this.mobileKeysBarEnabled = config.mobileKeysBarEnabled !== undefined ? config.mobileKeysBarEnabled : true;
-      console.log('[SSHIFT] Sticky:', this.sticky ? 'enabled' : 'disabled',
+      console.log('[SSHIFT] Loaded from server - Sticky:', this.sticky ? 'enabled' : 'disabled',
                   'Take Control Default:', this.takeControlDefault ? 'enabled' : 'disabled',
                   'Keepalive Interval:', this.sshKeepaliveInterval,
                   'Keepalive Count Max:', this.sshKeepaliveCountMax,
@@ -85,6 +108,35 @@ class SSHIFTClient {
       this.sshKeepaliveInterval = 10000;
       this.sshKeepaliveCountMax = 1000;
       this.mobileKeysBarEnabled = true; // Default to true
+    }
+  }
+
+  // Update sticky checkbox to reflect loaded value
+  updateStickyCheckbox() {
+    const stickyToggle = document.getElementById('stickyToggle');
+    if (stickyToggle) {
+      stickyToggle.checked = this.sticky;
+      console.log('[SSHIFT] Updated sticky checkbox to:', this.sticky);
+    }
+    
+    const takeControlToggle = document.getElementById('takeControlDefaultToggle');
+    if (takeControlToggle) {
+      takeControlToggle.checked = this.takeControlDefault;
+    }
+    
+    const keepaliveIntervalInput = document.getElementById('sshKeepaliveInterval');
+    if (keepaliveIntervalInput && this.sshKeepaliveInterval) {
+      keepaliveIntervalInput.value = this.sshKeepaliveInterval;
+    }
+    
+    const keepaliveCountMaxInput = document.getElementById('sshKeepaliveCountMax');
+    if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
+      keepaliveCountMaxInput.value = this.sshKeepaliveCountMax;
+    }
+    
+    const mobileKeysBarToggle = document.getElementById('mobileKeysBarToggle');
+    if (mobileKeysBarToggle) {
+      mobileKeysBarToggle.checked = this.mobileKeysBarEnabled;
     }
   }
 
@@ -209,8 +261,8 @@ class SSHIFTClient {
     
     console.log('[SSHIFT] Distributing', allSessions.length, 'tabs across', panelCount, 'panels');
     
-    // Clear per-panel active sessions before redistribution
-    this.activeSessionsByPanel.clear();
+    // Store current active sessions before redistribution
+    const previousActiveSessions = new Map(this.activeSessionsByPanel);
     
     // If we have synced tabs from another browser tab, use them
     if (syncedTabs && Array.isArray(syncedTabs)) {
@@ -271,7 +323,7 @@ class SSHIFTClient {
         });
       }
       
-      // Activate the first tab in each panel
+      // Activate tabs in each panel
       const tabsByPanel = {};
       panels.forEach(p => tabsByPanel[p] = []);
       
@@ -280,10 +332,19 @@ class SSHIFTClient {
         tabsByPanel[targetPanel].push(tabData.sessionId);
       });
       
-      // Activate first tab in each panel
+      // Restore active sessions or activate first tab in each panel
       Object.entries(tabsByPanel).forEach(([panelId, sessionIds]) => {
         if (sessionIds.length > 0) {
-          this.switchTab(sessionIds[0], panelId);
+          // Check if we had a previously active session in this panel
+          const previousActive = previousActiveSessions.get(panelId);
+          
+          // If the previous active session is still in this panel, restore it
+          if (previousActive && sessionIds.includes(previousActive)) {
+            this.switchTab(previousActive, panelId);
+          } else {
+            // Otherwise, activate the first tab
+            this.switchTab(sessionIds[0], panelId);
+          }
         }
       });
     }
@@ -1412,16 +1473,25 @@ class SSHIFTClient {
     const savedLayoutId = this.loadCurrentLayout();
     const layout = this.layouts.find(l => l.id === savedLayoutId) || this.layouts[0];
     
+    // Check if we should defer layout application (sticky mode with saved tabs)
+    const savedData = this.loadTabs();
+    const savedTabs = Array.isArray(savedData) ? savedData : (savedData?.tabs || []);
+    const shouldDeferLayout = this.sticky && savedTabs.length > 0;
+    
     if (layout) {
       this.currentLayout = layout;
-      this.applyLayout(layout);
       this.updateLayoutActiveState(layout.id);
       
-      // Resize terminals after initial layout (with delay for DOM to settle)
-      setTimeout(() => this.handleResize(), 100);
+      // Only apply layout if not deferring to restoreTabs()
+      if (!shouldDeferLayout) {
+        this.applyLayout(layout);
+        // Resize terminals after initial layout (with delay for DOM to settle)
+        setTimeout(() => this.handleResize(), 100);
+      }
     }
     
-    console.log('[SSHIFT] Layout system initialized with layout:', layout?.name);
+    console.log('[SSHIFT] Layout system initialized with layout:', layout?.name, 
+                shouldDeferLayout ? '(deferred to restoreTabs)' : '');
   }
 
   async loadBookmarkOrder() {
@@ -1467,6 +1537,9 @@ class SSHIFTClient {
     
     // Load sticky config first
     await this.loadStickyConfig();
+    
+    // Update sticky checkbox to reflect loaded value
+    this.updateStickyCheckbox();
     
     // Initialize layout system (must be before setupEventListeners)
     await this.initLayoutSystem();
@@ -2227,14 +2300,15 @@ class SSHIFTClient {
       }, 500);
     }
     
-    // Restore layout if saved
-    if (savedLayout && this.layouts) {
-      const layout = this.layouts.find(l => l.id === savedLayout);
-      if (layout) {
-        console.log('[SSHIFT] Restoring layout:', savedLayout);
-        // Pass savedTabs to applyLayout which will handle distribution
-        this.applyLayout(layout, savedTabs);
-      }
+    // Restore layout if saved, or use current layout
+    if (this.currentLayout) {
+      const layoutToApply = (savedLayout && this.layouts) 
+        ? this.layouts.find(l => l.id === savedLayout) || this.currentLayout
+        : this.currentLayout;
+      
+      console.log('[SSHIFT] Applying layout after restoration:', layoutToApply.id);
+      // Pass savedTabs to applyLayout which will handle distribution
+      this.applyLayout(layoutToApply, savedTabs);
     }
     
     // Update mobile tabs Dropdown after restoration
@@ -3081,12 +3155,16 @@ class SSHIFTClient {
     }
     
     // Update scroll arrows when tabs container is scrolled
-    const tabsContainer = document.getElementById('tabs');
-    if (tabsContainer) {
-      tabsContainer.addEventListener('scroll', () => {
-        this.updateTabsScrollArrows();
-      });
-    }
+    // Attach scroll listeners to all panels
+    const panels = this.getAllPanels ? this.getAllPanels() : ['panel-0'];
+    panels.forEach(panelId => {
+      const tabsContainer = this.getTabsContainer(panelId);
+      if (tabsContainer) {
+        tabsContainer.addEventListener('scroll', () => {
+          this.updateTabsScrollArrows();
+        });
+      }
+    });
 
     // Window resize with debouncing to prevent resize storms
     // Mobile browsers fire many resize events (orientation, keyboard, etc.)
@@ -3742,48 +3820,56 @@ class SSHIFTClient {
 
   // Scroll tabs left or right
   scrollTabs(amount) {
-    const tabsContainer = document.getElementById('tabs');
-    if (!tabsContainer) return;
-    
-    tabsContainer.scrollBy({
-      left: amount,
-      behavior: 'smooth'
+    // Update scroll arrows for all panels
+    const panels = this.getAllPanels();
+    panels.forEach(panelId => {
+      const tabsContainer = this.getTabsContainer(panelId);
+      if (tabsContainer) {
+        tabsContainer.scrollBy({
+          left: amount,
+          behavior: 'smooth'
+        });
+      }
     });
   }
 
   // Update scroll arrows visibility based on tabs overflow
   updateTabsScrollArrows() {
-    const tabsContainer = document.getElementById('tabs');
-    const scrollArrows = document.getElementById('tabsScrollArrows');
-    const scrollLeftBtn = document.getElementById('scrollLeftBtn');
-    const scrollRightBtn = document.getElementById('scrollRightBtn');
-    
-    if (!tabsContainer || !scrollArrows) return;
-    
-    // Only show arrows on desktop (width > 768px)
-    const isDesktop = window.innerWidth > 768;
-    if (!isDesktop) {
-      scrollArrows.classList.remove('visible');
-      return;
-    }
-    
-    // Check if tabs overflow the container
-    const hasOverflow = tabsContainer.scrollWidth > tabsContainer.clientWidth;
-    
-    if (hasOverflow) {
-      scrollArrows.classList.add('visible');
+    // Update scroll arrows for all panels
+    const panels = this.getAllPanels();
+    panels.forEach(panelId => {
+      const tabsContainer = this.getTabsContainer(panelId);
+      const scrollArrows = document.getElementById(panelId === 'panel-0' ? 'tabsScrollArrows' : `${panelId}-tabsScrollArrows`);
+      const scrollLeftBtn = document.getElementById(panelId === 'panel-0' ? 'scrollLeftBtn' : `${panelId}-scrollLeftBtn`);
+      const scrollRightBtn = document.getElementById(panelId === 'panel-0' ? 'scrollRightBtn' : `${panelId}-scrollRightBtn`);
       
-      // Update arrow states based on scroll position
-      if (scrollLeftBtn) {
-        scrollLeftBtn.disabled = tabsContainer.scrollLeft <= 0;
+      if (!tabsContainer || !scrollArrows) return;
+      
+      // Only show arrows on desktop (width > 768px)
+      const isDesktop = window.innerWidth > 768;
+      if (!isDesktop) {
+        scrollArrows.classList.remove('visible');
+        return;
       }
-      if (scrollRightBtn) {
-        const maxScrollLeft = tabsContainer.scrollWidth - tabsContainer.clientWidth;
-        scrollRightBtn.disabled = tabsContainer.scrollLeft >= maxScrollLeft - 1; // -1 for rounding
+      
+      // Check if tabs overflow the container
+      const hasOverflow = tabsContainer.scrollWidth > tabsContainer.clientWidth;
+      
+      if (hasOverflow) {
+        scrollArrows.classList.add('visible');
+        
+        // Update arrow states based on scroll position
+        if (scrollLeftBtn) {
+          scrollLeftBtn.disabled = tabsContainer.scrollLeft <= 0;
+        }
+        if (scrollRightBtn) {
+          const maxScrollLeft = tabsContainer.scrollWidth - tabsContainer.clientWidth;
+          scrollRightBtn.disabled = tabsContainer.scrollLeft >= maxScrollLeft - 1; // -1 for rounding
+        }
+      } else {
+        scrollArrows.classList.remove('visible');
       }
-    } else {
-      scrollArrows.classList.remove('visible');
-    }
+    });
   }
 
   saveStickyConfig() {
@@ -3973,8 +4059,17 @@ class SSHIFTClient {
     const tab = this.createTabElement(sessionId, name, 'ssh');
     const terminalWrapper = this.createTerminalElement(sessionId);
 
-    document.getElementById('tabs').appendChild(tab);
-    document.getElementById('terminalsContainer').appendChild(terminalWrapper);
+    // Always add new tabs to the first panel (panel-0)
+    const tabsContainer = this.getTabsContainer('panel-0');
+    const terminalsContainer = this.getTerminalsContainer('panel-0');
+    
+    if (!tabsContainer || !terminalsContainer) {
+      console.error('[SSHIFT] Could not find tabs or terminals container for panel-0');
+      return null;
+    }
+    
+    tabsContainer.appendChild(tab);
+    terminalsContainer.appendChild(terminalWrapper);
     
     // Update scroll arrows visibility
     this.updateTabsScrollArrows();
@@ -4122,8 +4217,15 @@ class SSHIFTClient {
       return;
     }
 
-    // Get all tabs as array
-    const tabsContainer = document.getElementById('tabs');
+    // Find the panel containing the target tab
+    const targetPanelId = this.getPanelForSession(targetSessionId);
+    const tabsContainer = this.getTabsContainer(targetPanelId);
+    
+    if (!tabsContainer) {
+      console.error('[SSHIFT] Could not find tabs container for panel:', targetPanelId);
+      return;
+    }
+    
     const tabs = Array.from(tabsContainer.children);
     
     // Find indices
@@ -4754,12 +4856,21 @@ class SSHIFTClient {
     
     const tab = this.createTabElement(sessionId, name, 'sftp');
     
-    document.getElementById('tabs').appendChild(tab);
+    // Always add new tabs to the first panel (panel-0)
+    const tabsContainer = this.getTabsContainer('panel-0');
+    const terminalsContainer = this.getTerminalsContainer('panel-0');
+    
+    if (!tabsContainer || !terminalsContainer) {
+      console.error('[SSHIFT] Could not find tabs or terminals container for panel-0');
+      return null;
+    }
+    
+    tabsContainer.appendChild(tab);
 
     // Create SFTP content element
     const sftpContent = this.createSFTPContentElement(sessionId);
     console.log('[SSHIFT] SFTP content element created:', sftpContent.id);
-    document.getElementById('terminalsContainer').appendChild(sftpContent);
+    terminalsContainer.appendChild(sftpContent);
     
     // Update scroll arrows visibility
     this.updateTabsScrollArrows();

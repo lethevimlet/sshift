@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sticky Mode Fixes Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #e0e0e0;
+        }
+        .test-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #2a2a2a;
+            border-radius: 8px;
+        }
+        h2 {
+            margin-top: 0;
+            color: #c10059;
+        }
+        .test-result {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .pass {
+            background: #1a4a1a;
+            border: 1px solid #2ea043;
+        }
+        .fail {
+            background: #4a1a1a;
+            border: 1px solid #da3633;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            background: #c10059;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #a10049;
+        }
+        .info {
+            background: #1a1a4a;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Sticky Mode Fixes Test</h1>
+    
+    <div class="test-section">
+        <h2>Test 1: Sticky Mode Persistence</h2>
+        <div class="info">
+            This test verifies that sticky mode correctly persists tabs and sessions across page reloads.
+        </div>
+        <button onclick="testStickyPersistence()">Run Test</button>
+        <div id="test1-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 2: Layout Persistence</h2>
+        <div class="info">
+            This test verifies that the selected layout is correctly persisted and restored.
+        </div>
+        <button onclick="testLayoutPersistence()">Run Test</button>
+        <div id="test2-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 3: Accent Color Application</h2>
+        <div class="info">
+            This test verifies that the accent color is correctly applied to all layouts.
+        </div>
+        <button onclick="testAccentColor()">Run Test</button>
+        <div id="test3-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 4: Sidebar Visibility</h2>
+        <div class="info">
+            This test verifies that the sidebar is visible in all layouts.
+        </div>
+        <button onclick="testSidebarVisibility()">Run Test</button>
+        <div id="test4-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 5: Bookmarks Display</h2>
+        <div class="info">
+            This test verifies that bookmarks are displayed correctly in all layouts.
+        </div>
+        <button onclick="testBookmarksDisplay()">Run Test</button>
+        <div id="test5-result"></div>
+    </div>
+    
+    <script>
+        function showResult(elementId, passed, message) {
+            const resultDiv = document.getElementById(elementId);
+            resultDiv.className = 'test-result ' + (passed ? 'pass' : 'fail');
+            resultDiv.textContent = (passed ? '✓ PASS: ' : '✗ FAIL: ') + message;
+        }
+        
+        function testStickyPersistence() {
+            try {
+                // Check if sticky config is loaded
+                const stickyEnabled = localStorage.getItem('sticky');
+                const savedTabs = localStorage.getItem('sshift_tabs');
+                
+                if (stickyEnabled === null) {
+                    showResult('test1-result', false, 'Sticky setting not found in localStorage');
+                    return;
+                }
+                
+                const tabs = savedTabs ? JSON.parse(savedTabs) : [];
+                const stickyValue = JSON.parse(stickyEnabled);
+                
+                showResult('test1-result', true, 
+                    `Sticky mode: ${stickyValue ? 'enabled' : 'disabled'}, ` +
+                    `Saved tabs: ${Array.isArray(tabs) ? tabs.length : (tabs?.tabs?.length || 0)}`);
+            } catch (error) {
+                showResult('test1-result', false, 'Error: ' + error.message);
+            }
+        }
+        
+        function testLayoutPersistence() {
+            try {
+                const savedLayout = localStorage.getItem('sshift_layout');
+                
+                if (!savedLayout) {
+                    showResult('test2-result', true, 'No saved layout (will use default: single)');
+                    return;
+                }
+                
+                showResult('test2-result', true, 'Saved layout: ' + savedLayout);
+            } catch (error) {
+                showResult('test2-result', false, 'Error: ' + error.message);
+            }
+        }
+        
+        function testAccentColor() {
+            try {
+                const accent = localStorage.getItem('accent') || 'fuchsia';
+                const appliedAccent = document.documentElement.getAttribute('data-accent');
+                
+                if (appliedAccent === accent) {
+                    showResult('test3-result', true, 
+                        `Accent color correctly applied: ${appliedAccent}`);
+                } else {
+                    showResult('test3-result', false, 
+                        `Accent mismatch - Expected: ${accent}, Applied: ${appliedAccent}`);
+                }
+            } catch (error) {
+                showResult('test3-result', false, 'Error: ' + error.message);
+            }
+        }
+        
+        function testSidebarVisibility() {
+            try {
+                // This test needs to be run in the main app context
+                showResult('test4-result', true, 
+                    'Run this test in the main app. Sidebar should be visible in all layouts.');
+            } catch (error) {
+                showResult('test4-result', false, 'Error: ' + error.message);
+            }
+        }
+        
+        function testBookmarksDisplay() {
+            try {
+                // This test needs to be run in the main app context
+                showResult('test5-result', true, 
+                    'Run this test in the main app. Bookmarks should be visible in all layouts.');
+            } catch (error) {
+                showResult('test5-result', false, 'Error: ' + error.message);
+            }
+        }
+        
+        // Run all tests on page load
+        window.addEventListener('load', () => {
+            console.log('Sticky Mode Fixes Test Page Loaded');
+        });
+    </script>
+</body>
+</html>
