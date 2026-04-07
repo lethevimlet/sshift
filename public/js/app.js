@@ -395,6 +395,19 @@ class SSHIFTClient {
       this.showEmptyState(currentPanelId);
     }
     
+    // Update active sessions:
+    // 1. Make the moved tab active in the target panel
+    this.switchTab(sessionId, targetPanelId);
+    
+    // 2. Activate the first remaining tab in the source panel (if any)
+    if (sourceTabs.length > 0) {
+      const firstRemainingSessionId = sourceTabs[0].dataset.sessionId;
+      this.switchTab(firstRemainingSessionId, currentPanelId);
+    } else {
+      // No tabs left in source panel, clear its active session
+      this.activeSessionsByPanel.delete(currentPanelId);
+    }
+    
     console.log('[SSHIFT] Moved tab', sessionId, 'from', currentPanelId, 'to', targetPanelId);
   }
 
@@ -402,7 +415,7 @@ class SSHIFTClient {
   hideEmptyState(panelId = 'panel-0') {
     const emptyState = document.getElementById(panelId === 'panel-0' ? 'emptyState' : `${panelId}-emptyState`);
     if (emptyState) {
-      emptyState.style.display = 'none';
+      emptyState.classList.add('hidden');
     }
   }
 
@@ -410,7 +423,7 @@ class SSHIFTClient {
   showEmptyState(panelId = 'panel-0') {
     const emptyState = document.getElementById(panelId === 'panel-0' ? 'emptyState' : `${panelId}-emptyState`);
     if (emptyState) {
-      emptyState.style.display = 'flex';
+      emptyState.classList.remove('hidden');
     }
   }
 
@@ -1148,6 +1161,14 @@ class SSHIFTClient {
           if (activeSessionId && this.sessions.has(activeSessionId)) {
             activeTabToKeep = activeSessionId;
             break;
+          }
+        }
+        
+        // If no active tab found, use the first tab in the panel
+        if (!activeTabToKeep) {
+          const firstTab = tabsContainer.querySelector('.tab');
+          if (firstTab) {
+            activeTabToKeep = firstTab.dataset.sessionId;
           }
         }
         
