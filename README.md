@@ -298,6 +298,210 @@ The application configuration (bookmarks, settings) is loaded from:
 }
 ```
 
+#### Custom Layouts
+
+SSHIFT supports custom terminal layouts that can be defined in `config.json`. Layouts allow you to split your terminal into multiple panels for multitasking.
+
+**Layout Structure:**
+
+Each layout consists of:
+- `id` - Unique identifier
+- `name` - Display name shown in the UI
+- `icon` - Lucide icon name (e.g., "square", "columns-2", "grid-2x2")
+- `columns` - Array of column definitions
+
+Each column has:
+- `width` - Column width (percentage string, e.g., "50%", "33.33%")
+- `rows` - Array of row definitions within the column
+
+Each row has:
+- `height` - Row height (percentage string, e.g., "100%", "50%")
+
+**Example Custom Layouts:**
+
+```json
+{
+  "layouts": [
+    {
+      "id": "single",
+      "name": "Single",
+      "icon": "square",
+      "columns": [
+        {
+          "width": "100%",
+          "rows": [
+            {
+              "height": "100%"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "2-columns",
+      "name": "2 Columns",
+      "icon": "columns-2",
+      "columns": [
+        {
+          "width": "50%",
+          "rows": [
+            {
+              "height": "100%"
+            }
+          ]
+        },
+        {
+          "width": "50%",
+          "rows": [
+            {
+              "height": "100%"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mixed",
+      "name": "Mixed",
+      "icon": "layout-panel-left",
+      "columns": [
+        {
+          "width": "50%",
+          "rows": [
+            {
+              "height": "100%"
+            }
+          ]
+        },
+        {
+          "width": "50%",
+          "rows": [
+            {
+              "height": "50%"
+            },
+            {
+              "height": "50%"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "quad",
+      "name": "4 Panels",
+      "icon": "grid-2x2",
+      "columns": [
+        {
+          "width": "50%",
+          "rows": [
+            {
+              "height": "50%"
+            },
+            {
+              "height": "50%"
+            }
+          ]
+        },
+        {
+          "width": "50%",
+          "rows": [
+            {
+              "height": "50%"
+            },
+            {
+              "height": "50%"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "triple-stack",
+      "name": "Triple Stack",
+      "icon": "grip-lines",
+      "columns": [
+        {
+          "width": "100%",
+          "rows": [
+            {
+              "height": "33.33%"
+            },
+            {
+              "height": "33.33%"
+            },
+            {
+              "height": "33.34%"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Layout Priority:**
+
+SSHIFT loads layouts in the following order (first found wins):
+
+1. **`config.json`** (via `/api/config`) - Custom layouts from config
+2. **`public/layouts.json`** - Default layouts file
+3. **Built-in defaults** - Hardcoded fallback layouts
+
+**Tips for Custom Layouts:**
+
+- Ensure width percentages add up to 100% across columns
+- Ensure height percentages add up to 100% within each column
+- Use unique `id` values for each layout
+- Choose appropriate Lucide icon names for better UI consistency
+- Common icons: `square`, `columns-2`, `columns-3`, `grid-2x2`, `layout-panel-left`, `grip-lines`
+
+**Complete Example with Layouts:**
+
+```json
+{
+  "port": 8022,
+  "devPort": 3000,
+  "bind": "0.0.0.0",
+  "bookmarks": [
+    {
+      "id": "1701234567890",
+      "name": "Production Server",
+      "host": "prod.example.com",
+      "port": 22,
+      "username": "deploy",
+      "type": "ssh"
+    }
+  ],
+  "settings": {
+    "fontSize": 14,
+    "fontFamily": "'Courier New', monospace",
+    "theme": "dark"
+  },
+  "layouts": [
+    {
+      "id": "custom-3-panels",
+      "name": "3 Panels",
+      "icon": "columns-3",
+      "columns": [
+        {
+          "width": "33.33%",
+          "rows": [{ "height": "100%" }]
+        },
+        {
+          "width": "33.33%",
+          "rows": [{ "height": "100%" }]
+        },
+        {
+          "width": "33.34%",
+          "rows": [{ "height": "100%" }]
+        }
+      ]
+    }
+  ]
+}
+```
+
 ### Why Multiple Config Locations?
 
 - **`.env/` directory** - Git-ignored, perfect for sensitive data (passwords, keys, production credentials)
