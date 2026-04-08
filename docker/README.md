@@ -1,5 +1,8 @@
 # SSHIFT Docker
 
+[![Docker Image Size](https://img.shields.io/docker/image-size/ghcr.io/lethevimlet/sshift/latest)](https://github.com/lethevimlet/sshift/pkgs/container/sshift)
+[![Docker Pulls](https://img.shields.io/badge/ghcr.io-lethevimlet%2Fsshift-blue)](https://github.com/lethevimlet/sshift/pkgs/container/sshift)
+
 This directory contains Docker-related files for running SSHIFT in a container.
 
 ## Quick Start

@@ -5,8 +5,10 @@ title: Home
 
 # SSHIFT - Web-based SSH & SFTP Terminal Client
 
-[![Node.js Version](https://img.shields.io/badge/node-%3E%3E20.0.0-brightgreen.svg)](https://nodejs.org/)
+[![npm version](https://img.shields.io/npm/v/@lethevimlet/sshift.svg)](https://www.npmjs.com/package/@lethevimlet/sshift)
+[![Docker Image Size](https://img.shields.io/docker/image-size/ghcr.io/lethevimlet/sshift/latest)](https://github.com/lethevimlet/sshift/pkgs/container/sshift)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://lethevimlet.github.io/sshift/)
 
 A modern, responsive web-based SSH and SFTP terminal client built with Node.js, Express, and xterm.js. Features excellent TUI support, tabbed sessions, bookmarks, and mobile-friendly design.
 
@@ -83,6 +85,7 @@ For detailed installation options, see the [Installation guide](installation.htm
 ## 📖 Documentation
 
 - **[Installation](installation.html)** - Installation methods and configuration
+- **[Docker](docker.html)** - Docker deployment and usage
 - **[Configuration](configuration.html)** - Configuration files and options
 - **[API Reference](api-reference.html)** - Socket.IO events and API
 - **[Testing](testing.html)** - Running and writing tests
