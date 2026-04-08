@@ -14,7 +14,7 @@ function registerSystemEndpoints(app, io) {
   // API: Get version
   app.get('/api/version', (req, res) => {
     try {
-      const packagePath = path.join(__dirname, '../../../package.json');
+      const packagePath = path.join(__dirname, '../../../../package.json');
       const packageData = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
       res.json({ version: packageData.version });
     } catch (err) {
@@ -29,7 +29,7 @@ function registerSystemEndpoints(app, io) {
       const https = require('https');
       
       // Get local version
-      const packagePath = path.join(__dirname, '../../../package.json');
+      const packagePath = path.join(__dirname, '../../../../package.json');
       const packageData = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
       const localVersion = packageData.version;
       
@@ -106,13 +106,13 @@ function registerSystemEndpoints(app, io) {
 
   // API: Get update status
   app.get('/api/update-status', (req, res) => {
-    const updateMarker = path.join(__dirname, '../../../.updating');
-    const restartMarker = path.join(__dirname, '../../../.restart-after-update');
+    const updateMarker = path.join(__dirname, '../../../../.updating');
+    const restartMarker = path.join(__dirname, '../../../../.restart-after-update');
     
     // Read package.json for current version
     let version = 'unknown';
     try {
-      const pkgPath = path.join(__dirname, '../../../package.json');
+      const pkgPath = path.join(__dirname, '../../../../package.json');
       const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
       version = pkg.version;
     } catch (e) {
@@ -140,9 +140,9 @@ function registerSystemEndpoints(app, io) {
       // Determine the install script based on platform
       let installScript;
       if (platform === 'win32') {
-        installScript = path.join(__dirname, '../../../install.ps1');
+        installScript = path.join(__dirname, '../../../../install.ps1');
       } else {
-        installScript = path.join(__dirname, '../../../install.sh');
+        installScript = path.join(__dirname, '../../../../install.sh');
       }
       
       // Check if install script exists
@@ -152,9 +152,9 @@ function registerSystemEndpoints(app, io) {
       }
       
       // Write update marker to indicate update in progress
-      const updateMarker = path.join(__dirname, '../../../.updating');
+      const updateMarker = path.join(__dirname, '../../../../.updating');
       try {
-        const pkg = require('../../../package.json');
+        const pkg = require('../../../../package.json');
         fs.writeFileSync(updateMarker, JSON.stringify({
           startTime: Date.now(),
           oldVersion: pkg.version
@@ -164,7 +164,7 @@ function registerSystemEndpoints(app, io) {
       }
       
       // Write a restart marker file to indicate we want to restart after update
-      const restartMarker = path.join(__dirname, '../../../.restart-after-update');
+      const restartMarker = path.join(__dirname, '../../../../.restart-after-update');
       try {
         fs.writeFileSync(restartMarker, 'true');
       } catch (e) {
@@ -185,7 +185,7 @@ function registerSystemEndpoints(app, io) {
       res.on('finish', () => {
         // Use spawn with detached mode to allow the update script to continue after parent exits
         const updateProcess = spawn(updateCommand, [], {
-          cwd: path.join(__dirname, '../../..'),
+          cwd: path.join(__dirname, '../../../..'),
           shell: true,
           detached: true,
           stdio: 'ignore'

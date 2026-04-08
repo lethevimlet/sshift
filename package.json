@@ -9,8 +9,13 @@
   "scripts": {
     "start": "node sshift",
     "dev": "NODE_ENV=development node sshift",
-    "test": "node src/tests/test-client.js",
-    "test:server": "node src/server/index.js & sleep 2 && node src/tests/test-client.js"
+    "test": "jest --forceExit --runInBand",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage --forceExit --runInBand",
+    "test:unit": "jest --testPathPatterns='tests/unit' --forceExit",
+    "test:integration": "jest --testPathPatterns='tests/integration' --forceExit",
+    "test:e2e": "jest --testPathPatterns='tests/e2e' --forceExit --runInBand",
+    "test:browser": "jest --testPathPatterns='tests/browser' --forceExit --runInBand"
   },
   "dependencies": {
     "@xterm/addon-serialize": "^0.14.0",
@@ -31,7 +36,10 @@
   ],
   "license": "MIT",
   "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "jest": "^30.3.0",
     "puppeteer": "^24.40.0",
-    "socket.io-client": "^4.8.3"
+    "socket.io-client": "^4.8.3",
+    "ts-jest": "^29.4.9"
   }
 }
