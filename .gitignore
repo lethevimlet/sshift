@@ -59,4 +59,3 @@ known_hosts
 
 # Package files
 *.tgz
-package-lock.json
