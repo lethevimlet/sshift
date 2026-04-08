@@ -1,0 +1,57 @@
+# Dependencies
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files
+.env
+.env.local
+.env.*.local
+.env/
+
+# Configuration files (use example.config.json as template)
+config.json
+
+# Development files
+.git
+.github
+.gitignore
+.dockerignore
+
+# Test files
+src/tests
+coverage
+.nyc_output
+jest.config.js
+
+# Documentation
+docs
+*.md
+!README.md
+!LICENSE
+!docker/README.md
+
+# IDE files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.log
+*.tgz
+.npm
+
+# Temporary files
+tmp
+temp
+*.tmp
+
+# Docker files (don't need docker directory in image)
+docker

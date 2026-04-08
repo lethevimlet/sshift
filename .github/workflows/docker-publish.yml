@@ -1,0 +1,63 @@
+name: Publish Docker Image
+
+on:
+  workflow_run:
+    workflows: ["Publish to npm"]
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Get version from package.json
+        id: package_version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ steps.package_version.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.package_version.outputs.version }}
+            type=raw,value=latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          cache: type=gha
+          cache-from: type=gha,scope=${{ github.workflow }}
+          cache-to: type=gha,mode=max,scope=${{ github.workflow }}

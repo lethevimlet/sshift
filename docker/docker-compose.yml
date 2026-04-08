@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  sshift:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: ghcr.io/lethevimlet/sshift:${VERSION:-latest}
+    container_name: sshift
+    ports:
+      - "${PORT:-8022}:8022"
+    environment:
+      - NODE_ENV=production
+      - PORT=8022
+      - BIND=0.0.0.0
+    volumes:
+      # Mount config directory for persistent configuration
+      - sshift-config:/app/config
+      # Mount for any custom certificates or keys
+      - sshift-data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8022/', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+volumes:
+  sshift-config:
+    driver: local
+  sshift-data:
+    driver: local

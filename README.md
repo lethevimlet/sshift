@@ -54,6 +54,20 @@ npm install -g sshift
 sshift
 ```
 
+### Docker
+
+```bash
+# Pull and run from GitHub Packages
+docker pull ghcr.io/lethevimlet/sshift:latest
+docker run -d -p 8022:8022 --name sshift ghcr.io/lethevimlet/sshift:latest
+
+# Or with docker-compose
+curl -O https://raw.githubusercontent.com/lethevimlet/sshift/main/docker/docker-compose.yml
+docker-compose up -d
+```
+
+See [Docker README](docker/README.md) for detailed instructions.
+
 ### One-Liner Scripts
 
 **Linux/macOS:**
