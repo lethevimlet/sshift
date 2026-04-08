@@ -1,0 +1,25 @@
+title: SSHIFT
+description: Web-based SSH & SFTP Terminal Client
+author: SSHIFT Team
+theme: minima
+
+# GitHub Pages settings
+markdown: kramdown
+highlighter: rouge
+
+# Navigation
+header_pages:
+  - installation.md
+  - configuration.md
+  - api-reference.md
+  - testing.md
+  - contributing.md
+
+# Plugins (GitHub Pages supported plugins)
+plugins:
+  - jekyll-seo-tag
+
+# Exclude from processing
+exclude:
+  - Gemfile
+  - Gemfile.lock
