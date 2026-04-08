@@ -12,10 +12,10 @@
     "test": "jest --forceExit --runInBand",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage --forceExit --runInBand",
-    "test:unit": "jest --testPathPatterns='tests/unit' --forceExit",
-    "test:integration": "jest --testPathPatterns='tests/integration' --forceExit",
-    "test:e2e": "jest --testPathPatterns='tests/e2e' --forceExit --runInBand",
-    "test:browser": "jest --testPathPatterns='tests/browser' --forceExit --runInBand"
+    "test:unit": "jest --testPathPatterns='src/tests/unit' --forceExit",
+    "test:integration": "jest --testPathPatterns='src/tests/integration' --forceExit",
+    "test:e2e": "jest --testPathPatterns='src/tests/e2e' --forceExit --runInBand",
+    "test:browser": "jest --testPathPatterns='src/tests/browser' --forceExit --runInBand"
   },
   "dependencies": {
     "@xterm/addon-serialize": "^0.14.0",
