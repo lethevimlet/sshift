@@ -1,5 +1,5 @@
 {
-  "name": "sshift",
+  "name": "@lethevimlet/sshift",
   "version": "0.1.5",
   "description": "Web-based SSH + SFTP terminal client with tabs and bookmarks",
   "main": "src/server/index.js",
@@ -15,7 +15,8 @@
     "test:unit": "jest --testPathPatterns='src/tests/unit' --forceExit",
     "test:integration": "jest --testPathPatterns='src/tests/integration' --forceExit",
     "test:e2e": "jest --testPathPatterns='src/tests/e2e' --forceExit --runInBand",
-    "test:browser": "jest --testPathPatterns='src/tests/browser' --forceExit --runInBand"
+    "test:browser": "jest --testPathPatterns='src/tests/browser' --forceExit --runInBand",
+    "prepublishOnly": "echo 'Publishing to npm...'"
   },
   "dependencies": {
     "@xterm/addon-serialize": "^0.14.0",
@@ -32,9 +33,37 @@
     "sftp",
     "terminal",
     "web",
-    "xterm"
+    "xterm",
+    "web-terminal",
+    "ssh-client",
+    "sftp-client",
+    "browser-terminal"
   ],
+  "author": "lethevimlet",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lethevimlet/sshift.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lethevimlet/sshift/issues"
+  },
+  "homepage": "https://github.com/lethevimlet/sshift#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "files": [
+    "sshift",
+    "src/server/",
+    "src/webapp/",
+    "example.config.json",
+    "README.md",
+    "LICENSE"
+  ],
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "jest": "^30.3.0",

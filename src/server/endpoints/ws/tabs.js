@@ -14,7 +14,11 @@ const {
   getCloseTimer,
   updateTabName,
   updateTabPanel,
-  getOpenTabs
+  getOpenTabs,
+  getCurrentTheme,
+  setCurrentTheme,
+  getCurrentAccent,
+  setCurrentAccent
 } = require('../../utils/tab-manager');
 const { sshManager, sftpManager } = require('../../services');
 
@@ -119,6 +123,32 @@ function registerTabHandlers(socket, io) {
     socket.broadcast.emit('tab-renamed', { 
       sessionId: data.sessionId, 
       name: data.name 
+    });
+  });
+
+  // Theme change - sync across all clients
+  socket.on('theme-change', (data) => {
+    console.log('[TAB] Theme change:', data.theme);
+    
+    // Update server-side theme
+    setCurrentTheme(data.theme);
+    
+    // Broadcast to all other clients
+    socket.broadcast.emit('theme-changed', { 
+      theme: data.theme 
+    });
+  });
+
+  // Accent change - sync across all clients
+  socket.on('accent-change', (data) => {
+    console.log('[TAB] Accent change:', data.accent);
+    
+    // Update server-side accent
+    setCurrentAccent(data.accent);
+    
+    // Broadcast to all other clients
+    socket.broadcast.emit('accent-changed', { 
+      accent: data.accent 
     });
   });
 }

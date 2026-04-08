@@ -1,7 +1,6 @@
 #!/bin/bash
-
-# sshift Installation Script for Linux and macOS
-# Installs Node.js (if not present) and clones the project
+# sshift Installation Script for Linux/macOS
+# Installs Node.js (if not present) and installs sshift via npm
 # Checks for updates and restarts the app if needed
 #
 # Usage: ./install.sh [OPTIONS]
@@ -13,25 +12,18 @@
 #   --status            Check if sshift is running
 #   --update            Update existing installation (non-interactive)
 #   --uninstall         Remove sshift from the system
-#   -h, --help          Show this help message
+#   --help              Show this help message
 
 set -e
 
 # Configuration (defaults, can be overridden by arguments)
 NODE_VERSION="18"  # Minimum LTS version
-REPO_URL="https://github.com/lethevimlet/sshift.git"
-REPO_API_URL="https://api.github.com/repos/lethevimlet/sshift/contents/package.json"
-INSTALL_DIR="${HOME}/.local/share/sshift"
-BIN_DIR="${HOME}/.local/bin"
-PID_FILE="${INSTALL_DIR}/.sshift.pid"
+NPM_PACKAGE="sshift"
+INSTALL_DIR="$HOME/.local/share/sshift"
+BIN_DIR="$HOME/.local/bin"
+PID_FILE="/tmp/sshift.pid"
 SERVICE_NAME="sshift"
 SERVER_PORT=""
-UNINSTALL=false
-UPDATE_ONLY=false
-START_ONLY=false
-STOP_ONLY=false
-RESTART_ONLY=false
-STATUS_ONLY=false
 
 # Colors for output
 RED='\033[0;31m'
@@ -40,7 +32,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Print functions
+# Print colored messages
 info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
@@ -48,136 +40,80 @@ error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
 # Show help message
 show_help() {
-    echo "sshift Installation Script"
-    echo ""
-    echo "Usage: $0 [OPTIONS]"
-    echo ""
-    echo "Options:"
-    echo "  --install-dir DIR   Installation directory (default: ~/.local/share/sshift)"
-    echo "  --port PORT         Server port (default: 8022)"
-    echo "  --start             Start sshift after installation/update"
-    echo "  --stop              Stop running sshift instance"
-    echo "  --restart           Restart sshift"
-    echo "  --status            Check if sshift is running"
-    echo "  --update            Update existing installation (non-interactive)"
-    echo "  --uninstall         Remove sshift from the system"
-    echo "  -h, --help          Show this help message"
-    echo ""
-    echo "Examples:"
-    echo "  $0                              # Install with defaults"
-    echo "  $0 --port 8080                  # Install with custom port"
-    echo "  $0 --install-dir /opt/sshift    # Install to custom directory"
-    echo "  $0 --update                     # Update existing installation"
-    echo "  $0 --start                      # Start sshift"
-    echo "  $0 --stop                       # Stop sshift"
-    echo "  $0 --restart                    # Restart sshift"
-    echo "  $0 --status                     # Check status"
-    echo "  $0 --uninstall                  # Remove sshift"
+    cat << EOF
+sshift Installation Script for Linux/macOS
+
+Usage: ./install.sh [OPTIONS]
+
+Options:
+  --install-dir DIR   Installation directory (default: ~/.local/share/sshift)
+  --port PORT         Server port (default: 8022)
+  --start             Start sshift after installation/update
+  --stop              Stop running sshift instance
+  --restart           Restart sshift
+  --status            Check if sshift is running
+  --update            Update existing installation (non-interactive)
+  --uninstall         Remove sshift from the system
+  --help              Show this help message
+
+Examples:
+  ./install.sh                              # Install with defaults
+  ./install.sh --port 8080                  # Install with custom port
+  ./install.sh --install-dir /opt/sshift    # Install to custom directory
+  ./install.sh --update                     # Update existing installation
+  ./install.sh --start                      # Start sshift
+  ./install.sh --stop                       # Stop sshift
+  ./install.sh --restart                    # Restart sshift
+  ./install.sh --status                     # Check status
+  ./install.sh --uninstall                  # Remove sshift
+
+One-liner installation:
+  curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/install.sh | bash
+  wget -qO- https://raw.githubusercontent.com/lethevimlet/sshift/main/install.sh | bash
+EOF
     exit 0
 }
 
-# Parse command line arguments
-parse_args() {
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            --install-dir)
-                INSTALL_DIR="$2"
-                shift 2
-                ;;
-            --port)
-                SERVER_PORT="$2"
-                shift 2
-                ;;
-            --uninstall)
-                UNINSTALL=true
-                shift
-                ;;
-            --update)
-                UPDATE_ONLY=true
-                shift
-                ;;
-            --start)
-                START_ONLY=true
-                shift
-                ;;
-            --stop)
-                STOP_ONLY=true
-                shift
-                ;;
-            --restart)
-                RESTART_ONLY=true
-                shift
-                ;;
-            --status)
-                STATUS_ONLY=true
-                shift
-                ;;
-            -h|--help)
-                show_help
-                ;;
-            *)
-                error "Unknown option: $1\nUse --help for usage information"
-                ;;
-        esac
-    done
-    
-    # Update BIN_DIR based on INSTALL_DIR
-    BIN_DIR="${INSTALL_DIR%/*}/bin"
+# Check if command exists
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
 }
 
-# Get local version from package.json
-get_local_version() {
-    if [ -f "$INSTALL_DIR/package.json" ]; then
-        grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' "$INSTALL_DIR/package.json" | cut -d'"' -f4
+# Get installed version from npm
+get_installed_version() {
+    if command_exists sshift; then
+        npm list -g sshift --depth=0 2>/dev/null | grep sshift | sed 's/.*sshift@//' | tr -d ' '
     else
         echo "0.0.0"
     fi
 }
 
-# Get remote version from GitHub raw file
-get_remote_version() {
-    local version
-    local raw_url="https://raw.githubusercontent.com/lethevimlet/sshift/main/package.json"
-    
-    if command_exists curl; then
-        version=$(curl -s "$raw_url" 2>/dev/null | grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | cut -d'"' -f4)
-    elif command_exists wget; then
-        version=$(wget -qO- "$raw_url" 2>/dev/null | grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | cut -d'"' -f4)
-    else
-        warn "Neither curl nor wget available, cannot check remote version"
-        echo "0.0.0"
-        return
-    fi
-    
-    if [ -z "$version" ]; then
-        warn "Could not parse remote version"
-        echo "0.0.0"
-    else
-        echo "$version"
-    fi
+# Get latest version from npm
+get_latest_version() {
+    npm view sshift version 2>/dev/null || echo "0.0.0"
 }
 
 # Compare versions (returns 0 if equal, 1 if local < remote, 2 if local > remote)
 compare_versions() {
-    local local_ver="$1"
-    local remote_ver="$2"
+    local local_version="$1"
+    local remote_version="$2"
     
-    if [ "$local_ver" = "$remote_ver" ]; then
+    if [ "$local_version" = "$remote_version" ]; then
         return 0
     fi
     
-    # Split versions into arrays
-    IFS='.' read -ra local_parts <<< "$local_ver"
-    IFS='.' read -ra remote_parts <<< "$remote_ver"
+    local IFS='.'
+    local i local_parts remote_parts
+    read -ra local_parts <<< "$local_version"
+    read -ra remote_parts <<< "$remote_version"
     
-    # Compare each part
-    for i in 0 1 2; do
-        local l=${local_parts[$i]:-0}
-        local r=${remote_parts[$i]:-0}
+    for ((i=0; i<3; i++)); do
+        local local_num="${local_parts[i]:-0}"
+        local remote_num="${remote_parts[i]:-0}"
         
-        if [ "$l" -lt "$r" ]; then
+        if [ "$local_num" -lt "$remote_num" ]; then
             return 1  # local < remote
-        elif [ "$l" -gt "$r" ]; then
+        elif [ "$local_num" -gt "$remote_num" ]; then
             return 2  # local > remote
         fi
     done
@@ -189,8 +125,11 @@ compare_versions() {
 is_running() {
     if [ -f "$PID_FILE" ]; then
         local pid=$(cat "$PID_FILE")
-        if kill -0 "$pid" 2>/dev/null; then
+        if ps -p "$pid" >/dev/null 2>&1; then
             return 0
+        else
+            # Clean up stale PID file
+            rm -f "$PID_FILE"
         fi
     fi
     return 1
@@ -199,9 +138,9 @@ is_running() {
 # Stop running instance
 stop_app() {
     # Check if running via systemd
-    if command_exists systemctl && systemctl --user is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+    if command_exists systemctl && systemctl --user is-active "$SERVICE_NAME" >/dev/null 2>&1; then
         info "Stopping sshift via systemd..."
-        systemctl --user stop "$SERVICE_NAME" 2>/dev/null || true
+        systemctl --user stop "$SERVICE_NAME"
         sleep 2
         return
     fi
@@ -210,18 +149,13 @@ stop_app() {
     if is_running; then
         local pid=$(cat "$PID_FILE")
         info "Stopping sshift (PID: $pid)..."
-        kill "$pid" 2>/dev/null || true
         
-        # Wait for the process to actually stop (up to 10 seconds)
-        local wait_count=0
-        while kill -0 "$pid" 2>/dev/null && [ $wait_count -lt 10 ]; do
-            sleep 1
-            wait_count=$((wait_count + 1))
-            info "Waiting for process to stop... ($wait_count/10)"
-        done
+        # Try graceful shutdown first
+        kill "$pid" 2>/dev/null || true
+        sleep 2
         
         # Force kill if still running
-        if kill -0 "$pid" 2>/dev/null; then
+        if ps -p "$pid" >/dev/null 2>&1; then
             warn "Process did not stop gracefully, force killing..."
             kill -9 "$pid" 2>/dev/null || true
             sleep 1
@@ -238,545 +172,118 @@ stop_app() {
     fi
 }
 
-# Ensure sshift executable exists
-ensure_sshift_executable() {
-    if [ ! -f "$INSTALL_DIR/sshift" ]; then
-        warn "sshift executable not found, creating it..."
-        # Note: This is a fallback. The sshift file should be in the repository.
-        # If you see this message, the repository clone may be incomplete.
-        warn "Please ensure the repository was cloned correctly."
-        return 1
-    fi
-    chmod +x "$INSTALL_DIR/sshift"
-}
-
 # Start the app
 start_app() {
     info "Starting sshift..."
     
-    # Check if systemd service is enabled
-    if command_exists systemctl && systemctl --user is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then
-        info "Starting via systemd service..."
-        systemctl --user start "$SERVICE_NAME" 2>/dev/null || {
-            warn "Failed to start via systemd, falling back to direct start"
-            # Fall through to direct start below
-        }
-        
-        # Give systemd a moment to start
-        sleep 2
-        
-        # Check if it started successfully
-        if systemctl --user is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
-            success "sshift started via systemd"
-            return 0
-        fi
+    # Check if already running
+    if is_running; then
+        local pid=$(cat "$PID_FILE")
+        warn "sshift is already running (PID: $pid)"
+        return
     fi
     
-    # Direct start (no systemd or systemd failed)
-    
-    # Ensure sshift executable exists
-    ensure_sshift_executable
-    
-    # Make sure it's executable
-    chmod +x "$INSTALL_DIR/sshift"
-    
-    # Check if already running - if so, stop it first
-    if [ -f "$PID_FILE" ]; then
-        local pid=$(cat "$PID_FILE" 2>/dev/null)
-        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-            warn "sshift is already running (PID: $pid), stopping it first..."
-            stop_app
-        else
-            # Stale PID file, remove it
-            rm -f "$PID_FILE"
-        fi
-    fi
-    
-    # Get port from config or use default
-    local port="${SERVER_PORT:-8022}"
-    if [ -f "$INSTALL_DIR/.env/config.json" ]; then
-        local config_port=$(grep -o '"port"[[:space:]]*:[[:space:]]*[0-9]*' "$INSTALL_DIR/.env/config.json" | grep -o '[0-9]*$')
-        [ -n "$config_port" ] && port="$config_port"
-    elif [ -f "$INSTALL_DIR/config.json" ]; then
-        local config_port=$(grep -o '"port"[[:space:]]*:[[:space:]]*[0-9]*' "$INSTALL_DIR/config.json" | grep -o '[0-9]*$')
-        [ -n "$config_port" ] && port="$config_port"
-    fi
-    
-    # Start using nohup to properly daemonize (detaches from terminal)
-    cd "$INSTALL_DIR"
-    nohup node "$INSTALL_DIR/sshift" > "$INSTALL_DIR/sshift.log" 2>&1 &
+    # Start sshift in background
+    nohup sshift > "$INSTALL_DIR/sshift.log" 2>&1 &
     local pid=$!
     
-    # Give it a moment to start
-    sleep 1
+    # Save PID
+    mkdir -p "$(dirname "$PID_FILE")"
+    echo "$pid" > "$PID_FILE"
     
-    # Verify it started successfully
-    if kill -0 "$pid" 2>/dev/null; then
-        echo $pid > "$PID_FILE"
-        success "sshift started in background (PID: $pid)"
+    sleep 2
+    
+    # Check if process is still running
+    if ps -p "$pid" >/dev/null 2>&1; then
+        success "sshift started (PID: $pid)"
         info "Logs: $INSTALL_DIR/sshift.log"
-        info "View logs: tail -f $INSTALL_DIR/sshift.log"
-        echo ""
-        echo -e "${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${GREEN}║                                                          ║${NC}"
-        echo -e "${GREEN}║  sshift is now running!                                  ║${NC}"
-        echo -e "${GREEN}║                                                          ║${NC}"
-        # OSC 8 hyperlink with proper padding (box width = 58 chars)
-        local url="http://localhost:${port}"
-        local text="  Click to open: ${url}"
-        local padding=$((58 - ${#text}))
-        printf "${GREEN}║${NC}  Click to open: \x1b]8;;%s\x07%s\x1b]8;;\x07${GREEN}%*s║${NC}\n" "$url" "$url" "$padding" ""
-        echo -e "${GREEN}║                                                          ║${NC}"
-        echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
-        echo ""
     else
-        error "Failed to start sshift. Check logs: $INSTALL_DIR/sshift.log"
-        return 1
+        error "sshift failed to start. Check logs at $INSTALL_DIR/sshift.log"
     fi
 }
 
-# Update the project
-update_project() {
-    info "Updating sshift..."
-    
-    # Check for restart marker (set by server when update is triggered from UI)
-    local restart_marker="$INSTALL_DIR/.restart-after-update"
-    local update_marker="$INSTALL_DIR/.updating"
-    local should_restart=false
-    
-    if [ -f "$restart_marker" ]; then
-        should_restart=true
-        rm -f "$restart_marker"
-        info "Restart marker found, will restart after update"
-    fi
-    
-    # Stop the app if running
-    stop_app
-    
-    cd "$INSTALL_DIR"
-    git fetch origin
-    git reset --hard origin/main 2>/dev/null || git reset --hard origin/master 2>/dev/null
-    
-    # Install/update dependencies
-    npm install
-    
-    # Clean up update marker
-    rm -f "$update_marker"
-    
-    success "sshift updated successfully"
-    
-    # Restart the app if it was running before or if restart marker was set
-    if [ "$should_restart" = true ]; then
-        info "Restarting sshift..."
-        start_app
-    else
-        info "Run 'sshift' or use '--start' flag to start sshift"
-    fi
-}
-
-# Detect shell configuration file
-detect_shell_config() {
-    local shell_config=""
-    case "$SHELL" in
-        */bash)
-            if [ -f "$HOME/.bashrc" ]; then
-                shell_config="$HOME/.bashrc"
-            elif [ -f "$HOME/.bash_profile" ]; then
-                shell_config="$HOME/.bash_profile"
-            fi
-            ;;
-        */zsh)
-            shell_config="$HOME/.zshrc"
-            ;;
-        */fish)
-            shell_config="$HOME/.config/fish/config.fish"
-            ;;
-        *)
-            # Fallback to .profile
-            if [ -f "$HOME/.profile" ]; then
-                shell_config="$HOME/.profile"
-            fi
-            ;;
-    esac
-    echo "$shell_config"
-}
-
-# Add to PATH
-add_to_path() {
-    # Check if already in PATH
-    if [[ ":$PATH:" == *":$BIN_DIR:"* ]]; then
-        success "Already in PATH: $BIN_DIR"
-        return 0
-    fi
-    
-    info "Adding $BIN_DIR to PATH..."
-    
-    # Create bin directory if it doesn't exist
-    mkdir -p "$BIN_DIR"
-    
-    # Detect shell configuration file
-    local shell_config=$(detect_shell_config)
-    
-    if [ -z "$shell_config" ]; then
-        warn "Could not detect shell configuration file"
-        warn "Please add the following to your shell configuration manually:"
-        echo ""
-        echo "    export PATH=\"\$HOME/.local/bin:\$PATH\""
-        echo ""
-        return 1
-    fi
-    
-    # Check if already in shell config
-    if grep -q "export PATH=\"\$HOME/.local/bin:\$PATH\"" "$shell_config" 2>/dev/null; then
-        success "PATH already configured in $shell_config"
-        # Still add to current session
-        export PATH="$BIN_DIR:$PATH"
-        return 0
-    fi
-    
-    # Add to shell config
-    echo "" >> "$shell_config"
-    echo "# Added by sshift installer" >> "$shell_config"
-    echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$shell_config"
-    
-    # Add to current session
-    export PATH="$BIN_DIR:$PATH"
-    
-    success "Added to PATH in $shell_config"
-    info "Restart your terminal or run: source $shell_config"
-}
-
-# Create systemd service (Linux)
-create_systemd_service() {
-    local service_file="$HOME/.config/systemd/user/$SERVICE_NAME.service"
-    local service_dir=$(dirname "$service_file")
-    
-    mkdir -p "$service_dir"
-    
-    cat > "$service_file" << 'EOF'
-[Unit]
-Description=sshift - Web-based SSH/SFTP Terminal
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=%h/.local/bin/sshift
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=default.target
-EOF
-    
-    # Reload systemd daemon
-    systemctl --user daemon-reload
-    
-    # Enable the service
-    systemctl --user enable "$SERVICE_NAME.service"
-    
-    success "Created and enabled systemd service"
-}
-
-# Create launchd service (macOS)
-create_launchd_service() {
-    local plist_file="$HOME/Library/LaunchAgents/com.$SERVICE_NAME.plist"
-    local plist_dir=$(dirname "$plist_file")
-    
-    mkdir -p "$plist_dir"
-    
-    cat > "$plist_file" << EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.$SERVICE_NAME</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>$BIN_DIR/sshift</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <false/>
-    <key>StandardOutPath</key>
-    <string>/tmp/sshift.log</string>
-    <key>StandardErrorPath</key>
-    <string>/tmp/sshift.log</string>
-</dict>
-</plist>
-EOF
-    
-    # Load the service
-    launchctl load "$plist_file" 2>/dev/null || true
-    
-    success "Created and loaded launchd service"
-}
-
-# Setup autostart
-setup_autostart() {
-    case "$OS" in
-        linux)
-            # Check if systemd user sessions are available
-            # On Debian and many systems, systemd --user runs as a user instance
-            if command_exists systemctl && systemctl --user --quiet is-active default.target 2>/dev/null; then
-                # Create systemd user directory if it doesn't exist
-                mkdir -p "$HOME/.config/systemd/user"
-                create_systemd_service
-            elif command_exists systemctl && [ -d "/run/systemd/system" ]; then
-                # Fallback: systemd is installed but user session might not be running
-                # Try to enable user sessions
-                info "Enabling systemd user session..."
-                mkdir -p "$HOME/.config/systemd/user"
-                create_systemd_service
-            else
-                warn "systemd user sessions not available, autostart not configured"
-                info "To enable systemd user sessions, you may need to run: loginctl enable-linger $USER"
-                return 1
-            fi
-            ;;
-        macos)
-            create_launchd_service
-            ;;
-        *)
-            warn "Autostart not supported on this OS"
-            return 1
-            ;;
-    esac
-}
-
-# Remove autostart
-remove_autostart() {
-    case "$OS" in
-        linux)
-            if command_exists systemctl; then
-                systemctl --user disable "$SERVICE_NAME.service" 2>/dev/null || true
-                systemctl --user stop "$SERVICE_NAME.service" 2>/dev/null || true
-                rm -f "$HOME/.config/systemd/user/$SERVICE_NAME.service"
-                systemctl --user daemon-reload
-                success "Removed systemd service"
-            fi
-            ;;
-        macos)
-            launchctl unload "$HOME/Library/LaunchAgents/com.$SERVICE_NAME.plist" 2>/dev/null || true
-            rm -f "$HOME/Library/LaunchAgents/com.$SERVICE_NAME.plist"
-            success "Removed launchd service"
-            ;;
-    esac
-}
-
-# Ask about autostart
-ask_autostart() {
-    echo ""
-    info "Would you like to start sshift automatically on boot?"
-    echo "    This will create a system service that starts sshift when you log in."
-    echo ""
-    read -p "Enable autostart? [y/N] " -n 1 -r
-    echo
-    
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        setup_autostart
-        # Start the app immediately after enabling autostart
-        start_app
-    else
-        info "Skipping autostart configuration"
-    fi
-}
-
-# Detect OS
-detect_os() {
-    case "$(uname -s)" in
-        Linux*)     OS="linux";;
-        Darwin*)    OS="macos";;
-        *)          error "Unsupported operating system: $(uname -s)";;
-    esac
-}
-
-# Detect Linux distribution
-detect_distro() {
-    if [ "$OS" = "linux" ]; then
-        if [ -f /etc/os-release ]; then
-            . /etc/os-release
-            DISTRO="${ID,,}"
-        elif [ -f /etc/debian_version ]; then
-            DISTRO="debian"
-        elif [ -f /etc/redhat-release ]; then
-            DISTRO="rhel"
-        elif [ -f /etc/arch-release ]; then
-            DISTRO="arch"
+# Install Node.js if not present
+install_nodejs() {
+    if command_exists node; then
+        local node_version=$(node -v | sed 's/v//')
+        local major_version=$(echo "$node_version" | cut -d. -f1)
+        
+        if [ "$major_version" -ge "$NODE_VERSION" ]; then
+            success "Node.js $(node -v) is already installed"
+            return
         else
-            DISTRO="unknown"
+            warn "Node.js version $(node -v) is too old, upgrading..."
         fi
     fi
-}
-
-# Check if command exists
-command_exists() {
-    command -v "$1" &> /dev/null
-}
-
-# Get Node.js major version
-get_node_major_version() {
-    if command_exists node; then
-        node --version | cut -d'.' -f1 | tr -d 'v'
-    else
-        echo "0"
-    fi
-}
-
-# Install Node.js on Linux
-install_node_linux() {
-    info "Installing Node.js on Linux..."
     
-    case "$DISTRO" in
-        ubuntu|debian|linuxmint|pop)
-            info "Detected Debian-based distribution"
-            sudo apt-get update
-            sudo apt-get install -y curl
+    info "Installing Node.js $NODE_VERSION..."
+    
+    # Detect OS
+    if [ "$(uname)" = "Darwin" ]; then
+        # macOS
+        if command_exists brew; then
+            brew install node@${NODE_VERSION}
+        else
+            error "Homebrew is not installed. Please install Homebrew first: https://brew.sh/"
+        fi
+    else
+        # Linux
+        if command_exists apt-get; then
+            # Debian/Ubuntu
             curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | sudo -E bash -
             sudo apt-get install -y nodejs
-            ;;
-        fedora|rhel|centos|rocky|almalinux)
-            info "Detected RHEL-based distribution"
-            sudo dnf install -y curl || sudo yum install -y curl
+        elif command_exists yum; then
+            # RHEL/CentOS
             curl -fsSL https://rpm.nodesource.com/setup_${NODE_VERSION}.x | sudo bash -
-            sudo dnf install -y nodejs || sudo yum install -y nodejs
-            ;;
-        arch|manjaro|endeavouros)
-            info "Detected Arch-based distribution"
-            sudo pacman -Sy --noconfirm nodejs npm
-            ;;
-        opensuse*)
-            info "Detected openSUSE"
-            sudo zypper install -y nodejs${NODE_VERSION}
-            ;;
-        alpine)
-            info "Detected Alpine Linux"
-            sudo apk add --no-cache nodejs npm
-            ;;
-        *)
-            warn "Unknown distribution, using nvm (Node Version Manager)"
-            install_nvm
-            ;;
-    esac
-}
-
-# Install Node.js on macOS
-install_node_macos() {
-    info "Installing Node.js on macOS..."
-    
-    if command_exists brew; then
-        info "Using Homebrew to install Node.js"
-        brew install node@${NODE_VERSION}
-    elif command_exists port; then
-        info "Using MacPorts to install Node.js"
-        sudo port install nodejs${NODE_VERSION}
-    else
-        warn "Neither Homebrew nor MacPorts found, using nvm"
-        install_nvm
+            sudo yum install -y nodejs
+        elif command_exists dnf; then
+            # Fedora
+            curl -fsSL https://rpm.nodesource.com/setup_${NODE_VERSION}.x | sudo bash -
+            sudo dnf install -y nodejs
+        else
+            error "Unsupported package manager. Please install Node.js $NODE_VERSION manually"
+        fi
     fi
-}
-
-# Install using NVM (Node Version Manager)
-install_nvm() {
-    info "Installing Node.js via nvm..."
-    
-    # Install nvm if not present
-    if [ ! -d "$HOME/.nvm" ]; then
-        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
-        export NVM_DIR="$HOME/.nvm"
-        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-    fi
-    
-    # Source nvm
-    export NVM_DIR="$HOME/.nvm"
-    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-    
-    # Install and use Node.js
-    nvm install ${NODE_VERSION}
-    nvm use ${NODE_VERSION}
-    nvm alias default ${NODE_VERSION}
-}
-
-# Install Node.js if needed
-install_node() {
-    local current_version=$(get_node_major_version)
-    
-    if [ "$current_version" -ge "$NODE_VERSION" ]; then
-        success "Node.js version $(node --version) is already installed"
-        return 0
-    fi
-    
-    info "Node.js version ${NODE_VERSION}.x or higher is required"
-    info "Current version: $(node --version 2>/dev/null || echo 'not installed')"
-    
-    case "$OS" in
-        linux)  install_node_linux ;;
-        macos)  install_node_macos ;;
-    esac
     
     # Verify installation
     if command_exists node; then
-        success "Node.js $(node --version) installed successfully"
+        success "Node.js $(node -v) installed successfully"
     else
         error "Failed to install Node.js"
     fi
 }
 
-# Clone the repository
-clone_repo() {
-    info "Cloning sshift repository..."
+# Install sshift via npm
+install_sshift() {
+    info "Installing sshift via npm..."
     
-    # Remove existing installation if present
-    if [ -d "$INSTALL_DIR" ]; then
-        warn "Removing existing installation at $INSTALL_DIR"
-        rm -rf "$INSTALL_DIR"
-    fi
+    # Install globally
+    npm install -g sshift
     
-    # Create directories
-    mkdir -p "$INSTALL_DIR"
-    mkdir -p "$BIN_DIR"
-    
-    # Clone repository
-    if [ -d ".git" ] && [ "$(git rev-parse --show-toplevel 2>/dev/null)" = "$(pwd)" ]; then
-        info "Running from git repository, copying files..."
-        cp -r . "$INSTALL_DIR"
+    if [ $? -eq 0 ]; then
+        success "sshift installed successfully"
     else
-        info "Cloning from $REPO_URL..."
-        git clone "$REPO_URL" "$INSTALL_DIR"
+        error "Failed to install sshift"
     fi
-    
-    success "Repository cloned to $INSTALL_DIR"
 }
 
-# Install dependencies
-install_dependencies() {
-    info "Installing npm dependencies..."
-    cd "$INSTALL_DIR"
-    npm install
-    success "Dependencies installed"
-}
-
-# Create symlink
-create_symlink() {
-    info "Creating executable symlink..."
+# Update sshift
+update_sshift() {
+    info "Updating sshift..."
     
-    # Ensure the sshift executable exists
-    ensure_sshift_executable
-    
-    # Create symlink in user's local bin directory
-    ln -sf "$INSTALL_DIR/sshift" "$BIN_DIR/sshift"
-    
-    # Make sure bin directory is in PATH
-    if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
-        warn "$BIN_DIR is not in your PATH"
-        info "Add the following to your shell configuration (~/.bashrc, ~/.zshrc, etc.):"
-        echo ""
-        echo "    export PATH=\"\$HOME/.local/bin:\$PATH\""
-        echo ""
+    # Stop running instance if any
+    if is_running; then
+        stop_app
     fi
     
-    success "Symlink created: $BIN_DIR/sshift -> $INSTALL_DIR/sshift"
+    # Update via npm
+    npm update -g sshift
+    
+    if [ $? -eq 0 ]; then
+        success "sshift updated successfully"
+    else
+        error "Failed to update sshift"
+    fi
 }
 
 # Create config file with port setting
@@ -797,6 +304,120 @@ EOF
     fi
 }
 
+# Add to PATH
+add_to_path() {
+    local shell_rc=""
+    
+    # Detect shell
+    if [ -n "$ZSH_VERSION" ]; then
+        shell_rc="$HOME/.zshrc"
+    elif [ -n "$BASH_VERSION" ]; then
+        shell_rc="$HOME/.bashrc"
+    else
+        shell_rc="$HOME/.profile"
+    fi
+    
+    # Check if already in PATH
+    if [ -d "$BIN_DIR" ] && echo "$PATH" | grep -q "$BIN_DIR"; then
+        info "$BIN_DIR is already in PATH"
+        return
+    fi
+    
+    # Create bin directory
+    mkdir -p "$BIN_DIR"
+    
+    # Add to shell RC
+    if ! grep -q "$BIN_DIR" "$shell_rc" 2>/dev/null; then
+        echo "" >> "$shell_rc"
+        echo "# sshift" >> "$shell_rc"
+        echo "export PATH=\"$BIN_DIR:\$PATH\"" >> "$shell_rc"
+        success "Added $BIN_DIR to PATH in $shell_rc"
+        info "You may need to restart your terminal or run: source $shell_rc"
+    fi
+}
+
+# Setup autostart via systemd (Linux) or launchd (macOS)
+setup_autostart() {
+    info "Setting up autostart..."
+    
+    if [ "$(uname)" = "Darwin" ]; then
+        # macOS - use launchd
+        local plist_path="$HOME/Library/LaunchAgents/com.sshift.plist"
+        
+        cat > "$plist_path" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.sshift</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>sshift</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>$INSTALL_DIR/sshift.log</string>
+    <key>StandardErrorPath</key>
+    <string>$INSTALL_DIR/sshift-error.log</string>
+</dict>
+</plist>
+EOF
+        
+        launchctl load "$plist_path" 2>/dev/null || true
+        success "Autostart configured via launchd"
+        info "To start now: launchctl start com.sshift"
+    else
+        # Linux - use systemd user service
+        local service_dir="$HOME/.config/systemd/user"
+        local service_path="$service_dir/$SERVICE_NAME.service"
+        
+        mkdir -p "$service_dir"
+        
+        cat > "$service_path" << EOF
+[Unit]
+Description=sshift - Web-based SSH Terminal
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=$(which sshift)
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+EOF
+        
+        systemctl --user daemon-reload
+        systemctl --user enable "$SERVICE_NAME"
+        
+        success "Autostart configured via systemd"
+        info "To start now: systemctl --user start $SERVICE_NAME"
+    fi
+}
+
+# Remove autostart
+remove_autostart() {
+    if [ "$(uname)" = "Darwin" ]; then
+        # macOS
+        local plist_path="$HOME/Library/LaunchAgents/com.sshift.plist"
+        if [ -f "$plist_path" ]; then
+            launchctl unload "$plist_path" 2>/dev/null || true
+            rm -f "$plist_path"
+        fi
+    else
+        # Linux
+        systemctl --user stop "$SERVICE_NAME" 2>/dev/null || true
+        systemctl --user disable "$SERVICE_NAME" 2>/dev/null || true
+        rm -f "$HOME/.config/systemd/user/$SERVICE_NAME.service"
+        systemctl --user daemon-reload 2>/dev/null || true
+    fi
+}
+
 # Print installation summary
 print_summary() {
     echo ""
@@ -804,50 +425,41 @@ print_summary() {
     echo -e "${GREEN}sshift installed successfully!${NC}"
     echo "=========================================="
     echo ""
-    echo "Installation directory: $INSTALL_DIR"
-    echo "Executable: $BIN_DIR/sshift"
-    echo "Version: $(get_local_version)"
+    echo "Version: $(get_installed_version)"
     echo ""
     echo "To start sshift, run:"
     echo "    sshift"
     echo ""
-    if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
-        echo "Note: Add $BIN_DIR to your PATH by adding this line to your shell config:"
-        echo "    export PATH=\"\$HOME/.local/bin:\$PATH\""
-        echo ""
-    fi
+    echo "You may need to restart your terminal for PATH changes to take effect"
+    echo ""
 }
 
 # Uninstall sshift
-uninstall() {
+uninstall_sshift() {
     echo ""
     echo "=========================================="
     echo "       sshift Uninstallation Script"
     echo "=========================================="
     echo ""
     
-    # Detect OS
-    detect_os
-    
     # Check if installed
-    if [ ! -d "$INSTALL_DIR" ]; then
-        warn "sshift is not installed at $INSTALL_DIR"
-        return 1
+    if ! command_exists sshift; then
+        warn "sshift is not installed"
+        return
     fi
     
     info "This will remove:"
-    echo "  - Installation directory: $INSTALL_DIR"
-    echo "  - Executable symlink: $BIN_DIR/sshift"
+    echo "  - sshift npm package"
+    echo "  - Configuration files in $INSTALL_DIR"
     echo "  - Autostart configuration (if any)"
-    echo "  - PATH configuration from shell config"
+    echo "  - PATH configuration"
     echo ""
     
     read -p "Continue with uninstallation? [y/N] " -n 1 -r
     echo
-    
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         info "Uninstallation cancelled"
-        return 0
+        return
     fi
     
     # Stop running instance
@@ -860,40 +472,33 @@ uninstall() {
     info "Removing autostart configuration..."
     remove_autostart
     
-    # Remove symlink
-    if [ -L "$BIN_DIR/sshift" ]; then
-        info "Removing symlink..."
-        rm -f "$BIN_DIR/sshift"
-        success "Symlink removed"
-    fi
+    # Uninstall via npm
+    info "Uninstalling sshift..."
+    npm uninstall -g sshift
     
     # Remove installation directory
     if [ -d "$INSTALL_DIR" ]; then
-        info "Removing installation directory..."
+        info "Removing configuration directory..."
         rm -rf "$INSTALL_DIR"
-        success "Installation directory removed"
+        success "Configuration directory removed"
     fi
     
-    # Remove from PATH in shell config
+    # Remove from PATH
     info "Removing PATH configuration..."
-    local shell_config=$(detect_shell_config)
-    if [ -n "$shell_config" ] && [ -f "$shell_config" ]; then
-        # Remove the PATH export line added by sshift
-        if grep -q "# Added by sshift installer" "$shell_config" 2>/dev/null; then
-            # Create a temporary file without the sshift lines
-            grep -v "# Added by sshift installer" "$shell_config" | grep -v "export PATH=\"\\\$HOME/.local/bin:\$PATH\"" > "${shell_config}.tmp"
-            mv "${shell_config}.tmp" "$shell_config"
-            success "PATH configuration removed from $shell_config"
-        fi
+    local shell_rc=""
+    if [ -n "$ZSH_VERSION" ]; then
+        shell_rc="$HOME/.zshrc"
+    elif [ -n "$BASH_VERSION" ]; then
+        shell_rc="$HOME/.bashrc"
+    else
+        shell_rc="$HOME/.profile"
     fi
     
-    # Remove systemd user directory if empty
-    if [ "$OS" = "linux" ]; then
-        local systemd_dir="$HOME/.config/systemd/user"
-        if [ -d "$systemd_dir" ] && [ -z "$(ls -A "$systemd_dir" 2>/dev/null)" ]; then
-            rmdir "$systemd_dir" 2>/dev/null || true
-            rmdir "$HOME/.config/systemd" 2>/dev/null || true
-        fi
+    if [ -f "$shell_rc" ]; then
+        # Remove sshift PATH entries
+        sed -i.bak '/# sshift/d' "$shell_rc"
+        sed -i.bak "/export PATH=\"$BIN_DIR/d' "$shell_rc"
+        rm -f "${shell_rc}.bak"
     fi
     
     echo ""
@@ -901,97 +506,99 @@ uninstall() {
     echo -e "${GREEN}sshift uninstalled successfully!${NC}"
     echo "=========================================="
     echo ""
-    info "Note: You may need to restart your terminal or run: source $shell_config"
+    info "You may need to restart your terminal for PATH changes to take effect"
 }
 
 # Check for updates
 check_updates() {
     info "Checking for updates..."
     
-    local local_ver=$(get_local_version)
-    local remote_ver=$(get_remote_version)
+    local local_version=$(get_installed_version)
+    local remote_version=$(get_latest_version)
     
-    info "Local version: $local_ver"
-    info "Remote version: $remote_ver"
+    info "Installed version: $local_version"
+    info "Latest version: $remote_version"
     
-    compare_versions "$local_ver" "$remote_ver"
+    compare_versions "$local_version" "$remote_version"
     local result=$?
     
     if [ $result -eq 1 ]; then
-        warn "New version available: $remote_ver (current: $local_ver)"
+        warn "New version available: $remote_version (current: $local_version)"
         return 1  # Update available
     elif [ $result -eq 2 ]; then
         info "Local version is newer than remote (development version?)"
         return 0
     else
-        success "Already up to date (version $local_ver)"
+        success "Already up to date (version $local_version)"
         return 0
     fi
 }
 
 # Main installation process
 main() {
-    # Parse command line arguments
-    parse_args "$@"
-    
-    # Handle uninstall
-    if [ "$UNINSTALL" = true ]; then
-        uninstall
-        exit 0
-    fi
-    
-    # Handle status check
-    if [ "$STATUS_ONLY" = true ]; then
-        if is_running; then
-            local pid=$(cat "$PID_FILE")
-            success "sshift is running (PID: $pid)"
-            exit 0
-        else
-            info "sshift is not running"
-            exit 1
-        fi
-    fi
-    
-    # Handle stop
-    if [ "$STOP_ONLY" = true ]; then
-        stop_app
-        exit 0
-    fi
-    
-    # Handle restart
-    if [ "$RESTART_ONLY" = true ]; then
-        info "Restarting sshift..."
-        stop_app
-        start_app
-        exit 0
-    fi
-    
-    # Handle start
-    if [ "$START_ONLY" = true ]; then
-        start_app
-        exit 0
-    fi
-    
-    # Handle update-only mode
-    if [ "$UPDATE_ONLY" = true ]; then
-        # Detect OS
-        detect_os
-        
-        # Check if installed
-        if [ ! -d "$INSTALL_DIR" ]; then
-            error "sshift is not installed at $INSTALL_DIR"
-        fi
-        
-        echo ""
-        echo "=========================================="
-        echo "       sshift Update Script"
-        echo "=========================================="
-        echo ""
-        
-        info "Updating sshift..."
-        update_project
-        exit 0
-    fi
+    # Parse arguments
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --install-dir)
+                INSTALL_DIR="$2"
+                shift 2
+                ;;
+            --port)
+                SERVER_PORT="$2"
+                shift 2
+                ;;
+            --start)
+                start_app
+                exit 0
+                ;;
+            --stop)
+                stop_app
+                exit 0
+                ;;
+            --restart)
+                info "Restarting sshift..."
+                stop_app
+                start_app
+                exit 0
+                ;;
+            --status)
+                if is_running; then
+                    local pid=$(cat "$PID_FILE")
+                    success "sshift is running (PID: $pid)"
+                    exit 0
+                else
+                    info "sshift is not running"
+                    exit 1
+                fi
+                ;;
+            --update)
+                # Check if installed
+                if ! command_exists sshift; then
+                    error "sshift is not installed"
+                fi
+                
+                echo ""
+                echo "=========================================="
+                echo "       sshift Update Script"
+                echo "=========================================="
+                echo ""
+                
+                info "Updating sshift..."
+                update_sshift
+                exit 0
+                ;;
+            --uninstall)
+                uninstall_sshift
+                exit 0
+                ;;
+            --help|-h)
+                show_help
+                ;;
+            *)
+                error "Unknown option: $1. Use --help for usage information."
+                ;;
+        esac
+    done
     
     echo ""
     echo "=========================================="
@@ -1000,46 +607,37 @@ main() {
     echo ""
     
     # Show configuration
-    info "Installation directory: $INSTALL_DIR"
-    [ -n "$SERVER_PORT" ] && info "Server port: $SERVER_PORT"
-    
-    # Detect OS and distribution
-    detect_os
-    detect_distro
-    info "Detected OS: $OS"
-    [ "$OS" = "linux" ] && info "Detected distribution: ${DISTRO:-unknown}"
+    info "Installation method: npm"
+    if [ -n "$SERVER_PORT" ]; then
+        info "Server port: $SERVER_PORT"
+    fi
     
     # Check if already installed
-    if [ -d "$INSTALL_DIR" ]; then
-        info "Existing installation found at $INSTALL_DIR"
+    if command_exists sshift; then
+        info "sshift is already installed"
         
         # Check for updates
-        if check_updates; then
-            # No update needed
-            if is_running; then
-                info "sshift is already running (PID: $(cat $PID_FILE))"
-            fi
-        else
+        if ! check_updates; then
             # Update available
             read -p "Update sshift? [Y/n] " -n 1 -r
             echo
             if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-                update_project
+                update_sshift
+            fi
+        else
+            # No update needed
+            if is_running; then
+                local pid=$(cat "$PID_FILE")
+                info "sshift is already running (PID: $pid)"
             fi
         fi
     else
         # Fresh installation
         # Install Node.js if needed
-        install_node
+        install_nodejs
         
-        # Clone repository
-        clone_repo
-        
-        # Install dependencies
-        install_dependencies
-        
-        # Create symlink
-        create_symlink
+        # Install sshift via npm
+        install_sshift
         
         # Create config file with port (if specified)
         create_config
@@ -1061,7 +659,11 @@ main() {
     fi
     
     # Ask about autostart
-    ask_autostart
+    read -p "Start sshift automatically on login? [y/N] " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        setup_autostart
+    fi
 }
 
 # Run main function

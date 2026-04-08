@@ -13,6 +13,10 @@ let tabOrder = [];
 // Current active layout for sync
 let currentLayout = 'single';
 
+// Theme and accent for cross-device sync
+let currentTheme = 'dark';
+let currentAccent = 'fuchsia';
+
 /**
  * Get all open tabs
  * @returns {Map} Map of open tabs
@@ -196,6 +200,38 @@ function updateTabPanel(sessionId, panelId) {
 }
 
 /**
+ * Get current theme
+ * @returns {string} Current theme
+ */
+function getCurrentTheme() {
+  return currentTheme;
+}
+
+/**
+ * Set current theme
+ * @param {string} theme - Theme name
+ */
+function setCurrentTheme(theme) {
+  currentTheme = theme;
+}
+
+/**
+ * Get current accent
+ * @returns {string} Current accent color
+ */
+function getCurrentAccent() {
+  return currentAccent;
+}
+
+/**
+ * Set current accent
+ * @param {string} accent - Accent color name
+ */
+function setCurrentAccent(accent) {
+  currentAccent = accent;
+}
+
+/**
  * Iterate over all tabs
  * @param {Function} callback - Callback function (sessionId, tab) => void
  */
@@ -222,5 +258,9 @@ module.exports = {
   getCloseTimer,
   updateTabName,
   updateTabPanel,
+  getCurrentTheme,
+  setCurrentTheme,
+  getCurrentAccent,
+  setCurrentAccent,
   forEachTab
 };

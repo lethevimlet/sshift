@@ -64,12 +64,14 @@ io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
   // Send current open tabs to new client
-  const { getOpenTabs, getTabOrder } = require('./utils/tab-manager');
+  const { getOpenTabs, getTabOrder, getCurrentTheme, getCurrentAccent } = require('./utils/tab-manager');
   const { getCurrentLayout } = require('./endpoints/ws/layout');
   
   const openTabs = getOpenTabs();
   const tabOrder = getTabOrder();
   const currentLayout = getCurrentLayout();
+  const currentTheme = getCurrentTheme();
+  const currentAccent = getCurrentAccent();
   
   // Exclude activeSockets (Set object) to avoid Socket.IO serialization issues
   const orderedTabs = tabOrder
@@ -95,7 +97,9 @@ io.on('connection', (socket) => {
   
   socket.emit('open-tabs', { 
     tabs: orderedTabs,
-    layout: currentLayout
+    layout: currentLayout,
+    theme: currentTheme,
+    accent: currentAccent
   });
 
   // Register all WebSocket handlers

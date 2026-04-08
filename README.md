@@ -62,12 +62,26 @@ A modern, responsive web-based SSH and SFTP terminal client built with Node.js, 
 ## 📦 Installation
 
 ### Prerequisites
-- **Node.js** >= 14.0.0 (installed automatically by the installer if not present)
+- **Node.js** >= 18.0.0 (installed automatically by the installer if not present)
 - **npm** or **yarn**
 
-### One-Liner Installation
+### Quick Install via npm (Recommended)
 
-The easiest way to install sshift is using our installation scripts:
+The easiest way to install sshift is via npm:
+
+```bash
+# Install globally
+npm install -g sshift
+
+# Start the server
+sshift
+```
+
+That's it! The application will be available at `http://localhost:8022`
+
+### One-Liner Installation Scripts
+
+Alternatively, use our installation scripts for a more automated setup:
 
 #### Linux / macOS
 
@@ -87,12 +101,6 @@ wget -qO- https://raw.githubusercontent.com/lethevimlet/sshift/main/install.sh |
 Invoke-Expression (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/lethevimlet/sshift/main/install.ps1" -UseBasicParsing).Content
 ```
 
-Or with curl (Windows 10+):
-
-```powershell
-curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/install.ps1 | powershell -Command "$input | Invoke-Expression"
-```
-
 ### Custom Installation Options
 
 You can customize the installation with command-line arguments:
@@ -102,12 +110,6 @@ You can customize the installation with command-line arguments:
 ```bash
 # Install with custom port
 curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/install.sh | bash -s -- --port 8080
-
-# Install to custom directory
-curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/install.sh | bash -s -- --install-dir /opt/sshift
-
-# Install with custom port and directory
-curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/install.sh | bash -s -- --port 8080 --install-dir /opt/sshift
 
 # Show help
 ./install.sh --help
@@ -120,50 +122,45 @@ curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/install.sh 
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/lethevimlet/sshift/main/install.ps1" -OutFile "install.ps1"
 .\install.ps1 -Port 8080
 
-# Install to custom directory
-.\install.ps1 -InstallDir "C:\sshift"
-
-# Install with custom port and directory
-.\install.ps1 -Port 8080 -InstallDir "C:\sshift"
-
 # Show help
 .\install.ps1 -Help
+```
+
+### Updating
+
+To update sshift to the latest version:
+
+```bash
+# Update via npm
+npm update -g sshift
+
+# Or use the installation script
+./install.sh --update
 ```
 
 ### Uninstallation
 
 To remove sshift from your system:
 
-#### Linux / macOS
-
 ```bash
+# Uninstall via npm
+npm uninstall -g sshift
+
+# Or use the installation script
 ./install.sh --uninstall
-```
-
-Or download and run:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/install.sh | bash -s -- --uninstall
-```
-
-#### Windows (PowerShell)
-
-```powershell
-.\install.ps1 -Uninstall
 ```
 
 ### What the Installer Does
 
 1. **Checks for Node.js** - Installs Node.js 18+ if not present
-2. **Clones the repository** - Downloads sshift to `~/.local/share/sshift` (or custom directory)
-3. **Installs dependencies** - Runs `npm install` automatically
-4. **Creates executable** - Sets up `sshift` command in your PATH
-5. **Configures autostart** (optional) - Sets up sshift to start on boot
-6. **Checks for updates** - Compares local and remote versions
+2. **Installs via npm** - Installs sshift globally using npm
+3. **Creates executable** - Sets up `sshift` command in your PATH
+4. **Configures autostart** (optional) - Sets up sshift to start on boot
+5. **Checks for updates** - Compares local and remote versions
 
-### Manual Installation
+### Manual Installation from Source
 
-If you prefer to install manually:
+If you prefer to install from source:
 
 ```bash
 # Clone the repository

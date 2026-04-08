@@ -707,6 +707,11 @@ class SSHIFTClient {
       // Update all terminal themes
       this.updateTerminalThemes(newTheme);
       
+      // Sync theme to server for cross-device sync
+      if (this.socket && this.socket.connected) {
+        this.socket.emit('theme-change', { theme: newTheme });
+      }
+      
       // Fade out the wave
       wave.classList.add('fade-out');
       
@@ -888,23 +893,31 @@ class SSHIFTClient {
     this.saveAccent(accent);
     this.updateAccentPreview(accent);
     this.updateAccentActiveState(accent);
+    
+    // Sync accent to server for cross-device sync
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('accent-change', { accent: accent });
+    }
   }
 
   updateAccentPreview(accent) {
-    const preview = document.querySelector('.accent-preview');
-    if (preview) {
-      const colors = {
-        fuchsia: '#c10059',
-        green: '#2ea043',
-        purple: '#a371f2',
-        orange: '#d18616',
-        red: '#da3633',
-        cyan: '#1f6feb',
-        blue: '#58a6ff',
-        yellow: '#d29922'
-      };
-      preview.style.background = colors[accent] || colors.fuchsia;
-    }
+    const colors = {
+      fuchsia: '#c10059',
+      green: '#2ea043',
+      purple: '#a371f2',
+      orange: '#d18616',
+      red: '#da3633',
+      cyan: '#1f6feb',
+      blue: '#58a6ff',
+      yellow: '#d29922'
+    };
+    const color = colors[accent] || colors.fuchsia;
+    
+    // Update all accent-preview elements (desktop and mobile)
+    const previews = document.querySelectorAll('.accent-preview');
+    previews.forEach(preview => {
+      preview.style.background = color;
+    });
   }
 
   updateAccentActiveState(accent) {
@@ -1285,6 +1298,9 @@ class SSHIFTClient {
           // Update activeSessionsByPanel for single panel
           this.activeSessionsByPanel.clear();
           this.activeSessionsByPanel.set('panel-0', activeTabToKeep);
+          
+          // Update global active session (for mobile dropdown)
+          this.activeSessionId = activeTabToKeep;
         }
         
         // Update mobile dropdown and save tabs
@@ -2658,12 +2674,37 @@ class SSHIFTClient {
     // Handle receiving open tabs from server (for cross-tab sync)
     this.socket.on('open-tabs', (data) => {
       console.log('[SSHIFT] Received open tabs from server:', data.tabs.length);
+      
+      // Sync theme and accent from server
+      if (data.theme) {
+        const savedTheme = this.loadTheme();
+        if (savedTheme !== data.theme) {
+          console.log('[SSHIFT] Syncing theme from server:', data.theme);
+          document.documentElement.setAttribute('data-theme', data.theme);
+          this.theme = data.theme;
+          this.saveTheme(data.theme);
+          this.updateThemeIcon(data.theme);
+          this.updateTerminalThemes(data.theme);
+        }
+      }
+      
+      if (data.accent) {
+        const savedAccent = this.loadAccent();
+        if (savedAccent !== data.accent) {
+          console.log('[SSHIFT] Syncing accent from server:', data.accent);
+          document.documentElement.setAttribute('data-accent', data.accent);
+          this.saveAccent(data.accent);
+          this.updateAccentPreview(data.accent);
+          this.updateAccentActiveState(data.accent);
+        }
+      }
+      
       // Only sync if sticky is enabled
       if (this.sticky && data.tabs.length > 0) {
         this.syncTabsFromServer(data.tabs);
       }
-      // Sync layout if provided
-      if (data.layout && this.sticky) {
+      // Sync layout if provided (but not on mobile - mobile always uses single panel)
+      if (data.layout && this.sticky && !this.isMobile) {
         this.setLayoutFromServer(data.layout);
       }
     });
@@ -2719,8 +2760,33 @@ class SSHIFTClient {
     // Handle layout change from another client
     this.socket.on('layout-changed', (data) => {
       console.log('[SSHIFT] Layout changed by another client:', data.layoutId);
-      if (this.sticky) {
+      if (this.sticky && !this.isMobile) {
         this.setLayoutFromServer(data.layoutId);
+      }
+    });
+
+    // Handle theme change from another client
+    this.socket.on('theme-changed', (data) => {
+      console.log('[SSHIFT] Theme changed by another client:', data.theme);
+      const savedTheme = this.loadTheme();
+      if (savedTheme !== data.theme) {
+        document.documentElement.setAttribute('data-theme', data.theme);
+        this.theme = data.theme;
+        this.saveTheme(data.theme);
+        this.updateThemeIcon(data.theme);
+        this.updateTerminalThemes(data.theme);
+      }
+    });
+
+    // Handle accent change from another client
+    this.socket.on('accent-changed', (data) => {
+      console.log('[SSHIFT] Accent changed by another client:', data.accent);
+      const savedAccent = this.loadAccent();
+      if (savedAccent !== data.accent) {
+        document.documentElement.setAttribute('data-accent', data.accent);
+        this.saveAccent(data.accent);
+        this.updateAccentPreview(data.accent);
+        this.updateAccentActiveState(data.accent);
       }
     });
 
@@ -5926,6 +5992,9 @@ class SSHIFTClient {
     } else if (data.type === 'sftp') {
       this.createSFTPTab(data.name, data.connectionData, data.sessionId);
     }
+    
+    // Update mobile tabs dropdown
+    this.updateMobileTabsDropdown();
   }
 
   // Handle tab closed by another client
@@ -5980,6 +6049,9 @@ class SSHIFTClient {
       }
     }
     
+    // Update mobile tabs dropdown
+    this.updateMobileTabsDropdown();
+    
     // Save tabs
     this.saveTabs();
   }
@@ -6015,10 +6087,13 @@ class SSHIFTClient {
     const order = tabs.map(t => t.sessionId);
     this.reorderTabsInDOM(order);
 
-    // Distribute tabs to panels based on panel assignments
-    if (tabs.some(t => t.panelId)) {
+    // Distribute tabs to panels based on panel assignments (desktop only)
+    if (tabs.some(t => t.panelId) && !this.isMobile) {
       this.distributeTabsToPanels(tabs);
     }
+
+    // Update mobile tabs dropdown after syncing
+    this.updateMobileTabsDropdown();
 
     this.isRestoring = false;
   }

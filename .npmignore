@@ -1,0 +1,50 @@
+# Development and test files
+node_modules/
+src/tests/
+src/webapp/tests/
+tests/
+jest.config.js
+coverage/
+.nyc_output/
+
+# Git files
+.git/
+.gitignore
+
+# Environment and config files
+.env/
+.env.local
+.env/config.json
+config.json
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and temporary files
+*.log
+*.pid
+server.log
+
+# Installation scripts (not needed for npm package)
+install.sh
+install.ps1
+install-npm.sh
+install-npm.ps1
+
+# Documentation and agent files
+.agents/
+*.md
+!README.md
+!LICENSE
+
+# Development files
+.github/
+media/
