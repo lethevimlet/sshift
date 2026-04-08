@@ -1,6 +1,6 @@
 # SSHIFT - Web-based SSH & SFTP Terminal Client
 
-[![Node.js Version](https://img.shields.io/badge/node-%3E%3D14.0.0-brightgreen.svg)](https://nodejs.org/)
+[![Node.js Version](https://img.shields.io/badge/node-%3E%3E20.0.0-brightgreen.svg)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A modern, responsive web-based SSH and SFTP terminal client built with Node.js, Express, and xterm.js. Features excellent TUI support, tabbed sessions, bookmarks, and mobile-friendly design.
@@ -62,7 +62,7 @@ A modern, responsive web-based SSH and SFTP terminal client built with Node.js, 
 ## 📦 Installation
 
 ### Prerequisites
-- **Node.js** >= 18.0.0 (installed automatically by the installer if not present)
+- **Node.js** >= 20.0.0 (installed automatically by the installer if not present)
 - **npm** or **yarn**
 
 ### Quick Install via npm (Recommended)

@@ -26,7 +26,7 @@ param(
 )
 
 # Configuration (defaults, can be overridden by arguments)
-$NodeVersion = "18"  # Minimum LTS version
+$NodeVersion = "20"  # Minimum LTS version
 $NpmPackage = "sshift"
 if ($InstallDir -eq "") {
     $InstallDir = "$env:USERPROFILE\.local\share\sshift"

@@ -17,7 +17,7 @@
 set -e
 
 # Configuration (defaults, can be overridden by arguments)
-NODE_VERSION="18"  # Minimum LTS version
+NODE_VERSION="20"  # Minimum LTS version
 NPM_PACKAGE="sshift"
 INSTALL_DIR="$HOME/.local/share/sshift"
 BIN_DIR="$HOME/.local/bin"
