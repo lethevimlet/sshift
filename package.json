@@ -1,6 +1,6 @@
 {
   "name": "@lethevimlet/sshift",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Web-based SSH + SFTP terminal client with tabs and bookmarks",
   "main": "src/server/index.js",
   "bin": {
