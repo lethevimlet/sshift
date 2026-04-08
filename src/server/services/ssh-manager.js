@@ -323,7 +323,8 @@ class SSHManager {
       sessionId: sessionId,
       noTerminalState: !hasTerminalState,
       controllerSocket: session.controllerSocket, // Tell client who is in control
-      isController: session.controllerSocket === socket.id // Tell client if they are in control
+      isController: session.controllerSocket === socket.id, // Tell client if they are in control
+      socketCount: session.sockets.size // Tell client how many sockets are connected
     });
     
     return true;

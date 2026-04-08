@@ -28,6 +28,7 @@ class SSHIFTClient {
     this.takeControlDefault = true; // Default to true - automatically take control when joining sessions
     this.savedTabs = []; // Store tab information
     this.isRestoring = false; // Flag to prevent saving during restoration
+    this.isSyncingTabs = false; // Flag to prevent saveTabs emission during tabs-sync
     this.sftpClipboard = null; // For cut/copy/paste: { action: 'cut'|'copy', path: string, name: string, sessionId: string }
     this.terminalColorOverride = true; // Default to true, will be loaded in initThemeAndAccent
     this.terminalBgColor = '#0d1117';
@@ -187,7 +188,8 @@ class SSHIFTClient {
     console.log('[SSHIFT] Saved tabs:', tabs.length, 'layout:', tabsData.layout);
     
     // Sync to server for cross-tab sync
-    if (this.socket && this.socket.connected) {
+    // Don't emit if we're currently syncing from another client to prevent loops
+    if (this.socket && this.socket.connected && !this.isSyncingTabs) {
       this.socket.emit('tabs-save', tabsData);
     }
   }
@@ -2726,12 +2728,20 @@ class SSHIFTClient {
     this.socket.on('tabs-sync', (data) => {
       console.log('[SSHIFT] Tabs sync:', data.tabs?.length || 0, 'tabs, layout:', data.layout);
       if (this.sticky) {
-        // Apply layout first if it's different
-        if (data.layout && data.layout !== this.currentLayout?.id) {
-          this.setLayoutFromServer(data.layout, data.tabs);
-        } else if (data.tabs && Array.isArray(data.tabs)) {
-          // Just reorder tabs without layout change
-          this.distributeTabsToPanels(data.tabs);
+        // Set flag to prevent re-emission during sync
+        this.isSyncingTabs = true;
+        
+        try {
+          // Apply layout first if it's different
+          if (data.layout && data.layout !== this.currentLayout?.id) {
+            this.setLayoutFromServer(data.layout, data.tabs);
+          } else if (data.tabs && Array.isArray(data.tabs)) {
+            // Just reorder tabs without layout change
+            this.distributeTabsToPanels(data.tabs);
+          }
+        } finally {
+          // Clear flag after processing
+          this.isSyncingTabs = false;
         }
       }
     });
@@ -2764,22 +2774,28 @@ class SSHIFTClient {
         // Handle controller status
         session.isController = data.isController;
         session.controllerSocket = data.controllerSocket;
-        console.log('[SSHIFT] Controller status:', data.isController ? 'in control' : 'observer', 'controller:', data.controllerSocket);
+        console.log('[SSHIFT] Controller status:', data.isController ? 'in control' : 'observer', 'controller:', data.controllerSocket, 'socketCount:', data.socketCount);
         
         // Show/hide control overlay based on controller status
         this.updateControlOverlay(data.sessionId);
         
         // If takeControlDefault is enabled and we're not the controller, take control
-        // Note: This will take control from the current controller if one exists
-        // The 1-second cooldown on the server prevents rapid control transfers
+        // BUT only if there's no controller OR we're the only client in the session
+        // This prevents "control wars" where multiple clients keep taking control from each other
         if (this.takeControlDefault && !data.isController) {
-          console.log('[SSHIFT] takeControlDefault enabled, taking control...');
-          // Delay to ensure the session is fully set up and to stagger requests from multiple clients
-          // Use a random delay to reduce collision when multiple clients join simultaneously
-          const delay = 100 + Math.random() * 400; // 100-500ms
-          setTimeout(() => {
-            this.requestTakeControl(sessionId);
-          }, delay);
+          const noController = !data.controllerSocket;
+          const onlyClient = data.socketCount === 1;
+          
+          if (noController || onlyClient) {
+            console.log('[SSHIFT] takeControlDefault enabled, taking control (no controller or only client)...');
+            // Delay to ensure the session is fully set up
+            const delay = 100 + Math.random() * 200; // 100-300ms
+            setTimeout(() => {
+              this.requestTakeControl(sessionId);
+            }, delay);
+          } else {
+            console.log('[SSHIFT] takeControlDefault enabled but not taking control - another client is already in control');
+          }
         }
         
         // Focus the terminal
