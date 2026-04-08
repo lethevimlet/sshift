@@ -7,6 +7,13 @@ on:
       - completed
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g., 0.2.0 or leave empty to use package.json)'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -15,15 +22,22 @@ permissions:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion == 'success'
+    # Run if: 1) workflow_run completed successfully, or 2) manually triggered
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Get version from package.json
+      - name: Get version
         id: package_version
         run: |
-          VERSION=$(node -p "require('./package.json').version")
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION=$(node -p "require('./package.json').version")
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Set up QEMU
