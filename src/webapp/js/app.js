@@ -1107,10 +1107,66 @@ class SSHIFTClient {
     // Apply the layout
     this.applyLayout(layout);
     
-    // Resize terminals after layout change (with delay for DOM to settle)
-    setTimeout(() => this.handleResize(), 50);
+    // Force refit all visible terminals after layout change
+    // This is more reliable than relying on ResizeObserver
+    this.refitAllTerminals();
     
     this.showToast(`Layout: ${layout.name}`, 'info');
+  }
+  
+  // Refit all visible terminals
+  refitAllTerminals() {
+    console.log('[SSHIFT] Refitting all terminals');
+    
+    // Multiple attempts with increasing delays to ensure DOM is settled
+    const delays = [50, 150, 300, 500];
+    
+    delays.forEach((delay, index) => {
+      setTimeout(() => {
+        console.log(`[SSHIFT] Refit attempt ${index + 1}/${delays.length}`);
+        
+        // Refit SSH terminals
+        this.sessions.forEach((session, sessionId) => {
+          if (session.terminal && session.fitAddon && session.isController) {
+            const wrapper = document.getElementById(`terminal-wrapper-${sessionId}`);
+            const container = document.getElementById(`terminal-${sessionId}`);
+            
+            if (wrapper && container && wrapper.classList.contains('active')) {
+              try {
+                // Force reflow
+                void wrapper.offsetHeight;
+                void container.offsetHeight;
+                
+                session.fitAddon.fit();
+                console.log(`[SSHIFT] Terminal ${sessionId} refitted, cols: ${session.terminal.cols}, rows: ${session.terminal.rows}`);
+              } catch (e) {
+                console.warn(`[SSHIFT] Failed to refit terminal ${sessionId}:`, e.message);
+              }
+            }
+          }
+        });
+        
+        // Refit SFTP terminals
+        this.sftpSessions.forEach((session, sessionId) => {
+          if (session.terminal && session.fitAddon) {
+            const wrapper = document.getElementById(`terminal-wrapper-${sessionId}`);
+            const container = document.getElementById(`terminal-${sessionId}`);
+            
+            if (wrapper && container && wrapper.classList.contains('active')) {
+              try {
+                void wrapper.offsetHeight;
+                void container.offsetHeight;
+                
+                session.fitAddon.fit();
+                console.log(`[SSHIFT] SFTP terminal ${sessionId} refitted, cols: ${session.terminal.cols}, rows: ${session.terminal.rows}`);
+              } catch (e) {
+                console.warn(`[SSHIFT] Failed to refit SFTP terminal ${sessionId}:`, e.message);
+              }
+            }
+          }
+        });
+      }, delay);
+    });
   }
 
   applyLayout(layout, syncedTabs = null) {
@@ -1238,7 +1294,16 @@ class SSHIFTClient {
       }
       
       // Resize terminals after restoration
-      setTimeout(() => this.handleResize(), 100);
+      setTimeout(() => {
+        this.handleResize();
+        // Additional resize after animations complete
+        requestAnimationFrame(() => {
+          this.handleResize();
+        });
+      }, 100);
+      
+      // Final resize attempt for slow rendering
+      setTimeout(() => this.handleResize(), 300);
       return;
     }
     
@@ -1287,8 +1352,17 @@ class SSHIFTClient {
     this.distributeTabsToPanels(syncedTabs);
     
     // Resize terminals after restoration
-    setTimeout(() => this.handleResize(), 100);
+    setTimeout(() => {
+      this.handleResize();
+      // Additional resize after animations complete
+      requestAnimationFrame(() => {
+        this.handleResize();
+      });
+    }, 100);
     
+    // Final resize attempt for slow rendering
+    setTimeout(() => this.handleResize(), 300);
+
     // Update scroll arrows for all panels
     setTimeout(() => this.updateTabsScrollArrows(), 150);
   }
@@ -4841,26 +4915,41 @@ class SSHIFTClient {
       console.log('[SSHIFT] Terminal opened, fitting...');
       
       // Fit after a small delay to ensure container is visible and rendered
-      requestAnimationFrame(() => {
-        setTimeout(() => {
-          try {
-            // Force a reflow to ensure proper rendering
-            container.offsetHeight;
-            fitAddon.fit();
-            console.log('[SSHIFT] Terminal fitted successfully, cols:', terminal.cols, 'rows:', terminal.rows);
-          } catch (e) {
-            console.warn('[SSHIFT] Could not fit terminal:', e.message);
-            // Try again after another delay
-            setTimeout(() => {
-              try {
-                fitAddon.fit();
-                console.log('[SSHIFT] Terminal fitted on retry, cols:', terminal.cols, 'rows:', terminal.rows);
-              } catch (e2) {
-                console.error('[SSHIFT] Fit failed on retry:', e2.message);
-              }
-            }, 100);
+      // Use multiple attempts to ensure proper fitting
+      const attemptFit = (attempt = 1) => {
+        try {
+          // Force a reflow to ensure proper rendering
+          container.offsetHeight;
+          wrapper.offsetHeight;
+          
+          fitAddon.fit();
+          console.log('[SSHIFT] Terminal fitted successfully (attempt ' + attempt + '), cols:', terminal.cols, 'rows:', terminal.rows);
+          
+          // Verify the fit was successful by checking dimensions
+          if (terminal.cols > 0 && terminal.rows > 0) {
+            return true;
           }
-        }, 100);
+          return false;
+        } catch (e) {
+          console.warn('[SSHIFT] Fit attempt ' + attempt + ' failed:', e.message);
+          return false;
+        }
+      };
+      
+      // Try fitting immediately
+      requestAnimationFrame(() => {
+        if (!attemptFit(1)) {
+          // If first attempt fails, try again after delays
+          setTimeout(() => {
+            if (!attemptFit(2)) {
+              setTimeout(() => {
+                if (!attemptFit(3)) {
+                  console.error('[SSHIFT] All fit attempts failed');
+                }
+              }, 200);
+            }
+          }, 100);
+        }
       });
 
       // Handle terminal input
@@ -5116,6 +5205,42 @@ class SSHIFTClient {
 
       session.terminal = terminal;
       session.fitAddon = fitAddon;
+
+      // Setup ResizeObserver to handle container size changes
+      // This ensures the terminal is refitted when the container is resized
+      // We observe the wrapper (parent) because it persists across layout changes
+      const resizeObserver = new ResizeObserver((entries) => {
+        // Only fit if this is the controller and terminal is visible
+        if (session.isController && session.terminal && wrapper.classList.contains('active')) {
+          try {
+            // Debounce the fit calls to avoid performance issues
+            if (session.resizeTimeout) {
+              clearTimeout(session.resizeTimeout);
+            }
+            session.resizeTimeout = setTimeout(() => {
+              try {
+                if (session.fitAddon && session.terminal && wrapper.classList.contains('active')) {
+                  // Force reflow before fitting
+                  void container.offsetHeight;
+                  void wrapper.offsetHeight;
+                  
+                  session.fitAddon.fit();
+                  console.log('[SSHIFT] Terminal refitted due to container resize, cols:', session.terminal.cols, 'rows:', session.terminal.rows);
+                }
+              } catch (e) {
+                console.warn('[SSHIFT] Could not refit terminal on resize:', e.message);
+              }
+            }, 100);
+          } catch (e) {
+            console.warn('[SSHIFT] ResizeObserver error:', e.message);
+          }
+        }
+      });
+      
+      // Observe the terminal wrapper (parent of container)
+      // The wrapper persists across layout changes
+      resizeObserver.observe(wrapper);
+      session.resizeObserver = resizeObserver;
 
       // Setup mobile scroll behavior after terminal is ready
       // Use requestAnimationFrame to ensure terminal.element is available
@@ -5631,7 +5756,23 @@ class SSHIFTClient {
           console.log('[SSHIFT] Restored font size', session.fontSize, 'for session', sessionId);
         }
         
+        // Force a reflow before fitting
+        const wrapper = document.getElementById(`terminal-wrapper-${sessionId}`);
+        const container = document.getElementById(`terminal-${sessionId}`);
+        if (wrapper && container) {
+          void wrapper.offsetHeight;
+          void container.offsetHeight;
+        }
+        
+        // Check if terminal needs resize (marked during layout changes)
+        if (session.needsResize || session.terminal.cols === 0 || session.terminal.rows === 0) {
+          console.log('[SSHIFT] Terminal needs resize, fitting now');
+          session.needsResize = false;
+        }
+        
         session.fitAddon.fit();
+        console.log('[SSHIFT] Terminal fitted after tab switch, cols:', session.terminal.cols, 'rows:', session.terminal.rows);
+        
         // Focus the terminal so user can type
         if (session.terminal) {
           session.terminal.focus();
@@ -5644,7 +5785,7 @@ class SSHIFTClient {
           console.log('[SSHIFT] Requesting screen sync for sticky session');
           this.requestScreenSync(sessionId);
         }
-      }, 100);
+      }, 150); // Increased delay to ensure container is fully visible
     } else if (session && session.terminal) {
       // For non-controllers, just focus the terminal and restore font size
       if (session.fontSize) {
@@ -5684,6 +5825,16 @@ class SSHIFTClient {
     // Disconnect
     if (session.type === 'ssh') {
       this.socket.emit('ssh-disconnect', { sessionId });
+      // Clean up ResizeObserver
+      if (session.resizeObserver) {
+        session.resizeObserver.disconnect();
+        session.resizeObserver = null;
+      }
+      // Clean up resize timeout
+      if (session.resizeTimeout) {
+        clearTimeout(session.resizeTimeout);
+        session.resizeTimeout = null;
+      }
       if (session.terminal) {
         session.terminal.dispose();
       }
@@ -7567,22 +7718,67 @@ class SSHIFTClient {
 
   // Resize Handler
   handleResize() {
+    console.log('[SSHIFT] handleResize called');
+    
     // Resize SSH terminals
-    this.sessions.forEach((session) => {
+    this.sessions.forEach((session, sessionId) => {
       if (session.terminal && session.fitAddon) {
         // Only fit if this client is the controller
         // Non-controllers will receive resize sync from the controller
         // This prevents resize feedback loops between multiple clients
         if (session.isController) {
-          session.fitAddon.fit();
+          try {
+            // Force a reflow to ensure container dimensions are updated
+            const container = document.getElementById(`terminal-${sessionId}`);
+            const wrapper = document.getElementById(`terminal-wrapper-${sessionId}`);
+            
+            if (container && wrapper) {
+              // Check if the terminal is visible (active tab)
+              const isVisible = wrapper.classList.contains('active');
+              
+              if (isVisible) {
+                // Force reflow
+                void container.offsetHeight;
+                void wrapper.offsetHeight;
+                
+                session.fitAddon.fit();
+                console.log(`[SSHIFT] Terminal ${sessionId} resized, cols: ${session.terminal.cols}, rows: ${session.terminal.rows}`);
+              } else {
+                // Mark for resize when tab becomes active
+                session.needsResize = true;
+                console.log(`[SSHIFT] Terminal ${sessionId} not visible, marked for resize`);
+              }
+            }
+          } catch (e) {
+            console.warn(`[SSHIFT] Failed to resize terminal ${sessionId}:`, e.message);
+          }
         }
       }
     });
     
     // Resize SFTP terminals (no controller concept, always fit)
-    this.sftpSessions.forEach((session) => {
+    this.sftpSessions.forEach((session, sessionId) => {
       if (session.terminal && session.fitAddon) {
-        session.fitAddon.fit();
+        try {
+          const container = document.getElementById(`terminal-${sessionId}`);
+          const wrapper = document.getElementById(`terminal-wrapper-${sessionId}`);
+          
+          if (container && wrapper) {
+            const isVisible = wrapper.classList.contains('active');
+            
+            if (isVisible) {
+              void container.offsetHeight;
+              void wrapper.offsetHeight;
+              
+              session.fitAddon.fit();
+              console.log(`[SSHIFT] SFTP terminal ${sessionId} resized, cols: ${session.terminal.cols}, rows: ${session.terminal.rows}`);
+            } else {
+              session.needsResize = true;
+            }
+          }
+        } catch (e) {
+          console.warn(`[SSHIFT] Failed to resize SFTP terminal ${sessionId}:`, e.message);
+        }
       }
     });
   }
