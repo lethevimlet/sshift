@@ -205,7 +205,16 @@ start_app() {
 # Install Node.js if not present
 install_nodejs() {
     if command_exists node; then
-        local node_version=$(node -v | sed 's/v//')
+        local node_version=$(node -v 2>/dev/null | sed 's/v//')
+        
+        # Check if node actually works (may fail due to glibc mismatch on Arch)
+        if [ -z "$node_version" ]; then
+            warn "Node.js is installed but not working. This may be a glibc version issue."
+            warn "On Arch-based systems, please run: sudo pacman -Syu"
+            warn "Then re-run this installer."
+            error "Node.js is not functional. Please fix the issue and try again."
+        fi
+        
         local major_version=$(echo "$node_version" | cut -d. -f1)
         
         if [ "$major_version" -ge "$NODE_VERSION" ]; then
@@ -227,10 +236,34 @@ install_nodejs() {
             error "Homebrew is not installed. Please install Homebrew first: https://brew.sh/"
         fi
     else
-        # Linux
-        if command_exists pacman; then
-            # Arch Linux/Manjaro
-            sudo pacman -Sy --noconfirm nodejs npm
+        # Linux - detect distro more accurately
+        if [ -f /etc/arch-release ] || command_exists pacman; then
+            # Arch Linux/Manjaro/EndeavourOS
+            # Arch's nodejs requires the latest glibc - system must be fully updated
+            info "Detected Arch-based system"
+            info "Updating system packages (required for Node.js compatibility)..."
+            
+            # Check current glibc version
+            local glibc_version=$(ldd --version 2>/dev/null | head -n1 | grep -oP '\d+\.\d+' | head -1)
+            info "Current glibc version: $glibc_version"
+            
+            # Update system
+            if ! sudo pacman -Syu --noconfirm; then
+                warn "System update failed or was cancelled"
+                warn "If you're on an Arch-based system, please run: sudo pacman -Syu"
+                warn "Then re-run this installer."
+                error "System update required for Node.js compatibility"
+            fi
+            
+            # Install nodejs and npm
+            if ! sudo pacman -S --noconfirm nodejs npm; then
+                error "Failed to install Node.js via pacman"
+            fi
+            
+            # Verify node works after installation
+            if ! node -v >/dev/null 2>&1; then
+                error "Node.js installed but not working. Your system may need a reboot after glibc update."
+            fi
         elif command_exists apt-get; then
             # Debian/Ubuntu
             curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | sudo -E bash -
@@ -249,10 +282,10 @@ install_nodejs() {
     fi
     
     # Verify installation
-    if command_exists node; then
+    if command_exists node && node -v >/dev/null 2>&1; then
         success "Node.js $(node -v) installed successfully"
     else
-        error "Failed to install Node.js"
+        error "Failed to install Node.js or Node.js is not functional"
     fi
 }
 
