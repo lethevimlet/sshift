@@ -27,7 +27,7 @@ param(
 
 # Configuration (defaults, can be overridden by arguments)
 $NodeVersion = "20"  # Minimum LTS version
-$NpmPackage = "sshift"
+$NpmPackage = "@lethevimlet/sshift"
 if ($InstallDir -eq "") {
     $InstallDir = "$env:USERPROFILE\.local\share\sshift"
 }
@@ -90,7 +90,7 @@ function Command-Exists {
 function Get-InstalledVersion {
     if (Command-Exists "sshift") {
         try {
-            $result = npm list -g sshift --depth=0 2>$null
+            $result = npm list -g @lethevimlet/sshift --depth=0 2>$null
             if ($result -match "sshift@(\d+\.\d+\.\d+)") {
                 return $matches[1]
             }
@@ -104,7 +104,7 @@ function Get-InstalledVersion {
 # Get latest version from npm
 function Get-LatestVersion {
     try {
-        $result = npm view sshift version 2>$null
+        $result = npm view @lethevimlet/sshift version 2>$null
         if ($result) {
             return $result.Trim()
         }
@@ -269,7 +269,7 @@ function Install-Sshift {
     Write-Info "Installing sshift via npm..."
     
     # Install globally
-    npm install -g sshift
+    npm install -g @lethevimlet/sshift
     
     if ($LASTEXITCODE -eq 0) {
         Write-Success "sshift installed successfully"
@@ -288,7 +288,7 @@ function Update-Sshift {
     }
     
     # Update via npm
-    npm update -g sshift
+    npm update -g @lethevimlet/sshift
     
     if ($LASTEXITCODE -eq 0) {
         Write-Success "sshift updated successfully"
@@ -415,7 +415,7 @@ function Uninstall-Sshift {
     
     # Uninstall via npm
     Write-Info "Uninstalling sshift..."
-    npm uninstall -g sshift
+    npm uninstall -g @lethevimlet/sshift
     
     # Remove installation directory
     if (Test-Path $InstallDir) {

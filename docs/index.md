@@ -72,7 +72,7 @@ The easiest way to install sshift is via npm:
 
 ```bash
 # Install globally
-npm install -g sshift
+npm install -g @lethevimlet/sshift
 
 # Start the server
 sshift

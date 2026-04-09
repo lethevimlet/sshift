@@ -18,7 +18,7 @@ set -e
 
 # Configuration (defaults, can be overridden by arguments)
 NODE_VERSION="20"  # Minimum LTS version
-NPM_PACKAGE="sshift"
+NPM_PACKAGE="@lethevimlet/sshift"
 INSTALL_DIR="$HOME/.local/share/sshift"
 BIN_DIR="$HOME/.local/bin"
 PID_FILE="/tmp/sshift.pid"
@@ -82,7 +82,7 @@ command_exists() {
 # Get installed version from npm
 get_installed_version() {
     if command_exists sshift; then
-        npm list -g sshift --depth=0 2>/dev/null | grep sshift | sed 's/.*sshift@//' | tr -d ' '
+        npm list -g @lethevimlet/sshift --depth=0 2>/dev/null | grep sshift | sed 's/.*sshift@//' | tr -d ' '
     else
         echo "0.0.0"
     fi
@@ -90,7 +90,7 @@ get_installed_version() {
 
 # Get latest version from npm
 get_latest_version() {
-    npm view sshift version 2>/dev/null || echo "0.0.0"
+    npm view @lethevimlet/sshift version 2>/dev/null || echo "0.0.0"
 }
 
 # Compare versions (returns 0 if equal, 1 if local < remote, 2 if local > remote)
@@ -294,7 +294,7 @@ install_sshift() {
     info "Installing sshift via npm..."
     
     # Install globally
-    npm install -g sshift
+    npm install -g @lethevimlet/sshift
     
     if [ $? -eq 0 ]; then
         success "sshift installed successfully"
@@ -313,7 +313,7 @@ update_sshift() {
     fi
     
     # Update via npm
-    npm update -g sshift
+    npm update -g @lethevimlet/sshift
     
     if [ $? -eq 0 ]; then
         success "sshift updated successfully"
@@ -510,7 +510,7 @@ uninstall_sshift() {
     
     # Uninstall via npm
     info "Uninstalling sshift..."
-    npm uninstall -g sshift
+    npm uninstall -g @lethevimlet/sshift
     
     # Remove installation directory
     if [ -d "$INSTALL_DIR" ]; then

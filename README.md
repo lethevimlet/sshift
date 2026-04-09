@@ -29,7 +29,7 @@ A modern, responsive web-based SSH and SFTP terminal client built with Node.js, 
 
 ```bash
 # Install globally
-npm install -g sshift
+npm install -g @lethevimlet/sshift
 
 # Start the server
 sshift
@@ -53,7 +53,7 @@ Full documentation is available at [GitHub Pages](https://lethevimlet.github.io/
 ### Quick Install (npm)
 
 ```bash
-npm install -g sshift
+npm install -g @lethevimlet/sshift
 sshift
 ```
 

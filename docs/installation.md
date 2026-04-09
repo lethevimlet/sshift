@@ -16,7 +16,7 @@ The easiest way to install sshift is via npm:
 
 ```bash
 # Install globally
-npm install -g sshift
+npm install -g @lethevimlet/sshift
 
 # Start the server
 sshift
@@ -77,7 +77,7 @@ To update sshift to the latest version:
 
 ```bash
 # Update via npm
-npm update -g sshift
+npm update -g @lethevimlet/sshift
 
 # Or use the installation script
 ./install.sh --update
@@ -89,7 +89,7 @@ To remove sshift from your system:
 
 ```bash
 # Uninstall via npm
-npm uninstall -g sshift
+npm uninstall -g @lethevimlet/sshift
 
 # Or use the installation script
 ./install.sh --uninstall
