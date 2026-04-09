@@ -38,6 +38,37 @@ success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
+# Read user input (works with piped scripts)
+# When script is piped (curl | bash), stdin is the script content, not the terminal
+# So we need to read from /dev/tty instead
+prompt_user() {
+    local prompt="$1"
+    local default="${2:-}"
+    
+    # Check if we have a terminal available
+    if [ -t 0 ]; then
+        # stdin is a terminal, read normally
+        read -p "$prompt" -n 1 -r
+        echo
+        PROMPT_RESPONSE="$REPLY"
+    elif [ -e /dev/tty ]; then
+        # stdin is not a terminal (piped), but /dev/tty exists
+        # Read from terminal device directly
+        printf "%s" "$prompt" > /dev/tty
+        IFS= read -n 1 -r < /dev/tty
+        echo > /dev/tty
+        PROMPT_RESPONSE="$REPLY"
+    else
+        # No terminal available, use default value
+        if [ -n "$default" ]; then
+            info "Using default: $default"
+            PROMPT_RESPONSE="$default"
+        else
+            error "Cannot read user input (no terminal available)"
+        fi
+    fi
+}
+
 # Show help message
 show_help() {
     cat << EOF
@@ -509,9 +540,8 @@ uninstall_sshift() {
     echo "  - PATH configuration"
     echo ""
     
-    read -p "Continue with uninstallation? [y/N] " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    prompt_user "Continue with uninstallation? [y/N] " "n"
+    if [[ ! $PROMPT_RESPONSE =~ ^[Yy]$ ]]; then
         info "Uninstallation cancelled"
         return
     fi
@@ -682,9 +712,8 @@ main() {
         # Check for updates
         if ! check_updates; then
             # Update available
-            read -p "Update sshift? [Y/n] " -n 1 -r
-            echo
-            if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            prompt_user "Update sshift? [Y/n] " "y"
+            if [[ ! $PROMPT_RESPONSE =~ ^[Nn]$ ]]; then
                 update_sshift
             fi
         else
@@ -712,16 +741,14 @@ main() {
     echo ""
     
     # Add to PATH
-    read -p "Add sshift to PATH? [Y/n] " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+    prompt_user "Add sshift to PATH? [Y/n] " "y"
+    if [[ ! $PROMPT_RESPONSE =~ ^[Nn]$ ]]; then
         add_to_path
     fi
     
     # Ask about autostart
-    read -p "Start sshift automatically on login? [y/N] " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
+    prompt_user "Start sshift automatically on login? [y/N] " "n"
+    if [[ $PROMPT_RESPONSE =~ ^[Yy]$ ]]; then
         setup_autostart
     fi
     
