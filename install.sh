@@ -704,29 +704,29 @@ main() {
         
         # Create config file with port (if specified)
         create_config
-        
-        # Ask about PATH and autostart before printing summary
-        echo ""
-        info "Configuration options:"
-        echo ""
-        
-        # Add to PATH
-        read -p "Add sshift to PATH? [Y/n] " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-            add_to_path
-        fi
-        
-        # Ask about autostart
-        read -p "Start sshift automatically on login? [y/N] " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            setup_autostart
-        fi
-        
-        # Print summary
-        print_summary
     fi
+    
+    # Always ask about PATH and autostart (even if already installed)
+    echo ""
+    info "Configuration options:"
+    echo ""
+    
+    # Add to PATH
+    read -p "Add sshift to PATH? [Y/n] " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+        add_to_path
+    fi
+    
+    # Ask about autostart
+    read -p "Start sshift automatically on login? [y/N] " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        setup_autostart
+    fi
+    
+    # Print summary
+    print_summary
 }
 
 # Run main function

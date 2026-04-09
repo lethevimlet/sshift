@@ -567,27 +567,27 @@ function Main {
         
         # Create config file with port (if specified)
         New-Config
-        
-        # Ask about PATH and autostart before printing summary
-        Write-Host ""
-        Write-Info "Configuration options:"
-        Write-Host ""
-        
-        # Add to PATH
-        $addToPath = Read-Host "Add sshift to PATH? [Y/n]"
-        if ($addToPath -notmatch "^[Nn]$") {
-            Add-ToPath
-        }
-        
-        # Ask about autostart
-        $enableAutostart = Read-Host "Start sshift automatically on login? [y/N]"
-        if ($enableAutostart -match "^[Yy]$") {
-            Enable-Autostart
-        }
-        
-        # Print summary
-        Show-Summary
     }
+    
+    # Always ask about PATH and autostart (even if already installed)
+    Write-Host ""
+    Write-Info "Configuration options:"
+    Write-Host ""
+    
+    # Add to PATH
+    $addToPath = Read-Host "Add sshift to PATH? [Y/n]"
+    if ($addToPath -notmatch "^[Nn]$") {
+        Add-ToPath
+    }
+    
+    # Ask about autostart
+    $enableAutostart = Read-Host "Start sshift automatically on login? [y/N]"
+    if ($enableAutostart -match "^[Yy]$") {
+        Enable-Autostart
+    }
+    
+    # Print summary
+    Show-Summary
 }
 
 # Run main function
