@@ -228,7 +228,10 @@ install_nodejs() {
         fi
     else
         # Linux
-        if command_exists apt-get; then
+        if command_exists pacman; then
+            # Arch Linux/Manjaro
+            sudo pacman -Sy --noconfirm nodejs npm
+        elif command_exists apt-get; then
             # Debian/Ubuntu
             curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | sudo -E bash -
             sudo apt-get install -y nodejs
