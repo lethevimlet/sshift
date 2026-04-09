@@ -497,7 +497,7 @@ uninstall_sshift() {
     if [ -f "$shell_rc" ]; then
         # Remove sshift PATH entries
         sed -i.bak '/# sshift/d' "$shell_rc"
-        sed -i.bak "/export PATH=\"$BIN_DIR/d' "$shell_rc"
+        sed -i.bak "/export PATH=\"$BIN_DIR/d" "$shell_rc"
         rm -f "${shell_rc}.bak"
     fi
     
