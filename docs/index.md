@@ -5,10 +5,10 @@ title: Home
 
 # SSHIFT - Web-based SSH & SFTP Terminal Client
 
-[![npm version](https://img.shields.io/npm/v/@lethevimlet/sshift.svg)](https://www.npmjs.com/package/@lethevimlet/sshift)
-[![Docker Image Size](https://img.shields.io/docker/image-size/ghcr.io/lethevimlet/sshift/latest)](https://github.com/lethevimlet/sshift/pkgs/container/sshift)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://lethevimlet.github.io/sshift/)
+[![npm version](https://img.shields.io/npm/v/@lethevimlet/sshift.svg)](https://www.npmjs.com/package/@lethevimlet/sshift)
+[![Docker](https://img.shields.io/badge/Docker-ghcr.io/lethevimlet/sshift-blue.svg)](https://github.com/lethevimlet/sshift/pkgs/container/sshift)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A modern, responsive web-based SSH and SFTP terminal client built with Node.js, Express, and xterm.js. Features excellent TUI support, tabbed sessions, bookmarks, and mobile-friendly design.
 
@@ -68,17 +68,23 @@ A modern, responsive web-based SSH and SFTP terminal client built with Node.js, 
 
 ## 🚀 Quick Start
 
-The easiest way to install sshift is via npm:
+The recommended way to install sshift - automatically handles updates and autostart configuration:
 
+**Linux/macOS:**
 ```bash
-# Install globally
-npm install -g @lethevimlet/sshift
-
-# Start the server
-sshift
+curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/install.sh | bash
 ```
 
-That's it! The application will be available at `http://localhost:8022`
+**Windows (PowerShell):**
+```powershell
+Invoke-Expression (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/lethevimlet/sshift/main/install.ps1" -UseBasicParsing).Content
+```
+
+The installer will:
+- Install Node.js 18+ if not present
+- Install sshift globally
+- Configure autostart (systemd on Linux, launchd on macOS, Task Scheduler on Windows)
+- Set up automatic updates
 
 For detailed installation options, see the [Installation guide](installation.html).
 

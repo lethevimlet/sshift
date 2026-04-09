@@ -10,23 +10,9 @@ title: Installation
 - **Node.js** >= 20.0.0 (installed automatically by the installer if not present)
 - **npm** or **yarn**
 
-## Quick Install via npm (Recommended)
+## One-Liner Installation (Recommended)
 
-The easiest way to install sshift is via npm:
-
-```bash
-# Install globally
-npm install -g @lethevimlet/sshift
-
-# Start the server
-sshift
-```
-
-That's it! The application will be available at `http://localhost:8022`
-
-## One-Liner Installation Scripts
-
-Alternatively, use our installation scripts for a more automated setup:
+The recommended way to install sshift - automatically handles updates and autostart configuration:
 
 ### Linux / macOS
 
@@ -46,11 +32,19 @@ wget -qO- https://raw.githubusercontent.com/lethevimlet/sshift/main/install.sh |
 Invoke-Expression (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/lethevimlet/sshift/main/install.ps1" -UseBasicParsing).Content
 ```
 
-## Custom Installation Options
+### What the Installer Does
+
+1. **Checks for Node.js** - Installs Node.js 18+ if not present
+2. **Installs via npm** - Installs sshift globally using npm
+3. **Creates executable** - Sets up `sshift` command in your PATH
+4. **Configures autostart** (optional) - Sets up sshift to start on boot
+5. **Checks for updates** - Compares local and remote versions
+
+### Custom Installation Options
 
 You can customize the installation with command-line arguments:
 
-### Linux / macOS
+#### Linux / macOS
 
 ```bash
 # Install with custom port
@@ -60,7 +54,7 @@ curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/install.sh 
 ./install.sh --help
 ```
 
-### Windows (PowerShell)
+#### Windows (PowerShell)
 
 ```powershell
 # Install with custom port
@@ -71,37 +65,48 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/lethevimlet/sshift/mai
 .\install.ps1 -Help
 ```
 
-## Updating
+## Docker
 
-To update sshift to the latest version:
+Run sshift using Docker:
 
 ```bash
-# Update via npm
+docker run -d -p 8022:8022 --name sshift ghcr.io/lethevimlet/sshift:latest
+```
+
+Or with docker-compose:
+
+```bash
+curl -O https://raw.githubusercontent.com/lethevimlet/sshift/main/docker/docker-compose.yml
+docker-compose up -d
+```
+
+See [Docker documentation](docker.html) for detailed instructions.
+
+## npm Installation
+
+Install globally via npm:
+
+```bash
+# Install globally
+npm install -g @lethevimlet/sshift
+
+# Start the server
+sshift
+```
+
+The application will be available at `http://localhost:8022`
+
+### Updating
+
+```bash
 npm update -g @lethevimlet/sshift
-
-# Or use the installation script
-./install.sh --update
 ```
 
-## Uninstallation
-
-To remove sshift from your system:
+### Uninstallation
 
 ```bash
-# Uninstall via npm
 npm uninstall -g @lethevimlet/sshift
-
-# Or use the installation script
-./install.sh --uninstall
 ```
-
-## What the Installer Does
-
-1. **Checks for Node.js** - Installs Node.js 18+ if not present
-2. **Installs via npm** - Installs sshift globally using npm
-3. **Creates executable** - Sets up `sshift` command in your PATH
-4. **Configures autostart** (optional) - Sets up sshift to start on boot
-5. **Checks for updates** - Compares local and remote versions
 
 ## Manual Installation from Source
 
