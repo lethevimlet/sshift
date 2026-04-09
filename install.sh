@@ -293,8 +293,17 @@ install_nodejs() {
 install_sshift() {
     info "Installing sshift via npm..."
     
-    # Install globally
-    npm install -g @lethevimlet/sshift
+    # Install globally (use sudo if needed for system-wide installation)
+    if [ "$(id -u)" -eq 0 ]; then
+        # Running as root
+        npm install -g @lethevimlet/sshift
+    elif [ -w /usr/lib/node_modules ] 2>/dev/null || [ -w /usr/local/lib/node_modules ] 2>/dev/null; then
+        # User has write access to global node_modules
+        npm install -g @lethevimlet/sshift
+    else
+        # Need sudo for global installation
+        sudo npm install -g @lethevimlet/sshift
+    fi
     
     if [ $? -eq 0 ]; then
         success "sshift installed successfully"
@@ -312,8 +321,17 @@ update_sshift() {
         stop_app
     fi
     
-    # Update via npm
-    npm update -g @lethevimlet/sshift
+    # Update via npm (use sudo if needed)
+    if [ "$(id -u)" -eq 0 ]; then
+        # Running as root
+        npm update -g @lethevimlet/sshift
+    elif [ -w /usr/lib/node_modules ] 2>/dev/null || [ -w /usr/local/lib/node_modules ] 2>/dev/null; then
+        # User has write access to global node_modules
+        npm update -g @lethevimlet/sshift
+    else
+        # Need sudo for global update
+        sudo npm update -g @lethevimlet/sshift
+    fi
     
     if [ $? -eq 0 ]; then
         success "sshift updated successfully"
@@ -510,7 +528,16 @@ uninstall_sshift() {
     
     # Uninstall via npm
     info "Uninstalling sshift..."
-    npm uninstall -g @lethevimlet/sshift
+    if [ "$(id -u)" -eq 0 ]; then
+        # Running as root
+        npm uninstall -g @lethevimlet/sshift
+    elif [ -w /usr/lib/node_modules ] 2>/dev/null || [ -w /usr/local/lib/node_modules ] 2>/dev/null; then
+        # User has write access to global node_modules
+        npm uninstall -g @lethevimlet/sshift
+    else
+        # Need sudo for global uninstall
+        sudo npm uninstall -g @lethevimlet/sshift
+    fi
     
     # Remove installation directory
     if [ -d "$INSTALL_DIR" ]; then

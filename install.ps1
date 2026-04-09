@@ -268,13 +268,14 @@ function Install-NodeJS {
 function Install-Sshift {
     Write-Info "Installing sshift via npm..."
     
-    # Install globally
+    # Install globally (may require admin privileges on Windows)
     npm install -g @lethevimlet/sshift
     
     if ($LASTEXITCODE -eq 0) {
         Write-Success "sshift installed successfully"
     } else {
         Write-Error "Failed to install sshift"
+        Write-Info "If you see permission errors, try running PowerShell as Administrator"
     }
 }
 
@@ -287,13 +288,14 @@ function Update-Sshift {
         Stop-App
     }
     
-    # Update via npm
+    # Update via npm (may require admin privileges on Windows)
     npm update -g @lethevimlet/sshift
     
     if ($LASTEXITCODE -eq 0) {
         Write-Success "sshift updated successfully"
     } else {
         Write-Error "Failed to update sshift"
+        Write-Info "If you see permission errors, try running PowerShell as Administrator"
     }
 }
 
@@ -416,6 +418,10 @@ function Uninstall-Sshift {
     # Uninstall via npm
     Write-Info "Uninstalling sshift..."
     npm uninstall -g @lethevimlet/sshift
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "npm uninstall failed. If you see permission errors, try running PowerShell as Administrator"
+    }
     
     # Remove installation directory
     if (Test-Path $InstallDir) {
