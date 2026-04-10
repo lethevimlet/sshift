@@ -30,6 +30,7 @@ class SSHIFTClient {
     this.isRestoring = false; // Flag to prevent saving during restoration
     this.isSyncingTabs = false; // Flag to prevent saveTabs emission during tabs-sync
     this.sftpClipboard = null; // For cut/copy/paste: { action: 'cut'|'copy', path: string, name: string, sessionId: string }
+    this.terminalClipboardContent = null; // Pre-read clipboard content for context menu paste
     this.terminalColorOverride = true; // Default to true, will be loaded in initThemeAndAccent
     this.terminalBgColor = '#0d1117';
     this.terminalFgColor = '#e6edf3';
@@ -469,13 +470,54 @@ class SSHIFTClient {
         return text;
       }
     } catch (err) {
-      console.warn('[SSHIFT] Modern clipboard API failed, trying fallback:', err);
+      console.warn('[SSHIFT] Modern clipboard API failed:', err);
     }
     
-    // Fallback: create a prompt for user to paste
+    // Fallback: return empty string - paste will be handled by browser's native paste event
+    // or the user can use Ctrl+Shift+V for force paste
+    return '';
+  }
+
+  // Helper method to paste from clipboard using hidden textarea (more reliable for context menus)
+  async pasteFromClipboard() {
+    // Try modern clipboard API first
+    try {
+      if (navigator.clipboard && navigator.clipboard.readText) {
+        const text = await navigator.clipboard.readText();
+        if (text) {
+          return text;
+        }
+      }
+    } catch (err) {
+      console.warn('[SSHIFT] Clipboard API failed, trying textarea fallback:', err);
+    }
+    
+    // Fallback: Create a hidden textarea and use execCommand
     return new Promise((resolve) => {
-      const text = prompt('Paste your text here (clipboard API not available):');
-      resolve(text || '');
+      const textarea = document.createElement('textarea');
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      textarea.style.top = '-9999px';
+      textarea.style.opacity = '0';
+      textarea.setAttribute('readonly', '');
+      document.body.appendChild(textarea);
+      
+      textarea.focus();
+      textarea.select();
+      
+      let pastedText = '';
+      try {
+        // Try to paste using execCommand
+        const successful = document.execCommand('paste');
+        if (successful) {
+          pastedText = textarea.value;
+        }
+      } catch (err) {
+        console.warn('[SSHIFT] execCommand paste failed:', err);
+      }
+      
+      document.body.removeChild(textarea);
+      resolve(pastedText);
     });
   }
 
@@ -2057,6 +2099,56 @@ class SSHIFTClient {
       
       // Also set up on the main terminal element as fallback
       setupTouchHandlers(terminalElement, 'terminal');
+      
+      // Mobile long-press for text selection
+      let longPressTimer = null;
+      let longPressTriggered = false;
+      const LONG_PRESS_DURATION = 500; // 500ms for long press
+      
+      const handleLongPress = (e) => {
+        if (!this.isMobile) return;
+        
+        longPressTriggered = true;
+        console.log('[SSHIFT] Long press triggered, enabling text selection');
+        
+        // Show context menu at touch position
+        const touch = e.changedTouches[0];
+        const fakeEvent = {
+          clientX: touch.clientX,
+          clientY: touch.clientY,
+          preventDefault: () => {}
+        };
+        
+        this.showTerminalContextMenu(sessionId, terminal, fakeEvent);
+      };
+      
+      terminalElement.addEventListener('touchstart', (e) => {
+        if (!this.isMobile) return;
+        if (e.touches.length === 1) {
+          longPressTriggered = false;
+          longPressTimer = setTimeout(() => {
+            handleLongPress(e);
+          }, LONG_PRESS_DURATION);
+        }
+      }, { passive: true });
+      
+      terminalElement.addEventListener('touchend', (e) => {
+        if (!this.isMobile) return;
+        if (longPressTimer) {
+          clearTimeout(longPressTimer);
+          longPressTimer = null;
+        }
+      }, { passive: true });
+      
+      terminalElement.addEventListener('touchmove', (e) => {
+        if (!this.isMobile) return;
+        // Cancel long press if user moves finger
+        if (longPressTimer) {
+          clearTimeout(longPressTimer);
+          longPressTimer = null;
+        }
+      }, { passive: true });
+      
     } else {
       console.warn('[SSHIFT] Terminal element not found for touch handlers');
     }
@@ -5250,38 +5342,53 @@ class SSHIFTClient {
       });
 
       // Handle right-click for context menu
-      container.addEventListener('contextmenu', (e) => {
+      container.addEventListener('contextmenu', async (e) => {
         console.log('[SSHIFT] Context menu triggered, hasSelection:', terminal.hasSelection());
         e.preventDefault();
         
-        // If there's a selection, copy it
-        if (terminal.hasSelection()) {
-          const selection = terminal.getSelection();
-          console.log('[SSHIFT] Selection:', selection);
-          if (selection) {
-            this.copyToClipboard(selection).then(success => {
-              if (success) {
-                this.showToast('Copied to clipboard', 'success');
-              } else {
-                this.showToast('Failed to copy', 'error');
-              }
-            });
+        // Pre-read clipboard content during user gesture (right-click)
+        // This is needed because clipboard API requires user gesture
+        this.terminalClipboardContent = null;
+        
+        // Try modern Clipboard API first
+        try {
+          if (navigator.clipboard && navigator.clipboard.readText) {
+            console.log('[SSHIFT] Attempting to read clipboard via Clipboard API...');
+            const text = await navigator.clipboard.readText();
+            this.terminalClipboardContent = text;
+            console.log('[SSHIFT] Pre-read clipboard content successfully, length:', text?.length || 0);
+          } else {
+            console.warn('[SSHIFT] Clipboard API not available, will use fallback on paste');
+          }
+        } catch (err) {
+          console.warn('[SSHIFT] Could not pre-read clipboard:', err.name, err.message);
+          // Clipboard API failed, but we'll try fallback when user clicks paste
+        }
+        
+        // Show terminal context menu
+        this.showTerminalContextMenu(sessionId, terminal, e);
+      });
+
+      // Handle native paste event from browser
+      container.addEventListener('paste', (e) => {
+        console.log('[SSHIFT] Native paste event triggered');
+        e.preventDefault();
+        
+        // Get pasted data from clipboard
+        let pastedText = '';
+        if (e.clipboardData && e.clipboardData.getData) {
+          pastedText = e.clipboardData.getData('text/plain');
+        }
+        
+        if (pastedText) {
+          console.log('[SSHIFT] Pasted text length:', pastedText.length);
+          const sess = this.sessions.get(sessionId);
+          if (sess && sess.connected) {
+            this.socket.emit('ssh-data', { sessionId, data: pastedText });
+            this.showToast('Pasted from clipboard', 'success');
           }
         } else {
-          // Paste from clipboard
-          console.log('[SSHIFT] Attempting to paste from clipboard');
-          this.readFromClipboard().then(text => {
-            console.log('[SSHIFT] Clipboard content:', text ? 'found' : 'empty');
-            if (text) {
-              const sess = this.sessions.get(sessionId);
-              if (sess && sess.connected) {
-                this.socket.emit('ssh-data', { sessionId, data: text });
-                this.showToast('Pasted from clipboard', 'success');
-              }
-            } else {
-              this.showToast('Clipboard is empty', 'info');
-            }
-          });
+          this.showToast('Clipboard is empty', 'info');
         }
       });
 
@@ -6996,6 +7103,228 @@ class SSHIFTClient {
     // Listen for errors
     this.socket.once('sftp-error', (data) => {
       alert('Error renaming: ' + data.message);
+    });
+  }
+
+  async showTerminalContextMenu(sessionId, terminal, event) {
+    // Remove any existing context menu
+    const existingMenu = document.querySelector('.terminal-context-menu');
+    if (existingMenu) {
+      existingMenu.remove();
+    }
+
+    const menu = document.createElement('div');
+    menu.className = 'terminal-context-menu active';
+    
+    const hasSelection = terminal.hasSelection();
+    const selection = hasSelection ? terminal.getSelection() : '';
+    
+    menu.innerHTML = `
+      <div class="terminal-context-menu-item ${hasSelection ? '' : 'disabled'}" data-action="copy">
+        <i class="fas fa-copy"></i>
+        <span>Copy</span>
+      </div>
+      <div class="terminal-context-menu-item" data-action="paste">
+        <i class="fas fa-paste"></i>
+        <span>Paste</span>
+      </div>
+      <div class="terminal-context-menu-divider"></div>
+      <div class="terminal-context-menu-item" data-action="selectall">
+        <i class="fas fa-object-group"></i>
+        <span>Select All</span>
+      </div>
+    `;
+
+    // Position the menu at cursor
+    menu.style.left = `${event.clientX}px`;
+    menu.style.top = `${event.clientY}px`;
+
+    // Handle menu item clicks
+    menu.querySelectorAll('.terminal-context-menu-item').forEach(item => {
+      item.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const action = item.dataset.action;
+        
+        // Don't do anything if item is disabled
+        if (item.classList.contains('disabled')) {
+          return;
+        }
+        
+        switch (action) {
+          case 'copy':
+            if (hasSelection && selection) {
+              const success = await this.copyToClipboard(selection);
+              if (success) {
+                this.showToast('Copied to clipboard', 'success');
+                terminal.clearSelection();
+              } else {
+                this.showToast('Failed to copy', 'error');
+              }
+            }
+            break;
+          case 'paste':
+            console.log('[SSHIFT] Paste menu item clicked');
+            // Try to paste - use pre-read content first, then try reading on click
+            const doPaste = async () => {
+              let clipboardContent = this.terminalClipboardContent;
+              
+              // If no pre-read content, try to read now (click is also a user gesture)
+              if (!clipboardContent) {
+                console.log('[SSHIFT] No pre-read content, attempting to read clipboard on click...');
+                try {
+                  if (navigator.clipboard && navigator.clipboard.readText) {
+                    clipboardContent = await navigator.clipboard.readText();
+                    console.log('[SSHIFT] Read clipboard on click, length:', clipboardContent?.length || 0);
+                  }
+                } catch (err) {
+                  console.warn('[SSHIFT] Could not read clipboard on click:', err.name, err.message);
+                }
+              }
+              
+              console.log('[SSHIFT] Final clipboard content:', clipboardContent?.length || 0);
+              
+              if (clipboardContent) {
+                // We have clipboard content, paste it
+                const sess = this.sessions.get(sessionId);
+                console.log('[SSHIFT] Session found:', !!sess, 'connected:', sess?.connected);
+                if (sess && sess.connected) {
+                  this.socket.emit('ssh-data', { sessionId, data: clipboardContent });
+                  this.showToast('Pasted from clipboard', 'success');
+                  console.log('[SSHIFT] Paste successful');
+                } else {
+                  console.error('[SSHIFT] Session not connected');
+                  this.showToast('Session not connected', 'error');
+                }
+              } else {
+                // Clipboard API not available (HTTP context), show paste modal
+                console.log('[SSHIFT] Clipboard API not available, showing paste modal');
+                this.showPasteModal(sessionId);
+              }
+              
+              // Clear the stored clipboard content
+              this.terminalClipboardContent = null;
+            };
+            
+            doPaste();
+            break;
+          case 'selectall':
+            terminal.selectAll();
+            break;
+        }
+        
+        menu.remove();
+      });
+    });
+
+    document.body.appendChild(menu);
+
+    // Close menu when clicking outside
+    const closeMenu = (e) => {
+      if (!menu.contains(e.target)) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        menu.remove();
+        document.removeEventListener('click', closeMenu, true);
+      }
+    };
+    
+    // Delay adding the listener to prevent immediate close
+    setTimeout(() => {
+      document.addEventListener('click', closeMenu, true); // Use capture phase
+    }, 100);
+  }
+
+  showPasteModal(sessionId) {
+    // Remove any existing paste modal
+    const existingModal = document.querySelector('.paste-modal');
+    if (existingModal) {
+      existingModal.remove();
+    }
+
+    // Create modal
+    const modal = document.createElement('div');
+    modal.className = 'paste-modal';
+    modal.innerHTML = `
+      <div class="paste-modal-content">
+        <div class="paste-modal-header">
+          <h3>Paste to Terminal</h3>
+          <button class="paste-modal-close">&times;</button>
+        </div>
+        <div class="paste-modal-body">
+          <p>Clipboard access requires HTTPS. Please paste your text below:</p>
+          <textarea class="paste-textarea" placeholder="Paste your text here (Ctrl+V or right-click → Paste)..." rows="6"></textarea>
+        </div>
+        <div class="paste-modal-footer">
+          <button class="paste-modal-btn paste-modal-cancel">Cancel</button>
+          <button class="paste-modal-btn paste-modal-submit">Paste</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Get elements
+    const textarea = modal.querySelector('.paste-textarea');
+    const closeBtn = modal.querySelector('.paste-modal-close');
+    const cancelBtn = modal.querySelector('.paste-modal-cancel');
+    const submitBtn = modal.querySelector('.paste-modal-submit');
+
+    // Focus textarea
+    setTimeout(() => textarea.focus(), 100);
+
+    // Handle paste in textarea
+    textarea.addEventListener('paste', (e) => {
+      // Let the paste happen naturally in the textarea
+      // Then auto-submit after a short delay
+      setTimeout(() => {
+        if (textarea.value.trim()) {
+          submitBtn.click();
+        }
+      }, 100);
+    });
+
+    // Handle submit
+    const handleSubmit = () => {
+      const text = textarea.value;
+      if (text) {
+        const sess = this.sessions.get(sessionId);
+        if (sess && sess.connected) {
+          this.socket.emit('ssh-data', { sessionId, data: text });
+          this.showToast('Pasted from clipboard', 'success');
+        } else {
+          this.showToast('Session not connected', 'error');
+        }
+      }
+      modal.remove();
+    };
+
+    // Handle cancel
+    const handleCancel = () => {
+      modal.remove();
+    };
+
+    // Event listeners
+    submitBtn.addEventListener('click', handleSubmit);
+    cancelBtn.addEventListener('click', handleCancel);
+    closeBtn.addEventListener('click', handleCancel);
+    
+    // Close on escape
+    const handleKeydown = (e) => {
+      if (e.key === 'Escape') {
+        handleCancel();
+        document.removeEventListener('keydown', handleKeydown);
+      } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        handleSubmit();
+        document.removeEventListener('keydown', handleKeydown);
+      }
+    };
+    document.addEventListener('keydown', handleKeydown);
+
+    // Close on outside click
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        handleCancel();
+      }
     });
   }
 
