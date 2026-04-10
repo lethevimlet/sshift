@@ -2100,54 +2100,10 @@ class SSHIFTClient {
       // Also set up on the main terminal element as fallback
       setupTouchHandlers(terminalElement, 'terminal');
       
-      // Mobile long-press for text selection
-      let longPressTimer = null;
-      let longPressTriggered = false;
-      const LONG_PRESS_DURATION = 500; // 500ms for long press
-      
-      const handleLongPress = (e) => {
-        if (!this.isMobile) return;
-        
-        longPressTriggered = true;
-        console.log('[SSHIFT] Long press triggered, enabling text selection');
-        
-        // Show context menu at touch position
-        const touch = e.changedTouches[0];
-        const fakeEvent = {
-          clientX: touch.clientX,
-          clientY: touch.clientY,
-          preventDefault: () => {}
-        };
-        
-        this.showTerminalContextMenu(sessionId, terminal, fakeEvent);
-      };
-      
-      terminalElement.addEventListener('touchstart', (e) => {
-        if (!this.isMobile) return;
-        if (e.touches.length === 1) {
-          longPressTriggered = false;
-          longPressTimer = setTimeout(() => {
-            handleLongPress(e);
-          }, LONG_PRESS_DURATION);
-        }
-      }, { passive: true });
-      
-      terminalElement.addEventListener('touchend', (e) => {
-        if (!this.isMobile) return;
-        if (longPressTimer) {
-          clearTimeout(longPressTimer);
-          longPressTimer = null;
-        }
-      }, { passive: true });
-      
-      terminalElement.addEventListener('touchmove', (e) => {
-        if (!this.isMobile) return;
-        // Cancel long press if user moves finger
-        if (longPressTimer) {
-          clearTimeout(longPressTimer);
-          longPressTimer = null;
-        }
-      }, { passive: true });
+      // Note: On mobile, we use xterm.js's native touch selection which provides
+      // the native Android/iOS selection handles and copy/paste menu.
+      // No custom long-press context menu is needed on mobile.
+      console.log('[SSHIFT] Mobile touch selection enabled - using native selection UI');
       
     } else {
       console.warn('[SSHIFT] Terminal element not found for touch handlers');
@@ -5341,8 +5297,15 @@ class SSHIFTClient {
         return true; // Allow default behavior for other keys
       });
 
-      // Handle right-click for context menu
+      // Handle right-click for context menu (desktop only)
       container.addEventListener('contextmenu', async (e) => {
+        // On mobile, skip custom context menu - use native selection UI instead
+        if (this.isMobile) {
+          console.log('[SSHIFT] Mobile device - using native selection UI, skipping custom context menu');
+          // Don't prevent default - let native selection work
+          return;
+        }
+        
         console.log('[SSHIFT] Context menu triggered, hasSelection:', terminal.hasSelection());
         e.preventDefault();
         

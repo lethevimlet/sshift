@@ -15,6 +15,7 @@ const defaultConfig = {
   port: 8022,
   devPort: 3000,
   bind: '0.0.0.0',
+  enableHttps: true,
   sticky: true,
   sshKeepaliveInterval: 10000,
   sshKeepaliveCountMax: 1000,
@@ -156,6 +157,15 @@ function getLayouts() {
   return config.layouts || null;
 }
 
+/**
+ * Get HTTPS setting from config
+ * @returns {boolean} Enable HTTPS setting
+ */
+function getEnableHttps() {
+  const config = loadConfig();
+  return config.enableHttps !== false; // Default to true
+}
+
 module.exports = {
   defaultConfig,
   getConfigPath,
@@ -167,5 +177,6 @@ module.exports = {
   getStickySetting,
   getTakeControlDefault,
   getMobileKeysBarEnabled,
-  getLayouts
+  getLayouts,
+  getEnableHttps
 };

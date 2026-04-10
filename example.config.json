@@ -2,6 +2,7 @@
   "port": 8022,
   "devPort": 3000,
   "bind": "0.0.0.0",
+  "enableHttps": true,
   "sticky": true,
   "sshKeepaliveInterval": 15000,
   "sshKeepaliveCountMax": 500,
