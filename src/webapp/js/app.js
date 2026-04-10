@@ -7120,6 +7120,8 @@ class SSHIFTClient {
               if (success) {
                 this.showToast('Copied to clipboard', 'success');
                 terminal.clearSelection();
+                // Focus terminal after copy
+                terminal.focus();
               } else {
                 this.showToast('Failed to copy', 'error');
               }
@@ -7154,6 +7156,8 @@ class SSHIFTClient {
                   this.socket.emit('ssh-data', { sessionId, data: clipboardContent });
                   this.showToast('Pasted from clipboard', 'success');
                   console.log('[SSHIFT] Paste successful');
+                  // Focus terminal after paste
+                  terminal.focus();
                 } else {
                   console.error('[SSHIFT] Session not connected');
                   this.showToast('Session not connected', 'error');
@@ -7172,6 +7176,8 @@ class SSHIFTClient {
             break;
           case 'selectall':
             terminal.selectAll();
+            // Focus terminal after select all
+            terminal.focus();
             break;
         }
         
@@ -7254,6 +7260,10 @@ class SSHIFTClient {
         if (sess && sess.connected) {
           this.socket.emit('ssh-data', { sessionId, data: text });
           this.showToast('Pasted from clipboard', 'success');
+          // Focus terminal after paste
+          if (sess.terminal) {
+            sess.terminal.focus();
+          }
         } else {
           this.showToast('Session not connected', 'error');
         }
