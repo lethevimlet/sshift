@@ -113,12 +113,21 @@ function Command-Exists {
 function Get-InstalledVersion {
     if (Command-Exists "sshift") {
         try {
-            $result = npm list -g @lethevimlet/sshift --depth=0 2>$null
-            if ($result -match "@lethevimlet/sshift@(\d+\.\d+\.\d+)") {
-                return $matches[1]
+            # Use --json for reliable parsing
+            $result = npm list -g @lethevimlet/sshift --depth=0 --json 2>$null | ConvertFrom-Json
+            if ($result.dependencies -and $result.dependencies.'@lethevimlet/sshift') {
+                return $result.dependencies.'@lethevimlet/sshift'.version
             }
         } catch {
-            # Ignore errors
+            # Fallback to regex parsing
+            try {
+                $result = npm list -g @lethevimlet/sshift --depth=0 2>$null
+                if ($result -match "@lethevimlet/sshift@(\d+\.\d+\.\d+)") {
+                    return $matches[1]
+                }
+            } catch {
+                # Ignore errors
+            }
         }
     }
     return "0.0.0"
@@ -233,12 +242,25 @@ function Start-App {
         return
     }
     
-    # Start sshift in background
+    # Get the full path to sshift
+    $sshiftPath = (Get-Command -Name "sshift" -ErrorAction SilentlyContinue).Source
+    if (-not $sshiftPath) {
+        Write-Error "Could not find sshift executable. Make sure sshift is installed and in PATH."
+        return
+    }
+    
+    # Ensure config directory exists
+    $envDir = Join-Path $InstallDir ".env"
+    if (-not (Test-Path $envDir)) {
+        New-Item -ItemType Directory -Force -Path $envDir | Out-Null
+    }
+    
+    # Start sshift in background with full path and working directory
     try {
-        $process = Start-Process -FilePath "sshift" -WindowStyle Hidden -PassThru -RedirectStandardOutput "$InstallDir\sshift.log" -RedirectStandardError "$InstallDir\sshift-error.log"
+        $process = Start-Process -FilePath $sshiftPath -WorkingDirectory $InstallDir -WindowStyle Hidden -PassThru -RedirectStandardOutput "$InstallDir\sshift.log" -RedirectStandardError "$InstallDir\sshift-error.log"
         
         # Save PID
-        New-Item -ItemType Directory -Force -Path (Split-Path $InstallDir -Parent) | Out-Null
+        New-Item -ItemType Directory -Force -Path (Split-Path $PidFile -Parent) | Out-Null
         $process.Id | Out-File -FilePath $PidFile -Encoding ASCII
         
         Start-Sleep -Seconds 2
@@ -248,6 +270,7 @@ function Start-App {
         if ($running) {
             Write-Success "sshift started (PID: $($process.Id))"
             Write-Info "Logs: $InstallDir\sshift.log"
+            Write-Info "Config: $envDir\config.json"
         } else {
             Write-Error "sshift failed to start. Check logs at $InstallDir\sshift-error.log"
         }
@@ -412,8 +435,21 @@ function Add-ToPath {
 function Enable-Autostart {
     Write-Info "Setting up autostart via Task Scheduler..."
     
-    # Create task action
-    $action = New-ScheduledTaskAction -Execute "sshift" -WorkingDirectory $InstallDir
+    # Get the full path to sshift
+    $sshiftPath = (Get-Command -Name "sshift" -ErrorAction SilentlyContinue).Source
+    if (-not $sshiftPath) {
+        Write-Error "Could not find sshift executable. Make sure sshift is installed and in PATH."
+        return
+    }
+    
+    # Ensure config directory exists
+    $envDir = Join-Path $InstallDir ".env"
+    if (-not (Test-Path $envDir)) {
+        New-Item -ItemType Directory -Force -Path $envDir | Out-Null
+    }
+    
+    # Create task action with full path and working directory
+    $action = New-ScheduledTaskAction -Execute $sshiftPath -WorkingDirectory $InstallDir
     
     # Create task trigger (at logon)
     $trigger = New-ScheduledTaskTrigger -AtLogon
@@ -425,6 +461,7 @@ function Enable-Autostart {
     Register-ScheduledTask -TaskName $ServiceName -Action $action -Trigger $trigger -Settings $settings -RunLevel Highest -Force
     
     Write-Success "Autostart configured via Task Scheduler"
+    Write-Info "Config directory: $envDir"
     Write-Info "To start now: Start-ScheduledTask -TaskName $ServiceName"
 }
 

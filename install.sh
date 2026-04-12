@@ -113,7 +113,14 @@ command_exists() {
 # Get installed version from npm
 get_installed_version() {
     if command_exists sshift; then
-        npm list -g @lethevimlet/sshift --depth=0 2>/dev/null | grep -oP '@lethevimlet/sshift@\K[0-9]+\.[0-9]+\.[0-9]+' || echo "0.0.0"
+        # Use --json for reliable parsing, fallback to regex
+        local version=$(npm list -g @lethevimlet/sshift --depth=0 --json 2>/dev/null | grep -oP '"version":\s*"\K[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        if [ -n "$version" ]; then
+            echo "$version"
+        else
+            # Fallback to regex parsing
+            npm list -g @lethevimlet/sshift --depth=0 2>/dev/null | grep -oP '@lethevimlet/sshift@\K[0-9]+\.[0-9]+\.[0-9]+' || echo "0.0.0"
+        fi
     else
         echo "0.0.0"
     fi
@@ -214,8 +221,16 @@ start_app() {
         return
     fi
     
-    # Start sshift in background
-    nohup sshift > "$INSTALL_DIR/sshift.log" 2>&1 &
+    # Ensure config directory exists
+    local env_dir="$INSTALL_DIR/.env"
+    mkdir -p "$env_dir"
+    
+    # Get full path to sshift
+    local sshift_path=$(which sshift 2>/dev/null || echo "sshift")
+    
+    # Start sshift in background with working directory
+    cd "$INSTALL_DIR"
+    nohup "$sshift_path" > "$INSTALL_DIR/sshift.log" 2>&1 &
     local pid=$!
     
     # Save PID
@@ -228,6 +243,7 @@ start_app() {
     if ps -p "$pid" >/dev/null 2>&1; then
         success "sshift started (PID: $pid)"
         info "Logs: $INSTALL_DIR/sshift.log"
+        info "Config: $env_dir/config.json"
     else
         error "sshift failed to start. Check logs at $INSTALL_DIR/sshift.log"
     fi
@@ -433,6 +449,13 @@ add_to_path() {
 setup_autostart() {
     info "Setting up autostart..."
     
+    # Ensure config directory exists
+    local env_dir="$INSTALL_DIR/.env"
+    mkdir -p "$env_dir"
+    
+    # Get full path to sshift
+    local sshift_path=$(which sshift 2>/dev/null || echo "sshift")
+    
     if [ "$(uname)" = "Darwin" ]; then
         # macOS - use launchd
         local plist_path="$HOME/Library/LaunchAgents/com.sshift.plist"
@@ -446,8 +469,10 @@ setup_autostart() {
     <string>com.sshift</string>
     <key>ProgramArguments</key>
     <array>
-        <string>sshift</string>
+        <string>$sshift_path</string>
     </array>
+    <key>WorkingDirectory</key>
+    <string>$INSTALL_DIR</string>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
@@ -462,6 +487,7 @@ EOF
         
         launchctl load "$plist_path" 2>/dev/null || true
         success "Autostart configured via launchd"
+        info "Config directory: $env_dir"
         info "To start now: launchctl start com.sshift"
     else
         # Linux - use systemd user service
@@ -477,7 +503,8 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=$(which sshift)
+ExecStart=$sshift_path
+WorkingDirectory=$INSTALL_DIR
 Restart=on-failure
 RestartSec=10
 
@@ -489,6 +516,7 @@ EOF
         systemctl --user enable "$SERVICE_NAME"
         
         success "Autostart configured via systemd"
+        info "Config directory: $env_dir"
         info "To start now: systemctl --user start $SERVICE_NAME"
     fi
 }
