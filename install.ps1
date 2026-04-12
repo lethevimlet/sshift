@@ -74,11 +74,31 @@ if ($Help) {
     Show-Help
 }
 
+# Check if running in PowerShell (not just double-clicked)
+if ($Host.Name -eq "ConsoleHost") {
+    # Running in console, good
+} else {
+    # Might be running in an unusual host
+    Write-Host ""
+    Write-Host "Note: This script is designed to run in PowerShell console." -ForegroundColor Yellow
+    Write-Host "If you double-clicked the .ps1 file, you may need to:" -ForegroundColor Yellow
+    Write-Host "  1. Right-click the file -> 'Run with PowerShell'" -ForegroundColor Cyan
+    Write-Host "  2. Or open PowerShell and run: .\install.ps1" -ForegroundColor Cyan
+    Write-Host ""
+}
+
 # Colors for output
 function Write-Info { Write-Host "[INFO] " -ForegroundColor Blue -NoNewline; Write-Host $args }
 function Write-Success { Write-Host "[SUCCESS] " -ForegroundColor Green -NoNewline; Write-Host $args }
 function Write-Warning { Write-Host "[WARNING] " -ForegroundColor Yellow -NoNewline; Write-Host $args }
-function Write-Error { Write-Host "[ERROR] " -ForegroundColor Red -NoNewline; Write-Host $args; exit 1 }
+function Write-Error { 
+    Write-Host "[ERROR] " -ForegroundColor Red -NoNewline; 
+    Write-Host $args
+    Write-Host ""
+    Write-Host "Press any key to exit..."
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    exit 1 
+}
 
 # Check if command exists
 function Command-Exists {
@@ -253,7 +273,27 @@ function Install-NodeJS {
     if (Command-Exists "choco") {
         choco install nodejs-lts -y
     } else {
-        Write-Error "Chocolatey is not installed. Please install Chocolatey first: https://chocolatey.org/"
+        Write-Host ""
+        Write-Host "[ERROR] Chocolatey is not installed." -ForegroundColor Red
+        Write-Host ""
+        Write-Host "To install Node.js on Windows, you have several options:" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Option 1: Install Chocolatey (recommended)" -ForegroundColor Cyan
+        Write-Host "  Visit: https://chocolatey.org/install"
+        Write-Host "  Then run this script again"
+        Write-Host ""
+        Write-Host "Option 2: Install Node.js directly" -ForegroundColor Cyan
+        Write-Host "  Visit: https://nodejs.org/"
+        Write-Host "  Download and install Node.js LTS version"
+        Write-Host "  Then run this script again"
+        Write-Host ""
+        Write-Host "Option 3: Use nvm-windows" -ForegroundColor Cyan
+        Write-Host "  Visit: https://github.com/coreybutler/nvm-windows"
+        Write-Host "  Install nvm-windows, then: nvm install lts"
+        Write-Host ""
+        Write-Host "Press any key to exit..."
+        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+        exit 1
     }
     
     # Verify installation
@@ -274,8 +314,18 @@ function Install-Sshift {
     if ($LASTEXITCODE -eq 0) {
         Write-Success "sshift installed successfully"
     } else {
-        Write-Error "Failed to install sshift"
-        Write-Info "If you see permission errors, try running PowerShell as Administrator"
+        Write-Host ""
+        Write-Host "[ERROR] Failed to install sshift" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "Common solutions:" -ForegroundColor Yellow
+        Write-Host "  1. Run PowerShell as Administrator and try again" -ForegroundColor Cyan
+        Write-Host "  2. Check your internet connection" -ForegroundColor Cyan
+        Write-Host "  3. Try: npm cache clean --force" -ForegroundColor Cyan
+        Write-Host "  4. Check npm logs for details" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "Press any key to exit..."
+        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+        exit 1
     }
 }
 
@@ -294,8 +344,18 @@ function Update-Sshift {
     if ($LASTEXITCODE -eq 0) {
         Write-Success "sshift updated successfully"
     } else {
-        Write-Error "Failed to update sshift"
-        Write-Info "If you see permission errors, try running PowerShell as Administrator"
+        Write-Host ""
+        Write-Host "[ERROR] Failed to update sshift" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "Common solutions:" -ForegroundColor Yellow
+        Write-Host "  1. Run PowerShell as Administrator and try again" -ForegroundColor Cyan
+        Write-Host "  2. Check your internet connection" -ForegroundColor Cyan
+        Write-Host "  3. Try: npm cache clean --force" -ForegroundColor Cyan
+        Write-Host "  4. Check npm logs for details" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "Press any key to exit..."
+        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+        exit 1
     }
 }
 
@@ -405,6 +465,8 @@ function Uninstall-Sshift {
         return
     }
     
+    Write-Host ""
+    
     # Stop running instance
     if (Test-IsRunning) {
         Write-Info "Stopping running instance..."
@@ -473,6 +535,9 @@ function Main {
     # Handle uninstall
     if ($Uninstall) {
         Uninstall-Sshift
+        Write-Host ""
+        Write-Host "Press any key to exit..."
+        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
         exit 0
     }
     
@@ -481,16 +546,21 @@ function Main {
         if (Test-IsRunning) {
             $pid = Get-Content $PidFile
             Write-Success "sshift is running (PID: $pid)"
-            exit 0
         } else {
             Write-Info "sshift is not running"
-            exit 1
         }
+        Write-Host ""
+        Write-Host "Press any key to exit..."
+        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+        exit 0
     }
     
     # Handle stop
     if ($Stop) {
         Stop-App
+        Write-Host ""
+        Write-Host "Press any key to exit..."
+        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
         exit 0
     }
     
@@ -499,12 +569,18 @@ function Main {
         Write-Info "Restarting sshift..."
         Stop-App
         Start-App
+        Write-Host ""
+        Write-Host "Press any key to exit..."
+        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
         exit 0
     }
     
     # Handle start
     if ($Start) {
         Start-App
+        Write-Host ""
+        Write-Host "Press any key to exit..."
+        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
         exit 0
     }
     
@@ -523,6 +599,9 @@ function Main {
         
         Write-Info "Updating sshift..."
         Update-Sshift
+        Write-Host ""
+        Write-Host "Press any key to exit..."
+        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
         exit 0
     }
     
@@ -588,7 +667,22 @@ function Main {
     
     # Print summary
     Show-Summary
+    
+    # Pause before exit
+    Write-Host ""
+    Write-Host "Press any key to exit..."
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
 }
 
 # Run main function
-Main
+try {
+    Main
+} catch {
+    Write-Host ""
+    Write-Host "[ERROR] An unexpected error occurred:" -ForegroundColor Red
+    Write-Host $_.Exception.Message
+    Write-Host ""
+    Write-Host "Press any key to exit..."
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    exit 1
+}
