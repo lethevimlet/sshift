@@ -364,22 +364,31 @@ function Update-Sshift {
 
 # Create config file with port setting
 function New-Config {
-    if ($ServerPort -ne "") {
-        Write-Info "Creating configuration with port $ServerPort..."
-        
-        # Create .env directory if it doesn't exist
-        $envDir = Join-Path $InstallDir ".env"
-        New-Item -ItemType Directory -Force -Path $envDir | Out-Null
-        
-        # Create .env file with port
-        $envFile = Join-Path $envDir ".env.local"
-        @"
-# sshift configuration
-PORT=$ServerPort
-"@ | Out-File -FilePath $envFile -Encoding ASCII
-        
-        Write-Success "Configuration created with port $ServerPort"
-    }
+    Write-Info "Creating configuration..."
+    
+    # Create .env directory if it doesn't exist
+    $envDir = Join-Path $InstallDir ".env"
+    New-Item -ItemType Directory -Force -Path $envDir | Out-Null
+    
+    # Create config.json with HTTPS enabled
+    $configFile = Join-Path $envDir "config.json"
+    $port = if ($ServerPort -ne "") { $ServerPort } else { "8022" }
+    
+    @"
+{
+  "port": $port,
+  "devPort": 3000,
+  "bind": "0.0.0.0",
+  "enableHttps": true,
+  "sticky": true,
+  "sshKeepaliveInterval": 15000,
+  "sshKeepaliveCountMax": 500,
+  "bookmarks": [],
+  "folders": []
+}
+"@ | Out-File -FilePath $configFile -Encoding ASCII
+    
+    Write-Success "Configuration created with HTTPS enabled on port $port"
 }
 
 # Add to PATH

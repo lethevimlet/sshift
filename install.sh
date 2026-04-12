@@ -373,20 +373,28 @@ update_sshift() {
 
 # Create config file with port setting
 create_config() {
-    if [ -n "$SERVER_PORT" ]; then
-        info "Creating configuration with port $SERVER_PORT..."
-        
-        # Create .env directory if it doesn't exist
-        mkdir -p "$INSTALL_DIR/.env"
-        
-        # Create .env file with port
-        cat > "$INSTALL_DIR/.env/.env.local" << EOF
-# sshift configuration
-PORT=$SERVER_PORT
+    info "Creating configuration..."
+    
+    # Create .env directory if it doesn't exist
+    mkdir -p "$INSTALL_DIR/.env"
+    
+    # Create config.json with HTTPS enabled
+    local port="${SERVER_PORT:-8022}"
+    cat > "$INSTALL_DIR/.env/config.json" << EOF
+{
+  "port": $port,
+  "devPort": 3000,
+  "bind": "0.0.0.0",
+  "enableHttps": true,
+  "sticky": true,
+  "sshKeepaliveInterval": 15000,
+  "sshKeepaliveCountMax": 500,
+  "bookmarks": [],
+  "folders": []
+}
 EOF
-        
-        success "Configuration created with port $SERVER_PORT"
-    fi
+    
+    success "Configuration created with HTTPS enabled on port $port"
 }
 
 # Add to PATH

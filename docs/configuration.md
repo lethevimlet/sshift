@@ -48,6 +48,10 @@ The application configuration (bookmarks, settings) is loaded from:
   "port": 8022,
   "devPort": 3000,
   "bind": "0.0.0.0",
+  "enableHttps": true,
+  "sticky": true,
+  "sshKeepaliveInterval": 15000,
+  "sshKeepaliveCountMax": 500,
   "bookmarks": [
     {
       "id": "1701234567890",
@@ -73,6 +77,35 @@ The application configuration (bookmarks, settings) is loaded from:
   }
 }
 ```
+
+## Configuration Options
+
+### Server Settings
+
+- **`port`** (number): Server port (default: `8022`)
+- **`devPort`** (number): Development server port (default: `3000`)
+- **`bind`** (string): Bind address (default: `"0.0.0.0"`)
+- **`enableHttps`** (boolean): Enable HTTPS with self-signed certificates (default: `true`)
+- **`sticky`** (boolean): Enable sticky sessions (default: `true`)
+
+### SSH Settings
+
+- **`sshKeepaliveInterval`** (number): SSH keepalive interval in milliseconds (default: `15000`)
+- **`sshKeepaliveCountMax`** (number): Maximum keepalive count (default: `500`)
+
+### HTTPS Configuration
+
+By default, sshift uses HTTPS with self-signed certificates. This provides:
+- Secure WebSocket connections (WSS)
+- Better mobile device support for text selection
+- Encrypted communication
+
+When HTTPS is enabled, sshift automatically generates a self-signed certificate valid for:
+- `localhost`
+- Your machine's hostname
+- All local IP addresses
+
+> **Note:** Your browser will show a security warning for self-signed certificates. This is normal for development/local use. Click "Advanced" → "Proceed to localhost (unsafe)" to continue.
 
 ## Custom Layouts
 

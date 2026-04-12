@@ -28,10 +28,14 @@ wget -qO- https://raw.githubusercontent.com/lethevimlet/sshift/main/install.sh |
 
 ### Windows (PowerShell)
 
-> **Important:** Run PowerShell as Administrator before executing the installer. This is required for npm global installations.
+> **Important:** 
+> - Run PowerShell as Administrator before executing the installer
+> - Execute the following command before running the installer:
+> ```powershell
+> Set-ExecutionPolicy Bypass -Scope Process
+> ```
 
 ```powershell
-# Run PowerShell as Administrator, then execute:
 Invoke-Expression (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/lethevimlet/sshift/main/install.ps1" -UseBasicParsing).Content
 ```
 
@@ -59,7 +63,12 @@ curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/install.sh 
 
 #### Windows (PowerShell)
 
-> **Important:** Run PowerShell as Administrator before executing these commands.
+> **Important:** 
+> - Run PowerShell as Administrator before executing these commands
+> - Execute the following command before running the installer:
+> ```powershell
+> Set-ExecutionPolicy Bypass -Scope Process
+> ```
 
 ```powershell
 # Install with custom port
