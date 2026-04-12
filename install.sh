@@ -113,7 +113,7 @@ command_exists() {
 # Get installed version from npm
 get_installed_version() {
     if command_exists sshift; then
-        npm list -g @lethevimlet/sshift --depth=0 2>/dev/null | grep sshift | sed 's/.*sshift@//' | tr -d ' '
+        npm list -g @lethevimlet/sshift --depth=0 2>/dev/null | grep -oP '@lethevimlet/sshift@\K[0-9]+\.[0-9]+\.[0-9]+' || echo "0.0.0"
     else
         echo "0.0.0"
     fi

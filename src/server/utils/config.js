@@ -5,10 +5,28 @@
 
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
-// Config paths - try .env/config.json first, then fall back to root config.json
-const ENV_CONFIG_PATH = path.join(__dirname, '..', '..', '..', '.env', 'config.json');
-const ROOT_CONFIG_PATH = path.join(__dirname, '..', '..', '..', 'config.json');
+// Get user's home directory
+const HOME_DIR = os.homedir();
+
+// Default install directories for config (platform-specific)
+const DEFAULT_INSTALL_DIRS = [
+  // Linux/macOS
+  path.join(HOME_DIR, '.local', 'share', 'sshift'),
+  // Windows
+  path.join(HOME_DIR, '.local', 'share', 'sshift'),
+  // Alternative locations
+  path.join(HOME_DIR, '.local', 'share', 'bin'),
+];
+
+// Config paths - prioritize user install directory, then fall back to package directory
+const PACKAGE_DIR = path.join(__dirname, '..', '..', '..');
+const ENV_CONFIG_PATHS = [
+  ...DEFAULT_INSTALL_DIRS.map(dir => path.join(dir, '.env', 'config.json')),
+  path.join(PACKAGE_DIR, '.env', 'config.json'),
+  path.join(PACKAGE_DIR, 'config.json'),
+];
 
 // Default config structure
 const defaultConfig = {
@@ -24,16 +42,21 @@ const defaultConfig = {
 };
 
 /**
- * Get config path (prioritize .env/config.json)
+ * Get config path (prioritize user install directory)
  * @returns {string} Path to config file
  */
 function getConfigPath() {
-  if (fs.existsSync(ENV_CONFIG_PATH)) {
-    console.log('[CONFIG] Using .env/config.json');
-    return ENV_CONFIG_PATH;
+  for (const configPath of ENV_CONFIG_PATHS) {
+    if (fs.existsSync(configPath)) {
+      console.log('[CONFIG] Using', configPath);
+      return configPath;
+    }
   }
-  console.log('[CONFIG] Using root config.json');
-  return ROOT_CONFIG_PATH;
+  
+  // Return default path (first user install directory)
+  const defaultPath = ENV_CONFIG_PATHS[0];
+  console.log('[CONFIG] Using default path:', defaultPath);
+  return defaultPath;
 }
 
 /**

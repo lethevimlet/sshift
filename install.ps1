@@ -114,7 +114,7 @@ function Get-InstalledVersion {
     if (Command-Exists "sshift") {
         try {
             $result = npm list -g @lethevimlet/sshift --depth=0 2>$null
-            if ($result -match "sshift@(\d+\.\d+\.\d+)") {
+            if ($result -match "@lethevimlet/sshift@(\d+\.\d+\.\d+)") {
                 return $matches[1]
             }
         } catch {
