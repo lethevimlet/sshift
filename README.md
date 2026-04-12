@@ -61,12 +61,8 @@ curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/install.sh 
 
 **Windows (PowerShell):**
 
-> **Important:** Run PowerShell as Administrator and execute the following command before running the installer:
-> ```powershell
-> Set-ExecutionPolicy Bypass -Scope Process
-> ```
-
 ```powershell
+Set-ExecutionPolicy Bypass -Scope Process
 Invoke-Expression (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/lethevimlet/sshift/main/install.ps1" -UseBasicParsing).Content
 ```
 
