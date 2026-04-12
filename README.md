@@ -61,8 +61,11 @@ curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/install.sh 
 
 **Windows (PowerShell):**
 ```powershell
+# Run PowerShell as Administrator, then execute:
 Invoke-Expression (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/lethevimlet/sshift/main/install.ps1" -UseBasicParsing).Content
 ```
+
+> **Note:** The Windows installer requires PowerShell to be run as Administrator for npm global installations.
 
 The installer will:
 - Install Node.js 18+ if not present

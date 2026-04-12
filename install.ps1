@@ -54,6 +54,9 @@ function Show-Help {
     Write-Host "  -Uninstall        Remove sshift from the system"
     Write-Host "  -Help             Show this help message"
     Write-Host ""
+    Write-Host "IMPORTANT: Run PowerShell as Administrator before executing this script."
+    Write-Host "           This is required for npm global installations."
+    Write-Host ""
     Write-Host "Examples:"
     Write-Host "  ./install.ps1                              # Install with defaults"
     Write-Host "  ./install.ps1 -Port 8080                   # Install with custom port"
@@ -256,8 +259,8 @@ function Start-App {
 # Install Node.js if not present
 function Install-NodeJS {
     if (Command-Exists "node") {
-        $nodeVersion = (node -v) -replace 'v', ''
-        $majorVersion = $nodeVersion.Split('.')[0]
+        $installedNodeVersion = (node -v) -replace 'v', ''
+        $majorVersion = $installedNodeVersion.Split('.')[0]
         
         if ([int]$majorVersion -ge [int]$NodeVersion) {
             Write-Success "Node.js $(node -v) is already installed"
@@ -532,6 +535,25 @@ function Test-Updates {
 
 # Main installation process
 function Main {
+    # Check if running as Administrator
+    $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $isAdmin) {
+        Write-Host ""
+        Write-Host "=========================================="
+        Write-Host "       sshift Installation Script"
+        Write-Host "=========================================="
+        Write-Host ""
+        Write-Host "[ERROR] This script requires Administrator privileges." -ForegroundColor Red
+        Write-Host ""
+        Write-Host "Please run PowerShell as Administrator and try again:" -ForegroundColor Yellow
+        Write-Host "  1. Right-click PowerShell -> 'Run as Administrator'" -ForegroundColor Cyan
+        Write-Host "  2. Run the installation command again" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "Press any key to exit..."
+        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+        exit 1
+    }
+    
     # Handle uninstall
     if ($Uninstall) {
         Uninstall-Sshift
