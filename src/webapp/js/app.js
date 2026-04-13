@@ -2507,8 +2507,13 @@ class SSHIFTClient {
     // Focus the active terminal
     if (this.activeSessionId) {
       const session = this.sessions.get(this.activeSessionId);
-      if (session && session.terminal && session.terminal.textarea) {
-        session.terminal.textarea.focus();
+      if (session) {
+        // On mobile, use the mobile handler's hidden textarea
+        if (this.isMobile && session.mobileHandler && session.mobileHandler.hiddenTextarea) {
+          session.mobileHandler._focusHiddenTextarea();
+        } else if (session.terminal && session.terminal.textarea) {
+          session.terminal.textarea.focus();
+        }
       }
     }
   }
@@ -2598,7 +2603,9 @@ class SSHIFTClient {
     }
     
     // Focus terminal after sending key
-    if (terminal.textarea) {
+    if (this.isMobile && session.mobileHandler && session.mobileHandler.hiddenTextarea) {
+      session.mobileHandler._focusHiddenTextarea();
+    } else if (terminal.textarea) {
       terminal.textarea.focus();
     }
   }
@@ -2914,7 +2921,11 @@ class SSHIFTClient {
         
         // Focus the terminal
         if (session.terminal) {
-          session.terminal.focus();
+          if (this.isMobile && session.mobileHandler && session.mobileHandler.hiddenTextarea) {
+            session.mobileHandler._focusHiddenTextarea();
+          } else {
+            session.terminal.focus();
+          }
           console.log('[SSHIFT] Terminal focused after joining session');
         }
       }
@@ -2984,7 +2995,11 @@ class SSHIFTClient {
           }
           
           // Focus the terminal
-          session.terminal.focus();
+          if (this.isMobile && session.mobileHandler && session.mobileHandler.hiddenTextarea) {
+            session.mobileHandler._focusHiddenTextarea();
+          } else {
+            session.terminal.focus();
+          }
         });
       }
     });
@@ -4613,7 +4628,8 @@ class SSHIFTClient {
       isAtBottom: true, // Auto-scroll by default when new data arrives
       isController: false, // Default to observer - will be set to true for session creator or when taking control
       syncing: false, // Flag to prevent data writes during screen sync
-      fontSize: this.terminalFontSize // Initialize with default font size
+      fontSize: this.terminalFontSize, // Initialize with default font size
+      mobileHandler: null // Mobile terminal handler for touch interactions
     });
 
     // Switch to the new tab FIRST to make the container visible
@@ -5358,6 +5374,20 @@ class SSHIFTClient {
       session.terminal = terminal;
       session.fitAddon = fitAddon;
 
+      // Initialize mobile terminal handler for touch interactions
+      if (this.isMobile && typeof window.MobileTerminalHandler === 'function') {
+        try {
+          const terminalWrapper = document.getElementById(`terminal-wrapper-${sessionId}`);
+          if (terminalWrapper) {
+            session.mobileHandler = new window.MobileTerminalHandler(terminal, session, this);
+            session.mobileHandler.init(terminalWrapper);
+            console.log('[SSHIFT] Mobile terminal handler initialized for session:', sessionId);
+          }
+        } catch (e) {
+          console.warn('[SSHIFT] Failed to initialize mobile handler:', e);
+        }
+      }
+
       // Setup ResizeObserver to handle container size changes
       // This ensures the terminal is refitted when the container is resized
       // We observe the wrapper (parent) because it persists across layout changes
@@ -5454,7 +5484,11 @@ class SSHIFTClient {
         }
         
         // Focus the terminal so user can type immediately
-        session.terminal.focus();
+        if (this.isMobile && session.mobileHandler && session.mobileHandler.hiddenTextarea) {
+          session.mobileHandler._focusHiddenTextarea();
+        } else {
+          session.terminal.focus();
+        }
         console.log('[SSHIFT] Terminal focused after connection');
       } else {
         console.error('[SSHIFT] No terminal in session!');
@@ -5927,7 +5961,11 @@ class SSHIFTClient {
         
         // Focus the terminal so user can type
         if (session.terminal) {
-          session.terminal.focus();
+          if (this.isMobile && session.mobileHandler && session.mobileHandler.hiddenTextarea) {
+            session.mobileHandler._focusHiddenTextarea();
+          } else {
+            session.terminal.focus();
+          }
           console.log('[SSHIFT] Terminal focused for session:', sessionId);
         }
         
@@ -5944,7 +5982,11 @@ class SSHIFTClient {
         session.terminal.options.fontSize = session.fontSize;
         session.terminal.refresh(0, session.terminal.rows - 1);
       }
-      session.terminal.focus();
+      if (this.isMobile && session.mobileHandler && session.mobileHandler.hiddenTextarea) {
+        session.mobileHandler._focusHiddenTextarea();
+      } else {
+        session.terminal.focus();
+      }
     }
     
     // Handle SFTP sessions
@@ -5986,6 +6028,11 @@ class SSHIFTClient {
       if (session.resizeTimeout) {
         clearTimeout(session.resizeTimeout);
         session.resizeTimeout = null;
+      }
+      // Clean up mobile handler
+      if (session.mobileHandler) {
+        session.mobileHandler.destroy();
+        session.mobileHandler = null;
       }
       if (session.terminal) {
         session.terminal.dispose();
@@ -7121,7 +7168,12 @@ class SSHIFTClient {
                 this.showToast('Copied to clipboard', 'success');
                 terminal.clearSelection();
                 // Focus terminal after copy
-                terminal.focus();
+                const session = this.sessions.get(sessionId);
+                if (this.isMobile && session && session.mobileHandler && session.mobileHandler.hiddenTextarea) {
+                  session.mobileHandler._focusHiddenTextarea();
+                } else {
+                  terminal.focus();
+                }
               } else {
                 this.showToast('Failed to copy', 'error');
               }
@@ -7157,7 +7209,11 @@ class SSHIFTClient {
                   this.showToast('Pasted from clipboard', 'success');
                   console.log('[SSHIFT] Paste successful');
                   // Focus terminal after paste
-                  terminal.focus();
+                  if (this.isMobile && sess.mobileHandler && sess.mobileHandler.hiddenTextarea) {
+                    sess.mobileHandler._focusHiddenTextarea();
+                  } else {
+                    terminal.focus();
+                  }
                 } else {
                   console.error('[SSHIFT] Session not connected');
                   this.showToast('Session not connected', 'error');
@@ -7177,7 +7233,12 @@ class SSHIFTClient {
           case 'selectall':
             terminal.selectAll();
             // Focus terminal after select all
-            terminal.focus();
+            const session = this.sessions.get(sessionId);
+            if (this.isMobile && session && session.mobileHandler && session.mobileHandler.hiddenTextarea) {
+              session.mobileHandler._focusHiddenTextarea();
+            } else {
+              terminal.focus();
+            }
             break;
         }
         
@@ -7262,7 +7323,11 @@ class SSHIFTClient {
           this.showToast('Pasted from clipboard', 'success');
           // Focus terminal after paste
           if (sess.terminal) {
-            sess.terminal.focus();
+            if (this.isMobile && sess.mobileHandler && sess.mobileHandler.hiddenTextarea) {
+              sess.mobileHandler._focusHiddenTextarea();
+            } else {
+              sess.terminal.focus();
+            }
           }
         } else {
           this.showToast('Session not connected', 'error');
