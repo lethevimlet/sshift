@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mobile Keyboard Gap Test</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-sans);
+        }
+        
+        .test-container {
+            padding: 20px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        
+        .test-output {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 10px;
+            margin: 10px 0;
+            font-family: monospace;
+            min-height: 100px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        
+        .status.success {
+            background: #238636;
+            color: white;
+        }
+        
+        .status.error {
+            background: #da3633;
+            color: white;
+        }
+        
+        .status.info {
+            background: #1f6feb;
+            color: white;
+        }
+        
+        .input-test {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-size: 16px;
+            margin: 10px 0;
+        }
+        
+        .instructions {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        
+        .instructions h3 {
+            margin-top: 0;
+            color: var(--accent-primary);
+        }
+        
+        .instructions ol {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        
+        .instructions li {
+            margin: 8px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>Mobile Keyboard Gap Test</h1>
+        
+        <div class="status info" id="status">
+            Testing mobile keyboard gap fix...
+        </div>
+        
+        <div class="instructions">
+            <h3>Test Instructions:</h3>
+            <ol>
+                <li>Tap the input field below to open the mobile keyboard</li>
+                <li>Observe the mobile keys bar position - it should be directly above the keyboard with NO gap</li>
+                <li>Check the console output for keyboard height measurements</li>
+                <li>Close the keyboard and verify the bar returns to bottom: 0</li>
+            </ol>
+        </div>
+        
+        <input type="text" class="input-test" id="testInput" placeholder="Tap here to open keyboard" />
+        
+        <div class="test-output" id="output">
+            Waiting for keyboard events...
+        </div>
+        
+        <h2>Mobile Keys Bar Preview</h2>
+        <p>The mobile keys bar should appear below. When keyboard opens, it should move up immediately without gap.</p>
+    </div>
+    
+    <!-- Mobile Keys Bar -->
+    <div class="mobile-keys-bar visible" id="mobileKeysBar">
+        <div class="mobile-keys-row">
+            <button class="mobile-key" data-key="esc" title="Escape">ESC</button>
+            <button class="mobile-key" data-key="/" title="Slash">/</button>
+            <button class="mobile-key" data-key="-" title="Minus">-</button>
+            <button class="mobile-key" data-key="home" title="Home">HOME</button>
+            <button class="mobile-key mobile-key-arrow mobile-key-up" data-key="up" title="Up">▲</button>
+            <button class="mobile-key" data-key="end" title="End">END</button>
+            <button class="mobile-key" data-key="pgup" title="Page Up">PGUP</button>
+        </div>
+        <div class="mobile-keys-row">
+            <button class="mobile-key" data-key="tab" title="Tab">⇥</button>
+            <button class="mobile-key mobile-key-modifier" data-key="ctrl" title="Control">CTRL</button>
+            <button class="mobile-key mobile-key-modifier" data-key="alt" title="Alt">ALT</button>
+            <button class="mobile-key mobile-key-arrow mobile-key-left" data-key="left" title="Left">◀</button>
+            <button class="mobile-key mobile-key-arrow mobile-key-down" data-key="down" title="Down">▼</button>
+            <button class="mobile-key mobile-key-arrow mobile-key-right" data-key="right" title="Right">▶</button>
+            <button class="mobile-key" data-key="pgdn" title="Page Down">PGDN</button>
+        </div>
+    </div>
+    
+    <script>
+        const output = document.getElementById('output');
+        const status = document.getElementById('status');
+        const mobileKeysBar = document.getElementById('mobileKeysBar');
+        const testInput = document.getElementById('testInput');
+        
+        let lastKeyboardHeight = -1;
+        let updateCount = 0;
+        
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            output.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+            output.scrollTop = output.scrollHeight;
+            console.log(message);
+        }
+        
+        function testKeyboardGap() {
+            if (!window.visualViewport) {
+                status.className = 'status error';
+                status.textContent = 'ERROR: Visual Viewport API not supported';
+                log('❌ Visual Viewport API not supported in this browser');
+                return;
+            }
+            
+            log('✓ Visual Viewport API available');
+            
+            const updatePosition = () => {
+                updateCount++;
+                const viewportHeight = window.visualViewport.height;
+                const windowHeight = window.innerHeight;
+                const keyboardHeight = windowHeight - viewportHeight;
+                const barBottom = mobileKeysBar.style.bottom || '0px';
+                
+                log(`Update #${updateCount}:`);
+                log(`  - Window height: ${windowHeight}px`);
+                log(`  - Viewport height: ${viewportHeight}px`);
+                log(`  - Keyboard height: ${keyboardHeight}px`);
+                log(`  - Bar bottom: ${barBottom}`);
+                log(`  - Height change: ${Math.abs(keyboardHeight - lastKeyboardHeight)}px`);
+                
+                // Check for gap
+                const barBottomValue = parseInt(barBottom);
+                const gap = Math.abs(keyboardHeight - barBottomValue);
+                
+                if (keyboardHeight > 50) {
+                    // Keyboard is open
+                    if (gap > 5) {
+                        log(`  ⚠️ GAP DETECTED: ${gap}px between bar and keyboard`);
+                        status.className = 'status error';
+                        status.textContent = `Gap detected: ${gap}px`;
+                    } else {
+                        log(`  ✓ No gap detected (within 5px tolerance)`);
+                        status.className = 'status success';
+                        status.textContent = 'No gap - bar positioned correctly';
+                    }
+                    
+                    // Position bar
+                    mobileKeysBar.style.bottom = `${keyboardHeight}px`;
+                } else {
+                    // Keyboard is closed
+                    log(`  ✓ Keyboard closed`);
+                    mobileKeysBar.style.bottom = '0px';
+                    status.className = 'status info';
+                    status.textContent = 'Keyboard closed - bar at bottom';
+                }
+                
+                lastKeyboardHeight = keyboardHeight;
+            };
+            
+            // Listen for viewport changes
+            window.visualViewport.addEventListener('resize', () => {
+                log('--- Viewport resize event ---');
+                updatePosition();
+                
+                // Schedule another update after animation completes
+                setTimeout(() => {
+                    log('--- Delayed update (post-animation) ---');
+                    updatePosition();
+                }, 300);
+            });
+            
+            // Initial update
+            log('--- Initial state ---');
+            updatePosition();
+        }
+        
+        // Focus input to trigger keyboard
+        testInput.addEventListener('focus', () => {
+            log('Input focused - keyboard should open');
+        });
+        
+        testInput.addEventListener('blur', () => {
+            log('Input blurred - keyboard should close');
+        });
+        
+        // Run test on load
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                testKeyboardGap();
+            }, 500);
+        });
+    </script>
+</body>
+</html>

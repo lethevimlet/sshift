@@ -46,6 +46,7 @@ class SSHIFTClient {
     this.mobileKeysBarEnabled = true; // Default to enabled
     this.ctrlPressed = false; // Track Ctrl key state
     this.altPressed = false; // Track Alt key state
+    this.currentKeyboardHeight = 0; // Track actual keyboard height for positioning
     
     // Terminal font size (for pinch-to-zoom on mobile)
     this.terminalFontSize = 14; // Default font size
@@ -2183,6 +2184,8 @@ class SSHIFTClient {
   hideHeaderAndTabs() {
     if (this.headerHidden) return;
     
+    console.log('[SSHIFT] Hiding header and tabs');
+    
     const header = document.querySelector('.header');
     const tabsContainer = document.querySelector('.tabs-container');
     const appContainer = document.querySelector('.app-container');
@@ -2202,12 +2205,19 @@ class SSHIFTClient {
       appContainer.classList.add('header-hidden', 'tabs-hidden');
     }
     
+    console.log('[SSHIFT] Header/tabs hidden - headerHidden:', this.headerHidden, 'tabsHidden:', this.tabsHidden);
+    
+    // Update mobile keys bar position if keyboard is visible
+    this.updateMobileKeysBarPosition();
+    
     // Refit terminal to use the new space
     this.refitActiveTerminal();
   }
   
   showHeaderAndTabs() {
     if (!this.headerHidden && !this.tabsHidden) return;
+    
+    console.log('[SSHIFT] Showing header and tabs');
     
     const header = document.querySelector('.header');
     const tabsContainer = document.querySelector('.tabs-container');
@@ -2227,6 +2237,11 @@ class SSHIFTClient {
     if (appContainer) {
       appContainer.classList.remove('header-hidden', 'tabs-hidden');
     }
+    
+    console.log('[SSHIFT] Header/tabs shown - headerHidden:', this.headerHidden, 'tabsHidden:', this.tabsHidden);
+    
+    // Update mobile keys bar position if keyboard is visible
+    this.updateMobileKeysBarPosition();
     
     // Refit terminal to use the new space
     this.refitActiveTerminal();
@@ -2391,8 +2406,41 @@ class SSHIFTClient {
           const bufferHeight = 5; // Add small bottom margin when keyboard is visible
           
           if (keyboardHeight > 50) {
+            // Store the actual keyboard height
+            this.currentKeyboardHeight = keyboardHeight;
+            
+            // Hide header and tabs when keyboard opens to maximize terminal space
+            if (!this.headerHidden) {
+              this.hideHeaderAndTabs();
+            }
+            
+            // Calculate the actual bottom position for the mobile keys bar
+            // When header/tabs are hidden, we need to adjust the position
+            let keysBarBottom = keyboardHeight;
+            
+            // If header is hidden, subtract its height from the bottom position
+            if (this.headerHidden) {
+              keysBarBottom -= heights.header;
+            }
+            
+            // If tabs are hidden, subtract their height from the bottom position
+            if (this.tabsHidden) {
+              keysBarBottom -= heights.tabs;
+            }
+            
+            // Add 3px buffer to prevent gap
+            keysBarBottom += 3;
+            
+            // Ensure we don't go below 0
+            keysBarBottom = Math.max(0, keysBarBottom);
+            
+            console.log('[SSHIFT] Keyboard open - keyboardHeight:', keyboardHeight, 
+                       'header hidden:', this.headerHidden, '(' + heights.header + 'px)',
+                       'tabs hidden:', this.tabsHidden, '(' + heights.tabs + 'px)',
+                       'keysBarBottom:', keysBarBottom);
+            
             // Keyboard is open - position keys bar above keyboard
-            mobileKeysBar.style.bottom = `${keyboardHeight}px`;
+            mobileKeysBar.style.bottom = `${keysBarBottom}px`;
             
             // Update terminal area height to account for keyboard
             const terminalArea = document.querySelector('.terminal-area');
@@ -2416,6 +2464,12 @@ class SSHIFTClient {
           } else {
             // Keyboard is closed - reset position
             mobileKeysBar.style.bottom = '0px';
+            this.currentKeyboardHeight = 0; // Reset stored keyboard height
+            
+            // Show header and tabs when keyboard closes
+            if (this.headerHidden || this.tabsHidden) {
+              this.showHeaderAndTabs();
+            }
             
             // Set terminal area height based on visualViewport to account for browser UI
             const terminalArea = document.querySelector('.terminal-area');
@@ -2447,6 +2501,45 @@ class SSHIFTClient {
       // Initial update
       updatePosition();
     }
+  }
+  
+  // Update mobile keys bar position when header/tabs visibility changes
+  updateMobileKeysBarPosition() {
+    if (!this.isMobile) return;
+    
+    const mobileKeysBar = document.querySelector('.mobile-keys-bar');
+    if (!mobileKeysBar) return;
+    
+    // Only update if keyboard is visible
+    if (this.currentKeyboardHeight <= 50) return;
+    
+    // Get heights dynamically
+    const heights = this.getFixedUIHeights();
+    
+    // Calculate the actual bottom position for the mobile keys bar
+    // Start with the stored keyboard height (actual keyboard height)
+    let keysBarBottom = this.currentKeyboardHeight;
+    
+    // If header is hidden, subtract its height from the bottom position
+    if (this.headerHidden) {
+      keysBarBottom -= heights.header;
+    }
+    
+    // If tabs are hidden, subtract their height from the bottom position
+    if (this.tabsHidden) {
+      keysBarBottom -= heights.tabs;
+    }
+    
+    // Add 3px buffer to prevent gap
+    keysBarBottom += 3;
+    
+    // Ensure we don't go below 0
+    keysBarBottom = Math.max(0, keysBarBottom);
+    
+    // Update the position
+    mobileKeysBar.style.bottom = `${keysBarBottom}px`;
+    
+    console.log('[SSHIFT] Updated mobile keys bar position:', keysBarBottom, 'px (keyboardHeight:', this.currentKeyboardHeight, 'header hidden:', this.headerHidden, 'tabs hidden:', this.tabsHidden, ')');
   }
 
   initMobileKeysBar() {
