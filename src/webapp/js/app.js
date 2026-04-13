@@ -2414,21 +2414,12 @@ class SSHIFTClient {
               this.hideHeaderAndTabs();
             }
             
-            // Calculate the actual bottom position for the mobile keys bar
-            // When header/tabs are hidden, we need to adjust the position
+            // Position the mobile keys bar just above the keyboard
+            // The keyboard height is measured from the bottom of the window,
+            // so we position the bar at that height plus a small buffer
             let keysBarBottom = keyboardHeight;
             
-            // If header is hidden, subtract its height from the bottom position
-            if (this.headerHidden) {
-              keysBarBottom -= heights.header;
-            }
-            
-            // If tabs are hidden, subtract their height from the bottom position
-            if (this.tabsHidden) {
-              keysBarBottom -= heights.tabs;
-            }
-            
-            // Add 3px buffer to prevent gap
+            // Add small buffer to prevent gap between bar and keyboard
             keysBarBottom += 3;
             
             // Ensure we don't go below 0
@@ -2513,24 +2504,12 @@ class SSHIFTClient {
     // Only update if keyboard is visible
     if (this.currentKeyboardHeight <= 50) return;
     
-    // Get heights dynamically
-    const heights = this.getFixedUIHeights();
-    
-    // Calculate the actual bottom position for the mobile keys bar
-    // Start with the stored keyboard height (actual keyboard height)
+    // Position the mobile keys bar just above the keyboard
+    // The keyboard height is measured from the bottom of the window,
+    // so we position the bar at that height plus a small buffer
     let keysBarBottom = this.currentKeyboardHeight;
     
-    // If header is hidden, subtract its height from the bottom position
-    if (this.headerHidden) {
-      keysBarBottom -= heights.header;
-    }
-    
-    // If tabs are hidden, subtract their height from the bottom position
-    if (this.tabsHidden) {
-      keysBarBottom -= heights.tabs;
-    }
-    
-    // Add 3px buffer to prevent gap
+    // Add small buffer to prevent gap between bar and keyboard
     keysBarBottom += 3;
     
     // Ensure we don't go below 0
