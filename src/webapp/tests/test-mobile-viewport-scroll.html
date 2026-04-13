@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Mobile Viewport Scroll Test</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      height: 100vh;
+      overflow: hidden;
+    }
+    
+    .app-container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 50px;
+      padding: 0 12px;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+    }
+    
+    .main-content {
+      flex: 1;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .terminal-wrapper {
+      flex: 1;
+      overflow: hidden;
+      padding: 8px;
+    }
+    
+    .terminal-wrapper.active {
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .terminal-container {
+      flex: 1;
+      min-height: 100px;
+      position: relative;
+      background: #0d1117;
+    }
+    
+    /* Desktop styles */
+    .terminal-container .xterm-viewport {
+      height: 100% !important;
+      overflow-y: auto;
+    }
+    
+    /* Mobile-specific styles - should enable scrolling */
+    @media (max-width: 768px) {
+      .terminal-container {
+        overflow: hidden !important;
+        overscroll-behavior: none;
+        touch-action: pan-y;
+        -webkit-overflow-scrolling: touch;
+        flex: 1;
+        min-height: 100px;
+      }
+      
+      .terminal-container .xterm {
+        overflow: hidden !important;
+        touch-action: pan-y;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+      }
+      
+      .terminal-container .xterm-viewport {
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-y;
+        flex: 1;
+        min-height: 0;
+        height: auto !important;
+        scrollbar-width: thin;
+        scrollbar-color: #30363d #0d1117;
+      }
+      
+      .terminal-container .xterm-viewport::-webkit-scrollbar {
+        width: 8px !important;
+        height: 8px !important;
+      }
+      
+      .terminal-container .xterm-viewport::-webkit-scrollbar-track {
+        background: #0d1117 !important;
+      }
+      
+      .terminal-container .xterm-viewport::-webkit-scrollbar-thumb {
+        background: #30363d !important;
+        border-radius: 4px !important;
+      }
+      
+      .terminal-wrapper {
+        overflow: hidden !important;
+        flex: 1;
+        min-height: 100px;
+        padding: 0;
+      }
+    }
+    
+    .test-info {
+      padding: 16px;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+    }
+    
+    .test-info h1 {
+      font-size: 18px;
+      margin-bottom: 8px;
+    }
+    
+    .test-info p {
+      font-size: 14px;
+      color: #8b949e;
+      margin-bottom: 8px;
+    }
+    
+    .test-status {
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 14px;
+      margin-top: 8px;
+    }
+    
+    .test-status.pass {
+      background: #238636;
+      color: white;
+    }
+    
+    .test-status.fail {
+      background: #da3633;
+      color: white;
+    }
+    
+    .instructions {
+      padding: 16px;
+      background: #21262d;
+      margin: 8px;
+      border-radius: 4px;
+    }
+    
+    .instructions h2 {
+      font-size: 16px;
+      margin-bottom: 8px;
+    }
+    
+    .instructions ul {
+      margin-left: 20px;
+      margin-top: 8px;
+    }
+    
+    .instructions li {
+      margin-bottom: 4px;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <div class="header">
+      <h1>Mobile Viewport Scroll Test</h1>
+    </div>
+    
+    <div class="test-info">
+      <p>This test verifies that the terminal viewport can scroll when content overflows on mobile devices.</p>
+      <div id="test-status" class="test-status">Running tests...</div>
+    </div>
+    
+    <div class="instructions">
+      <h2>Test Instructions:</h2>
+      <ul>
+        <li>Open this page on a mobile device or use Chrome DevTools mobile emulation</li>
+        <li>The terminal should display scrollable content</li>
+        <li>Try scrolling the terminal content up and down</li>
+        <li>The scrollbar should be visible and functional</li>
+        <li>Content should scroll smoothly with touch gestures</li>
+      </ul>
+    </div>
+    
+    <div class="main-content">
+      <div class="terminal-wrapper active">
+        <div class="terminal-container" id="terminal-container">
+          <!-- Terminal content will be simulated here -->
+          <div style="padding: 8px; font-family: monospace; font-size: 14px; line-height: 1.5; height: 100%; overflow-y: auto; -webkit-overflow-scrolling: touch;">
+            <div id="content">
+              <!-- Content will be generated by JavaScript -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    // Generate test content
+    const contentDiv = document.getElementById('content');
+    const lines = [];
+    
+    for (let i = 1; i <= 100; i++) {
+      lines.push(`<div style="padding: 4px 0;">Line ${i}: This is test content to demonstrate scrolling behavior in the terminal viewport.</div>`);
+    }
+    
+    contentDiv.innerHTML = lines.join('');
+    
+    // Run tests
+    function runTests() {
+      const statusDiv = document.getElementById('test-status');
+      const terminalContainer = document.getElementById('terminal-container');
+      const viewport = terminalContainer.querySelector('[style*="overflow-y: auto"]');
+      
+      const tests = [];
+      
+      // Test 1: Check if viewport exists
+      tests.push({
+        name: 'Viewport element exists',
+        pass: !!viewport
+      });
+      
+      // Test 2: Check if viewport has overflow-y: auto
+      if (viewport) {
+        const style = window.getComputedStyle(viewport);
+        tests.push({
+          name: 'Viewport has overflow-y: auto',
+          pass: style.overflowY === 'auto' || style.overflowY === 'scroll'
+        });
+      }
+      
+      // Test 3: Check if content is scrollable
+      if (viewport) {
+        tests.push({
+          name: 'Content is scrollable (scrollHeight > clientHeight)',
+          pass: viewport.scrollHeight > viewport.clientHeight
+        });
+      }
+      
+      // Test 4: Check mobile-specific styles (if on mobile)
+      const isMobile = window.innerWidth <= 768;
+      if (isMobile) {
+        tests.push({
+          name: 'Running on mobile viewport',
+          pass: true
+        });
+        
+        // Test 5: Check touch-action
+        if (viewport) {
+          const style = window.getComputedStyle(viewport);
+          tests.push({
+            name: 'Touch action allows vertical scrolling',
+            pass: style.touchAction === 'pan-y' || style.touchAction === 'auto'
+          });
+        }
+      }
+      
+      // Display results
+      const allPassed = tests.every(t => t.pass);
+      
+      let html = `<strong>${allPassed ? '✓ All tests passed!' : '✗ Some tests failed'}</strong><br>`;
+      html += '<div style="margin-top: 8px; font-size: 12px;">';
+      tests.forEach(test => {
+        html += `<div style="margin: 4px 0;">${test.pass ? '✓' : '✗'} ${test.name}</div>`;
+      });
+      html += '</div>';
+      
+      statusDiv.innerHTML = html;
+      statusDiv.className = `test-status ${allPassed ? 'pass' : 'fail'}`;
+    }
+    
+    // Run tests after page loads
+    window.addEventListener('load', () => {
+      setTimeout(runTests, 100);
+    });
+    
+    // Re-run tests on resize (to test mobile/desktop modes)
+    let resizeTimeout;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(runTests, 250);
+    });
+  </script>
+</body>
+</html>

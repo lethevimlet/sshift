@@ -4362,10 +4362,8 @@ body.dragging-tabs .tabs-container {
     user-select: none;
   }
   
-  /* Allow selection overlay to be visible */
-  .terminal-container .xterm-viewport {
-    overflow: visible !important;
-  }
+  /* Note: xterm-viewport scrolling is handled by the earlier mobile-specific styles (lines 3586-3600) */
+  /* Selection handles are positioned absolutely and don't need overflow: visible on viewport */
   
   /* Ensure selection handles are visible above terminal */
   .xterm-screen {
