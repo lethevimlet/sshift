@@ -221,9 +221,25 @@ html, body {
 }
 
 /* Fix for mobile viewport height issues */
-/* Use svh (small viewport height) with fallbacks for mobile browsers */
-/* svh accounts for browser UI (address bar, navigation bar) and prevents overflow */
-@supports (height: 100svh) {
+/* Use dvh (dynamic viewport height) with fallbacks for mobile browsers */
+/* dvh accounts for browser UI (address bar, navigation bar) and keyboard, automatically adjusting */
+@supports (height: 100dvh) {
+  html, body {
+    height: 100dvh;
+  }
+  
+  .app-container {
+    height: 100dvh;
+  }
+  
+  .modal {
+    height: 100dvh;
+    max-height: 100dvh;
+  }
+}
+
+/* Fallback to svh (small viewport height) for browsers without dvh support */
+@supports (height: 100svh) and (not (height: 100dvh)) {
   html, body {
     height: 100svh;
   }
@@ -238,7 +254,7 @@ html, body {
   }
 }
 
-/* Fallback for browsers without svh support - uses JS-set --vh variable */
+/* Final fallback for browsers without svh/dvh support - uses JS-set --vh variable */
 @supports not (height: 100svh) {
   html, body {
     height: calc(var(--vh, 1vh) * 100);
@@ -3397,50 +3413,34 @@ body.dragging-tabs .tabs-container {
   
   .app-container {
     overflow: hidden !important;
-    max-height: 100vh;
-    max-height: 100svh;
     overscroll-behavior: none;
+    /* Use dvh for dynamic viewport height that accounts for keyboard */
+    height: 100dvh;
+    height: 100svh;
+    height: calc(var(--vh, 1vh) * 100);
   }
   
+  /* Main content should use flexbox to fill available space */
   .main-content {
     overflow: hidden !important;
-    /* Account for mobile-keys-bar (75px) at bottom */
-    /* Header (43px + 1px border) and tabs (35px + 1px border) are handled by padding-top */
-    max-height: calc(100vh - 75px);
-    max-height: calc(100svh - 75px);
     overscroll-behavior: none;
+    /* Use flex to fill available space */
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0; /* Allow flexbox to shrink */
+    /* Remove fixed max-height - let flexbox handle it */
   }
   
-  /* When mobile keys bar is hidden (e.g., for SFTP tabs), use full height */
-  body.mobile-keys-bar-hidden .main-content {
-    max-height: 100vh !important;
-    max-height: 100svh !important;
-  }
-  
-  /* Ensure all containers fill the space when mobile keys bar is hidden */
-  body.mobile-keys-bar-hidden .terminal-area {
-    height: 100% !important;
-    max-height: 100% !important;
-  }
-  
-  body.mobile-keys-bar-hidden .terminals-container {
-    height: 100% !important;
-    max-height: 100% !important;
-  }
-  
-  body.mobile-keys-bar-hidden .terminal-wrapper.active {
-    height: 100% !important;
-  }
-  
-  body.mobile-keys-bar-hidden .sftp-container {
-    height: 100% !important;
-    min-height: 100% !important;
-  }
-  
+  /* Terminal area should fill all available space in main-content */
   .terminal-area {
     overflow: hidden !important;
-    max-height: 100%;
     overscroll-behavior: none;
+    /* Fill available space in flex container */
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0; /* Allow flexbox to shrink */
   }
   
   /* Mobile header/tabs hide/show on scroll */
@@ -3450,6 +3450,8 @@ body.dragging-tabs .tabs-container {
     left: 0;
     right: 0;
     z-index: 100;
+    /* Don't use flex - fixed positioning */
+    flex: none;
   }
   
   .header.hidden {
@@ -3462,6 +3464,7 @@ body.dragging-tabs .tabs-container {
     left: 0;
     right: 0;
     z-index: 45; /* Lower than sidebar (z-index: 50) so sidebar appears on top */
+    flex: none;
   }
   
   .tabs-container.hidden {
@@ -3472,6 +3475,8 @@ body.dragging-tabs .tabs-container {
   .main-content {
     /* Header: 43px + 1px border, Tabs: 35px + 1px border = 80px total */
     padding-top: 80px;
+    /* Account for mobile keys bar at bottom - use padding-bottom */
+    padding-bottom: 75px;
   }
   
   /* When header is hidden, move tabs to top and adjust padding */
@@ -3488,12 +3493,72 @@ body.dragging-tabs .tabs-container {
   .app-container.header-hidden.tabs-hidden .main-content {
     padding-top: 0;
   }
+  
+  /* When mobile keys bar is hidden (e.g., for SFTP tabs), remove bottom padding */
+  body.mobile-keys-bar-hidden .main-content {
+    padding-bottom: 0 !important;
+  }
+  
+  /* Ensure all containers fill the space when mobile keys bar is hidden */
+  body.mobile-keys-bar-hidden .terminal-area {
+    flex: 1;
+  }
+  
+  body.mobile-keys-bar-hidden .terminals-container {
+    flex: 1;
+  }
+  
+  body.mobile-keys-bar-hidden .terminal-wrapper.active {
+    flex: 1;
+  }
+  
+  body.mobile-keys-bar-hidden .sftp-container {
+    flex: 1;
+  }
 }
 
 /* Desktop: Hide mobile keys bar completely */
 @media (min-width: 769px) {
   .mobile-keys-bar {
     display: none !important;
+  }
+}
+
+/* Mobile keyboard visible state - adjust layout when keyboard is open */
+@media (max-width: 768px) {
+  /* When keyboard is visible, adjust main-content padding */
+  body.keyboard-visible .main-content {
+    /* Reduce padding when keyboard is open to maximize terminal space */
+    /* Header and tabs are hidden when keyboard is open */
+    padding-top: 36px !important; /* Only tabs visible */
+    /* Remove bottom padding since mobile keys bar is positioned above keyboard */
+    padding-bottom: 0 !important;
+  }
+  
+  /* When keyboard is visible and both header and tabs are hidden */
+  body.keyboard-visible.app-container.header-hidden.tabs-hidden .main-content,
+  body.keyboard-visible .app-container.header-hidden.tabs-hidden .main-content {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+  }
+  
+  /* Adjust terminal area when keyboard is visible */
+  body.keyboard-visible .terminal-area {
+    /* Use the viewport height set by JavaScript */
+    height: var(--viewport-height, auto);
+    max-height: var(--viewport-height, auto);
+  }
+  
+  /* Ensure terminals container fills available space */
+  body.keyboard-visible .terminals-container {
+    flex: 1;
+    min-height: 50px; /* Allow smaller height when keyboard is visible */
+  }
+  
+  /* Ensure terminal wrapper fills available space */
+  body.keyboard-visible .terminal-wrapper.active {
+    flex: 1;
+    min-height: 50px; /* Allow smaller height when keyboard is visible */
   }
 }
 
@@ -3504,11 +3569,18 @@ body.dragging-tabs .tabs-container {
     overscroll-behavior: none;
     touch-action: pan-y; /* Allow vertical scrolling */
     -webkit-overflow-scrolling: touch;
+    /* Fill available space in flex container */
+    flex: 1;
+    min-height: 100px; /* Ensure minimum height for initialization */
   }
   
   .terminal-container .xterm {
     overflow: hidden !important;
     touch-action: pan-y; /* Allow vertical scrolling */
+    /* Fill available space */
+    height: 100%;
+    display: flex;
+    flex-direction: column;
   }
   
   .terminal-container .xterm-viewport {
@@ -3517,6 +3589,33 @@ body.dragging-tabs .tabs-container {
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
     touch-action: pan-y;
+    /* Fill available space */
+    flex: 1;
+    min-height: 0;
+    /* Override the height: 100% !important from general styles */
+    height: auto !important;
+    /* Firefox scrollbar */
+    scrollbar-width: thin;
+    scrollbar-color: var(--bg-hover) var(--bg-primary);
+  }
+  
+  /* Ensure scrollbars are visible on mobile */
+  .terminal-container .xterm-viewport::-webkit-scrollbar {
+    width: 8px !important;
+    height: 8px !important;
+  }
+  
+  .terminal-container .xterm-viewport::-webkit-scrollbar-track {
+    background: var(--bg-primary) !important;
+  }
+  
+  .terminal-container .xterm-viewport::-webkit-scrollbar-thumb {
+    background: var(--bg-hover) !important;
+    border-radius: 4px !important;
+  }
+  
+  .terminal-container .xterm-viewport::-webkit-scrollbar-thumb:hover {
+    background: var(--border-light) !important;
   }
   
   .terminal-container .xterm-screen {
@@ -3529,7 +3628,9 @@ body.dragging-tabs .tabs-container {
   
   .terminal-wrapper {
     overflow: hidden !important;
-    max-height: 100%;
+    /* Fill available space in flex container */
+    flex: 1;
+    min-height: 100px; /* Ensure minimum height for initialization */
     padding: 0; /* Remove padding on mobile to maximize terminal space */
   }
   
@@ -3540,7 +3641,9 @@ body.dragging-tabs .tabs-container {
   
   .terminals-container {
     overflow: hidden !important;
-    max-height: 100%;
+    /* Fill available space in flex container */
+    flex: 1;
+    min-height: 100px; /* Ensure minimum height for initialization */
   }
   
   /* Add bottom margin when keyboard is hidden */
@@ -3550,8 +3653,8 @@ body.dragging-tabs .tabs-container {
   
   /* SFTP container should fill available space on mobile */
   .sftp-container {
-    height: 100%;
-    min-height: 100%;
+    flex: 1;
+    min-height: 100px; /* Ensure minimum height for initialization */
   }
 }
 

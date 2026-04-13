@@ -2403,7 +2403,6 @@ class SSHIFTClient {
           
           // Get heights dynamically
           const heights = this.getFixedUIHeights();
-          const bufferHeight = 5; // Add small bottom margin when keyboard is visible
           
           if (keyboardHeight > 50) {
             // Store the actual keyboard height
@@ -2433,25 +2432,13 @@ class SSHIFTClient {
             // Keyboard is open - position keys bar above keyboard
             mobileKeysBar.style.bottom = `${keysBarBottom}px`;
             
-            // Update terminal area height to account for keyboard
-            const terminalArea = document.querySelector('.terminal-area');
+            // Set CSS custom property for keyboard height
+            // This allows CSS to adjust layout dynamically
+            document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeight}px`);
+            document.documentElement.style.setProperty('--viewport-height', `${viewportHeight}px`);
             
-            if (terminalArea) {
-              // Calculate available height: viewport height minus fixed elements
-              const availableHeight = viewportHeight - heights.total - bufferHeight;
-              
-              terminalArea.style.height = `${Math.max(availableHeight, 100)}px`;
-              terminalArea.style.maxHeight = `${Math.max(availableHeight, 100)}px`;
-              
-              // Remove bottom padding from xterm element when keyboard is open
-              const activeWrapper = document.querySelector('.terminal-wrapper.active');
-              if (activeWrapper) {
-                const xtermElement = activeWrapper.querySelector('.xterm');
-                if (xtermElement) {
-                  xtermElement.style.paddingBottom = '0px';
-                }
-              }
-            }
+            // Add class to indicate keyboard is visible
+            document.body.classList.add('keyboard-visible');
           } else {
             // Keyboard is closed - reset position
             mobileKeysBar.style.bottom = '0px';
@@ -2462,19 +2449,12 @@ class SSHIFTClient {
               this.showHeaderAndTabs();
             }
             
-            // Set terminal area height based on visualViewport to account for browser UI
-            const terminalArea = document.querySelector('.terminal-area');
+            // Remove keyboard-related CSS custom properties
+            document.documentElement.style.removeProperty('--keyboard-height');
+            document.documentElement.style.removeProperty('--viewport-height');
             
-            if (terminalArea) {
-              // Calculate available height accounting for all fixed elements
-              const availableHeight = viewportHeight - heights.total;
-              
-              console.log('[SSHIFT] Keyboard closed - viewportHeight:', viewportHeight, 'fixedHeight:', heights.total, 'availableHeight:', availableHeight);
-              
-              // Set height slightly smaller to leave bottom margin
-              terminalArea.style.height = `${Math.max(availableHeight - 4, 100)}px`;
-              terminalArea.style.maxHeight = `${Math.max(availableHeight - 4, 100)}px`;
-            }
+            // Remove keyboard-visible class
+            document.body.classList.remove('keyboard-visible');
           }
           
           // Refit the active terminal to use the new available space

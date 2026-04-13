@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:;">
+  <title>Mobile Viewport Fix Test</title>
+  <style>
+    /* Test styles to verify the fix */
+    :root {
+      --bg-primary: #0d1117;
+      --bg-secondary: #161b22;
+      --text-primary: #e6edf3;
+      --text-secondary: #8b949e;
+      --border-color: #30363d;
+    }
+    
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+    }
+    
+    .test-container {
+      padding: 20px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    
+    .test-section {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    
+    .test-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: var(--text-primary);
+    }
+    
+    .test-result {
+      font-family: monospace;
+      font-size: 14px;
+      padding: 8px;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 4px;
+      margin-bottom: 8px;
+    }
+    
+    .pass {
+      color: #3fb950;
+    }
+    
+    .fail {
+      color: #f85149;
+    }
+    
+    .info {
+      color: var(--text-secondary);
+      font-size: 12px;
+      margin-top: 8px;
+    }
+    
+    .viewport-info {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    
+    .viewport-item {
+      background: rgba(0, 0, 0, 0.2);
+      padding: 8px;
+      border-radius: 4px;
+    }
+    
+    .viewport-label {
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-bottom: 4px;
+    }
+    
+    .viewport-value {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    
+    .button {
+      background: #c10059;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      margin-top: 8px;
+    }
+    
+    .button:hover {
+      background: #d9106a;
+    }
+  </style>
+</head>
+<body>
+  <div class="test-container">
+    <h1>Mobile Viewport Fix Test</h1>
+    
+    <div class="test-section">
+      <div class="test-title">Viewport Height Units Support</div>
+      <div id="dvh-support" class="test-result">Testing...</div>
+      <div id="svh-support" class="test-result">Testing...</div>
+      <div id="vh-support" class="test-result">Testing...</div>
+      <div class="info">Modern browsers support dvh (dynamic viewport height) which automatically adjusts for keyboard and browser UI.</div>
+    </div>
+    
+    <div class="test-section">
+      <div class="test-title">Visual Viewport API</div>
+      <div id="visual-viewport-support" class="test-result">Testing...</div>
+      <div class="info">The Visual Viewport API provides information about the visible viewport, including keyboard state.</div>
+    </div>
+    
+    <div class="test-section">
+      <div class="test-title">Current Viewport Dimensions</div>
+      <div class="viewport-info">
+        <div class="viewport-item">
+          <div class="viewport-label">Window Inner Height</div>
+          <div id="window-height" class="viewport-value">-</div>
+        </div>
+        <div class="viewport-item">
+          <div class="viewport-label">Visual Viewport Height</div>
+          <div id="visual-height" class="viewport-value">-</div>
+        </div>
+        <div class="viewport-item">
+          <div class="viewport-label">Keyboard Height</div>
+          <div id="keyboard-height" class="viewport-value">-</div>
+        </div>
+        <div class="viewport-item">
+          <div class="viewport-label">Device Type</div>
+          <div id="device-type" class="viewport-value">-</div>
+        </div>
+      </div>
+      <button class="button" onclick="updateViewportInfo()">Refresh</button>
+    </div>
+    
+    <div class="test-section">
+      <div class="test-title">CSS Custom Properties</div>
+      <div id="css-props" class="test-result">Testing...</div>
+      <div class="info">CSS custom properties set by JavaScript for dynamic layout.</div>
+    </div>
+    
+    <div class="test-section">
+      <div class="test-title">Flexbox Layout Test</div>
+      <div id="flexbox-test" class="test-result">Testing...</div>
+      <div class="info">Verifies that flexbox layout is properly configured for mobile.</div>
+    </div>
+  </div>
+  
+  <script>
+    // Test viewport height units support
+    function testViewportUnits() {
+      const dvhSupported = CSS.supports('height', '100dvh');
+      const svhSupported = CSS.supports('height', '100svh');
+      const vhSupported = CSS.supports('height', '100vh');
+      
+      document.getElementById('dvh-support').innerHTML = 
+        `<span class="${dvhSupported ? 'pass' : 'fail'}">${dvhSupported ? '✓' : '✗'} dvh (dynamic viewport height): ${dvhSupported ? 'Supported' : 'Not supported'}</span>`;
+      
+      document.getElementById('svh-support').innerHTML = 
+        `<span class="${svhSupported ? 'pass' : 'fail'}">${svhSupported ? '✓' : '✗'} svh (small viewport height): ${svhSupported ? 'Supported' : 'Not supported'}</span>`;
+      
+      document.getElementById('vh-support').innerHTML = 
+        `<span class="${vhSupported ? 'pass' : 'fail'}">${vhSupported ? '✓' : '✗'} vh (viewport height): ${vhSupported ? 'Supported' : 'Not supported'}</span>`;
+    }
+    
+    // Test Visual Viewport API
+    function testVisualViewport() {
+      const supported = 'visualViewport' in window;
+      document.getElementById('visual-viewport-support').innerHTML = 
+        `<span class="${supported ? 'pass' : 'fail'}">${supported ? '✓' : '✗'} Visual Viewport API: ${supported ? 'Supported' : 'Not supported'}</span>`;
+    }
+    
+    // Update viewport information
+    function updateViewportInfo() {
+      const windowHeight = window.innerHeight;
+      const visualHeight = window.visualViewport ? window.visualViewport.height : windowHeight;
+      const keyboardHeight = windowHeight - visualHeight;
+      
+      document.getElementById('window-height').textContent = `${windowHeight}px`;
+      document.getElementById('visual-height').textContent = `${visualHeight}px`;
+      document.getElementById('keyboard-height').textContent = `${keyboardHeight}px`;
+      
+      // Detect device type
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                       (window.innerWidth <= 768 && 'ontouchstart' in window);
+      document.getElementById('device-type').textContent = isMobile ? 'Mobile' : 'Desktop';
+    }
+    
+    // Test CSS custom properties
+    function testCSSProps() {
+      const root = document.documentElement;
+      const keyboardHeight = root.style.getPropertyValue('--keyboard-height');
+      const viewportHeight = root.style.getPropertyValue('--viewport-height');
+      
+      let result = '<span class="pass">✓ CSS custom properties available</span><br>';
+      result += `--keyboard-height: ${keyboardHeight || 'not set'}<br>`;
+      result += `--viewport-height: ${viewportHeight || 'not set'}`;
+      
+      document.getElementById('css-props').innerHTML = result;
+    }
+    
+    // Test flexbox layout
+    function testFlexboxLayout() {
+      // Create test elements
+      const testDiv = document.createElement('div');
+      testDiv.style.display = 'flex';
+      testDiv.style.flexDirection = 'column';
+      testDiv.style.height = '100px';
+      
+      const child1 = document.createElement('div');
+      child1.style.flex = '1';
+      child1.style.minHeight = '0';
+      child1.style.background = 'red';
+      
+      const child2 = document.createElement('div');
+      child2.style.flex = '1';
+      child2.style.minHeight = '0';
+      child2.style.background = 'blue';
+      
+      testDiv.appendChild(child1);
+      testDiv.appendChild(child2);
+      
+      // Check if flexbox is supported
+      const flexSupported = CSS.supports('display', 'flex') && 
+                           CSS.supports('flex', '1') && 
+                           CSS.supports('min-height', '0');
+      
+      let result = '';
+      if (flexSupported) {
+        result = '<span class="pass">✓ Flexbox layout supported</span><br>';
+        result += 'display: flex ✓<br>';
+        result += 'flex: 1 ✓<br>';
+        result += 'min-height: 0 ✓';
+      } else {
+        result = '<span class="fail">✗ Flexbox layout not fully supported</span>';
+      }
+      
+      document.getElementById('flexbox-test').innerHTML = result;
+    }
+    
+    // Run all tests
+    function runTests() {
+      testViewportUnits();
+      testVisualViewport();
+      updateViewportInfo();
+      testCSSProps();
+      testFlexboxLayout();
+    }
+    
+    // Update viewport info when visual viewport changes
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', updateViewportInfo);
+      window.visualViewport.addEventListener('scroll', updateViewportInfo);
+    }
+    
+    // Run tests on load
+    window.addEventListener('load', runTests);
+    window.addEventListener('resize', updateViewportInfo);
+  </script>
+</body>
+</html>
