@@ -395,11 +395,13 @@ class MobileTerminalHandler {
       }
     });
     
-    // Prevent focus when in selection mode
+    // Prevent focus when in selection mode or when selection is active
     this.hiddenTextarea.addEventListener('focus', (e) => {
-      if (this.touchState.isSelecting) {
+      if (this.touchState.isSelecting || this.selection.active) {
         e.preventDefault();
         this.hiddenTextarea.blur();
+        // Also collapse any active keyboard
+        this._collapseKeyboard();
       }
     });
   }
@@ -413,6 +415,7 @@ class MobileTerminalHandler {
     this.container.addEventListener('touchstart', this._boundHandleTouchStart, { passive: false });
     this.container.addEventListener('touchmove', this._boundHandleTouchMove, { passive: false });
     this.container.addEventListener('touchend', this._boundHandleTouchEnd, { passive: false });
+    this.container.addEventListener('touchcancel', this._boundHandleTouchEnd, { passive: false });
     
     // Context menu (right-click on desktop)
     this.container.addEventListener('contextmenu', this._boundHandleContextMenu);
@@ -438,6 +441,7 @@ class MobileTerminalHandler {
       this.container.removeEventListener('touchstart', this._boundHandleTouchStart);
       this.container.removeEventListener('touchmove', this._boundHandleTouchMove);
       this.container.removeEventListener('touchend', this._boundHandleTouchEnd);
+      this.container.removeEventListener('touchcancel', this._boundHandleTouchEnd);
       this.container.removeEventListener('contextmenu', this._boundHandleContextMenu);
     }
     
@@ -477,6 +481,11 @@ class MobileTerminalHandler {
   _handleTouchStart(e) {
     // Ignore if not on mobile or if dragging a handle
     if (!this.app.isMobile || this.touchState.isDragging) return;
+    
+    // Set selecting mode immediately to prevent keyboard from appearing
+    // during long press detection. This will be reset in touchEnd if it's
+    // a quick tap for text input.
+    this.touchState.isSelecting = true;
     
     // Always prevent keyboard from appearing during touch interactions
     this._collapseKeyboard();
@@ -525,6 +534,9 @@ class MobileTerminalHandler {
       if (distance > 10) { // 10px threshold
         clearTimeout(this.touchState.longPressTimer);
         this.touchState.longPressTimer = null;
+        // Reset selecting mode since this is not a long press anymore
+        // (user is scrolling or moving, not selecting)
+        this.touchState.isSelecting = false;
       }
     }
     
@@ -573,6 +585,8 @@ class MobileTerminalHandler {
       if (this.selection.active) {
         this.clearSelection();
       } else {
+        // Reset selecting mode to allow keyboard input for quick tap
+        this.touchState.isSelecting = false;
         // Focus hidden textarea for keyboard input
         this._focusHiddenTextarea();
       }
@@ -746,6 +760,9 @@ class MobileTerminalHandler {
       this.endHandle.style.display = 'none';
       return;
     }
+    
+    // Force keyboard to collapse when selection is active
+    this._collapseKeyboard();
     
     // Normalize selection (start should be before end)
     const start = this.selection.start;
@@ -1069,6 +1086,9 @@ class MobileTerminalHandler {
     this.contextMenuUserPositioned = false;
     
     this._updateSelection();
+    
+    // Allow keyboard input again after selection is cleared
+    this._enableKeyboardInput();
   }
   
   /**
@@ -1076,8 +1096,8 @@ class MobileTerminalHandler {
    * @private
    */
   _focusHiddenTextarea() {
-    // Don't focus keyboard if we're in selection mode
-    if (this.touchState.isSelecting) {
+    // Don't focus keyboard if we're in selection mode or selection is active
+    if (this.touchState.isSelecting || this.selection.active) {
       return;
     }
     
@@ -1097,6 +1117,20 @@ class MobileTerminalHandler {
       this.hiddenTextarea.blur();
       // Restore readonly to prevent keyboard on any accidental focus
       this.hiddenTextarea.setAttribute('readonly', 'true');
+      // Also blur any active element that might have focus
+      if (document.activeElement && document.activeElement !== document.body) {
+        document.activeElement.blur();
+      }
+    }
+  }
+  
+  /**
+   * Enable keyboard input by removing readonly from hidden textarea
+   * @private
+   */
+  _enableKeyboardInput() {
+    if (this.hiddenTextarea) {
+      this.hiddenTextarea.removeAttribute('readonly');
     }
   }
   
