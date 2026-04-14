@@ -3553,7 +3553,7 @@ body.dragging-tabs .tabs-container {
   body.keyboard-visible .terminal-area *,
   body.keyboard-visible .terminal-area *::before,
   body.keyboard-visible .terminal-area *::after {
-    margin-bottom: -3px;
+    margin-bottom: -0.5px;
   }
   
   /* Ensure terminals container fills available space */
