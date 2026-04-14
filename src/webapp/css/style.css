@@ -3526,46 +3526,66 @@ body.dragging-tabs .tabs-container {
 
 /* Mobile keyboard visible state - adjust layout when keyboard is open */
 @media (max-width: 768px) {
-  /* When keyboard is visible, adjust main-content padding */
+  /* Prevent layout scroll that could push fixed elements out of view */
+  body.keyboard-visible {
+    overflow: hidden !important;
+  }
+
+  body.keyboard-visible .header,
+  body.keyboard-visible .tabs-container {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    transform: none !important;
+  }
+
+  body.keyboard-visible .header {
+    top: var(--vv-offset-top, 0px) !important;
+    z-index: 100 !important;
+  }
+
+  body.keyboard-visible .tabs-container {
+    top: calc(var(--vv-offset-top, 0px) + var(--header-height, 43px)) !important;
+    z-index: 45 !important;
+  }
+
   body.keyboard-visible .main-content {
-    /* Reduce padding when keyboard is open to maximize terminal space */
-    /* Header and tabs are hidden when keyboard is open */
-    padding-top: 36px !important; /* Only tabs visible */
+    /* Header and tabs stay fixed at top when keyboard is open */
+    padding-top: 80px !important;
     /* Remove bottom padding since mobile keys bar is positioned above keyboard */
     padding-bottom: 0 !important;
   }
-  
-  /* When keyboard is visible and both header and tabs are hidden */
+
+  /* When keyboard is visible and both header and tabs are hidden (shouldn't happen on keyboard, but keep for safety) */
   body.keyboard-visible.app-container.header-hidden.tabs-hidden .main-content,
   body.keyboard-visible .app-container.header-hidden.tabs-hidden .main-content {
     padding-top: 0 !important;
     padding-bottom: 0 !important;
   }
-  
+
   /* Adjust terminal area when keyboard is visible */
   body.keyboard-visible .terminal-area {
-    /* Use the viewport height set by JavaScript, minus mobile keys bar height */
-    height: calc(var(--viewport-height, 100vh) - var(--mobile-keys-bar-height, 75px));
-    max-height: calc(var(--viewport-height, 100vh) - var(--mobile-keys-bar-height, 75px));
+    /* Use the visual viewport height, minus header, tabs, and mobile keys bar */
+    height: calc(var(--viewport-height, 100vh) - var(--header-height, 43px) - var(--mobile-keys-bar-height, 75px) - 37px);
+    max-height: calc(var(--viewport-height, 100vh) - var(--header-height, 43px) - var(--mobile-keys-bar-height, 75px) - 37px);
   }
-  
+
   /* Remove default spacing on terminal elements when keyboard is visible */
   body.keyboard-visible .terminal-area *,
   body.keyboard-visible .terminal-area *::before,
   body.keyboard-visible .terminal-area *::after {
     margin-bottom: -0.5px;
   }
-  
+
   /* Ensure terminals container fills available space */
   body.keyboard-visible .terminals-container {
     flex: 1;
-    min-height: 50px; /* Allow smaller height when keyboard is visible */
+    min-height: 50px;
   }
-  
+
   /* Ensure terminal wrapper fills available space */
   body.keyboard-visible .terminal-wrapper.active {
-    /* Already positioned absolute to fill terminals-container */
-    min-height: 50px; /* Allow smaller height when keyboard is visible */
+    min-height: 50px;
   }
 }
 

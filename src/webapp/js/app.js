@@ -2169,11 +2169,10 @@ class SSHIFTClient {
     // Hide/show header and tabs based on scroll direction
     // When scrolling UP (into scrollback, scrollDiff > 0), show header/tabs for navigation
     // When scrolling DOWN (towards bottom, scrollDiff < 0), hide header/tabs to maximize terminal space
+    // But never hide when keyboard is open - they must stay fixed at top
     if (scrollDiff > 2) {
-      // Scrolling UP (into scrollback history) - show header and tabs
       this.showHeaderAndTabs();
-    } else if (scrollDiff < -2) {
-      // Scrolling DOWN (towards bottom) - hide header and tabs
+    } else if (scrollDiff < -2 && this.currentKeyboardHeight <= 50) {
       this.hideHeaderAndTabs();
     }
     
@@ -2410,23 +2409,33 @@ class SSHIFTClient {
           const heights = this.getFixedUIHeights();
           
           if (keyboardHeight > 50) {
-            // Store the actual keyboard height
             this.currentKeyboardHeight = keyboardHeight;
             
-            // Hide header and tabs when keyboard opens to maximize terminal space
-            if (!this.headerHidden) {
-              this.hideHeaderAndTabs();
+            if (this.headerHidden || this.tabsHidden) {
+              this.showHeaderAndTabs();
             }
             
-            // Position the mobile keys bar just above the keyboard
-            // The keyboard height is measured from the bottom of the window,
-            // so we position the bar at that height plus a small buffer
+            const header = document.querySelector('.header');
+            const tabsContainer = document.querySelector('.tabs-container');
+            const vvOffsetTop = window.visualViewport.offsetTop || 0;
+            
+            if (header) {
+              header.style.position = 'fixed';
+              header.style.top = `${vvOffsetTop}px`;
+              header.style.left = '0';
+              header.style.right = '0';
+              header.style.zIndex = '100';
+            }
+            if (tabsContainer) {
+              tabsContainer.style.position = 'fixed';
+              tabsContainer.style.top = `${vvOffsetTop + heights.header}px`;
+              tabsContainer.style.left = '0';
+              tabsContainer.style.right = '0';
+              tabsContainer.style.zIndex = '45';
+            }
+            
             let keysBarBottom = keyboardHeight;
-            
-            // Add small buffer to prevent gap between bar and keyboard
             keysBarBottom += 3;
-            
-            // Ensure we don't go below 0
             keysBarBottom = Math.max(0, keysBarBottom);
             
             console.log('[SSHIFT] Keyboard open - keyboardHeight:', keyboardHeight, 
@@ -2434,34 +2443,41 @@ class SSHIFTClient {
                        'tabs hidden:', this.tabsHidden, '(' + heights.tabs + 'px)',
                        'keysBarBottom:', keysBarBottom);
             
-            // Keyboard is open - position keys bar above keyboard
             mobileKeysBar.style.bottom = `${keysBarBottom}px`;
             
-            // Set CSS custom property for keyboard height
-            // This allows CSS to adjust layout dynamically
             document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeight}px`);
             document.documentElement.style.setProperty('--viewport-height', `${viewportHeight}px`);
-            // Set the mobile keys bar height (includes height, padding, border-top)
             document.documentElement.style.setProperty('--mobile-keys-bar-height', `${heights.mobileKeysBar}px`);
+            document.documentElement.style.setProperty('--vv-offset-top', `${vvOffsetTop}px`);
             
-            // Add class to indicate keyboard is visible
             document.body.classList.add('keyboard-visible');
           } else {
-            // Keyboard is closed - reset position
             mobileKeysBar.style.bottom = '0px';
-            this.currentKeyboardHeight = 0; // Reset stored keyboard height
+            this.currentKeyboardHeight = 0;
             
-            // Show header and tabs when keyboard closes
+            const header = document.querySelector('.header');
+            const tabsContainer = document.querySelector('.tabs-container');
+            
+            if (header) {
+              header.style.top = '';
+              header.style.left = '';
+              header.style.right = '';
+            }
+            if (tabsContainer) {
+              tabsContainer.style.top = '';
+              tabsContainer.style.left = '';
+              tabsContainer.style.right = '';
+            }
+            
             if (this.headerHidden || this.tabsHidden) {
               this.showHeaderAndTabs();
             }
             
-            // Remove keyboard-related CSS custom properties
             document.documentElement.style.removeProperty('--keyboard-height');
             document.documentElement.style.removeProperty('--viewport-height');
             document.documentElement.style.removeProperty('--mobile-keys-bar-height');
+            document.documentElement.style.removeProperty('--vv-offset-top');
             
-            // Remove keyboard-visible class
             document.body.classList.remove('keyboard-visible');
           }
           
@@ -2474,8 +2490,33 @@ class SSHIFTClient {
       };
       
       window.visualViewport.addEventListener('resize', updatePosition);
-      // Don't move bar on scroll - only on keyboard open/close
-      // window.visualViewport.addEventListener('scroll', updatePosition);
+      
+      // Also listen for visual viewport scroll to keep header/tabs pinned
+      // Android can scroll the visual viewport when keyboard is open
+      const updateHeaderPosition = () => {
+        if (this.currentKeyboardHeight > 50) {
+          const header = document.querySelector('.header');
+          const tabsContainer = document.querySelector('.tabs-container');
+          const heights = this.getFixedUIHeights();
+          const vvOffsetTop = window.visualViewport.offsetTop || 0;
+          
+          if (header) {
+            header.style.position = 'fixed';
+            header.style.top = `${vvOffsetTop}px`;
+            header.style.left = '0';
+            header.style.right = '0';
+          }
+          if (tabsContainer) {
+            tabsContainer.style.position = 'fixed';
+            tabsContainer.style.top = `${vvOffsetTop + heights.header}px`;
+            tabsContainer.style.left = '0';
+            tabsContainer.style.right = '0';
+          }
+          document.documentElement.style.setProperty('--vv-offset-top', `${vvOffsetTop}px`);
+        }
+      };
+      
+      window.visualViewport.addEventListener('scroll', updateHeaderPosition);
       
       // Initial update
       updatePosition();
