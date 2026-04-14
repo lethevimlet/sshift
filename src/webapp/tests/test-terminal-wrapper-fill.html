@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Terminal Wrapper Fill Test</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    /* Test-specific styles */
+    .test-container {
+      padding: 20px;
+      background: var(--bg-secondary);
+      margin: 20px;
+      border-radius: 8px;
+    }
+    
+    .test-info {
+      color: var(--text-primary);
+      margin-bottom: 20px;
+    }
+    
+    .test-info h2 {
+      margin-bottom: 10px;
+    }
+    
+    .test-info p {
+      color: var(--text-secondary);
+      margin-bottom: 5px;
+    }
+    
+    .status {
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 4px;
+      font-weight: bold;
+    }
+    
+    .status.pass {
+      background: rgba(63, 185, 80, 0.2);
+      color: #3fb950;
+      border: 1px solid #3fb950;
+    }
+    
+    .status.fail {
+      background: rgba(248, 81, 73, 0.2);
+      color: #f85149;
+      border: 1px solid #f85149;
+    }
+    
+    .debug-info {
+      font-family: monospace;
+      font-size: 12px;
+      background: var(--bg-primary);
+      padding: 10px;
+      border-radius: 4px;
+      margin-top: 10px;
+      color: var(--text-secondary);
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <div class="main-content">
+      <main class="terminal-area">
+        <div class="layout-container" id="layoutContainer">
+          <div class="layout-panel" id="panel-0" data-panel-id="0">
+            <div class="tabs-container">
+              <div class="tabs" id="tabs">
+                <div class="tab active" data-tab-id="test-tab">
+                  <i class="fas fa-terminal tab-icon-active"></i>
+                  <span class="tab-title">Test Terminal</span>
+                </div>
+              </div>
+            </div>
+            
+            <div class="terminals-container" id="terminalsContainer">
+              <div class="terminal-wrapper active" id="terminalWrapper">
+                <div class="terminal-container" id="terminalContainer">
+                  <div style="display: flex; flex-direction: column; height: 100%; justify-content: center; align-items: center; color: var(--text-secondary);">
+                    <i class="fas fa-terminal" style="font-size: 48px; margin-bottom: 20px;"></i>
+                    <p>Terminal wrapper should fill this entire container</p>
+                    <p style="font-size: 12px; margin-top: 10px;">Check the debug info below for dimensions</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <div class="test-container">
+    <div class="test-info">
+      <h2>Terminal Wrapper Fill Test</h2>
+      <p>This test verifies that the terminal-wrapper properly fills the terminals-container on mobile devices.</p>
+      <p><strong>Expected behavior:</strong> The terminal-wrapper should fill the entire terminals-container with no gaps.</p>
+    </div>
+    
+    <div id="status" class="status">Running tests...</div>
+    
+    <div class="debug-info" id="debugInfo">
+      Gathering dimensions...
+    </div>
+  </div>
+
+  <script>
+    function runTests() {
+      const terminalsContainer = document.getElementById('terminalsContainer');
+      const terminalWrapper = document.getElementById('terminalWrapper');
+      const statusDiv = document.getElementById('status');
+      const debugInfoDiv = document.getElementById('debugInfo');
+      
+      // Get dimensions
+      const containerRect = terminalsContainer.getBoundingClientRect();
+      const wrapperRect = terminalWrapper.getBoundingClientRect();
+      
+      // Calculate differences
+      const topDiff = Math.abs(wrapperRect.top - containerRect.top);
+      const leftDiff = Math.abs(wrapperRect.left - containerRect.left);
+      const rightDiff = Math.abs(wrapperRect.right - containerRect.right);
+      const bottomDiff = Math.abs(wrapperRect.bottom - containerRect.bottom);
+      const widthDiff = Math.abs(wrapperRect.width - containerRect.width);
+      const heightDiff = Math.abs(wrapperRect.height - containerRect.height);
+      
+      // Check if wrapper fills container (with small tolerance for rounding)
+      const tolerance = 2; // 2px tolerance for rounding
+      const fillsContainer = 
+        topDiff <= tolerance &&
+        leftDiff <= tolerance &&
+        rightDiff <= tolerance &&
+        bottomDiff <= tolerance &&
+        widthDiff <= tolerance &&
+        heightDiff <= tolerance;
+      
+      // Check computed styles
+      const wrapperStyles = window.getComputedStyle(terminalWrapper);
+      const position = wrapperStyles.position;
+      const top = wrapperStyles.top;
+      const left = wrapperStyles.left;
+      const right = wrapperStyles.right;
+      const bottom = wrapperStyles.bottom;
+      
+      // Build debug info
+      const debugInfo = `
+Container Dimensions:
+  Width: ${containerRect.width.toFixed(2)}px
+  Height: ${containerRect.height.toFixed(2)}px
+  Top: ${containerRect.top.toFixed(2)}px
+  Left: ${containerRect.left.toFixed(2)}px
+
+Wrapper Dimensions:
+  Width: ${wrapperRect.width.toFixed(2)}px
+  Height: ${wrapperRect.height.toFixed(2)}px
+  Top: ${wrapperRect.top.toFixed(2)}px
+  Left: ${wrapperRect.left.toFixed(2)}px
+
+Differences:
+  Top: ${topDiff.toFixed(2)}px
+  Left: ${leftDiff.toFixed(2)}px
+  Right: ${rightDiff.toFixed(2)}px
+  Bottom: ${bottomDiff.toFixed(2)}px
+  Width: ${widthDiff.toFixed(2)}px
+  Height: ${heightDiff.toFixed(2)}px
+
+Wrapper Computed Styles:
+  Position: ${position}
+  Top: ${top}
+  Left: ${left}
+  Right: ${right}
+  Bottom: ${bottom}
+
+Test Result: ${fillsContainer ? 'PASS ✓' : 'FAIL ✗'}
+      `.trim();
+      
+      debugInfoDiv.textContent = debugInfo;
+      
+      // Update status
+      if (fillsContainer) {
+        statusDiv.className = 'status pass';
+        statusDiv.textContent = '✓ PASS: Terminal wrapper fills the container correctly';
+      } else {
+        statusDiv.className = 'status fail';
+        statusDiv.textContent = '✗ FAIL: Terminal wrapper does not fill the container';
+      }
+      
+      // Log to console
+      console.log('Terminal Wrapper Fill Test');
+      console.log(debugInfo);
+    }
+    
+    // Run tests after page load
+    window.addEventListener('load', () => {
+      setTimeout(runTests, 100);
+    });
+    
+    // Re-run on resize (for testing responsive behavior)
+    let resizeTimeout;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(runTests, 100);
+    });
+  </script>
+</body>
+</html>

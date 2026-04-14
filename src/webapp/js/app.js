@@ -2340,9 +2340,14 @@ class SSHIFTClient {
     
     if (shouldShow) {
       mobileKeysBar.classList.add('visible');
+      // Set the mobile keys bar height CSS variable for layout calculations
+      const heights = this.getFixedUIHeights();
+      document.documentElement.style.setProperty('--mobile-keys-bar-height', `${heights.mobileKeysBar}px`);
       console.log('[SSHIFT] Mobile keys bar shown');
     } else {
       mobileKeysBar.classList.remove('visible');
+      // Remove the mobile keys bar height CSS variable when hidden
+      document.documentElement.style.removeProperty('--mobile-keys-bar-height');
       console.log('[SSHIFT] Mobile keys bar hidden');
     }
   }
@@ -2436,6 +2441,8 @@ class SSHIFTClient {
             // This allows CSS to adjust layout dynamically
             document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeight}px`);
             document.documentElement.style.setProperty('--viewport-height', `${viewportHeight}px`);
+            // Set the mobile keys bar height (includes height, padding, border-top)
+            document.documentElement.style.setProperty('--mobile-keys-bar-height', `${heights.mobileKeysBar}px`);
             
             // Add class to indicate keyboard is visible
             document.body.classList.add('keyboard-visible');
@@ -2452,6 +2459,7 @@ class SSHIFTClient {
             // Remove keyboard-related CSS custom properties
             document.documentElement.style.removeProperty('--keyboard-height');
             document.documentElement.style.removeProperty('--viewport-height');
+            document.documentElement.style.removeProperty('--mobile-keys-bar-height');
             
             // Remove keyboard-visible class
             document.body.classList.remove('keyboard-visible');

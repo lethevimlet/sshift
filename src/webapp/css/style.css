@@ -3509,7 +3509,7 @@ body.dragging-tabs .tabs-container {
   }
   
   body.mobile-keys-bar-hidden .terminal-wrapper.active {
-    flex: 1;
+    /* Already positioned absolute to fill terminals-container */
   }
   
   body.mobile-keys-bar-hidden .sftp-container {
@@ -3544,9 +3544,16 @@ body.dragging-tabs .tabs-container {
   
   /* Adjust terminal area when keyboard is visible */
   body.keyboard-visible .terminal-area {
-    /* Use the viewport height set by JavaScript */
-    height: var(--viewport-height, auto);
-    max-height: var(--viewport-height, auto);
+    /* Use the viewport height set by JavaScript, minus mobile keys bar height */
+    height: calc(var(--viewport-height, 100vh) - var(--mobile-keys-bar-height, 75px));
+    max-height: calc(var(--viewport-height, 100vh) - var(--mobile-keys-bar-height, 75px));
+  }
+  
+  /* Remove default spacing on terminal elements when keyboard is visible */
+  body.keyboard-visible .terminal-area *,
+  body.keyboard-visible .terminal-area *::before,
+  body.keyboard-visible .terminal-area *::after {
+    margin-bottom: -3px;
   }
   
   /* Ensure terminals container fills available space */
@@ -3557,7 +3564,7 @@ body.dragging-tabs .tabs-container {
   
   /* Ensure terminal wrapper fills available space */
   body.keyboard-visible .terminal-wrapper.active {
-    flex: 1;
+    /* Already positioned absolute to fill terminals-container */
     min-height: 50px; /* Allow smaller height when keyboard is visible */
   }
 }
@@ -3627,9 +3634,14 @@ body.dragging-tabs .tabs-container {
   }
   
   .terminal-wrapper {
-    overflow: hidden !important;
-    /* Fill available space in flex container */
-    flex: 1;
+    /* Position absolute to fill terminals-container */
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    /* Allow overflow for selection handles */
+    overflow: visible;
     min-height: 100px; /* Ensure minimum height for initialization */
     padding: 0; /* Remove padding on mobile to maximize terminal space */
   }
@@ -4349,8 +4361,13 @@ body.dragging-tabs .tabs-container {
   }
   
   /* Terminal wrapper needs to contain selection elements */
+  /* Keep position: absolute to fill the terminals-container */
   .terminal-wrapper {
-    position: relative;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
     overflow: visible;
   }
   
