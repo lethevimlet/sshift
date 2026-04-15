@@ -24,6 +24,7 @@ const DEFAULT_INSTALL_DIRS = [
 const PACKAGE_DIR = path.join(__dirname, '..', '..', '..');
 const ENV_CONFIG_PATHS = [
   ...DEFAULT_INSTALL_DIRS.map(dir => path.join(dir, '.env', 'config.json')),
+  ...DEFAULT_INSTALL_DIRS.map(dir => path.join(dir, 'config.json')),
   path.join(PACKAGE_DIR, '.env', 'config.json'),
   path.join(PACKAGE_DIR, 'config.json'),
 ];
@@ -35,11 +36,41 @@ const defaultConfig = {
   bind: '0.0.0.0',
   enableHttps: true,
   sticky: true,
-  sshKeepaliveInterval: 10000,
-  sshKeepaliveCountMax: 1000,
+  sshKeepaliveInterval: 15000,
+  sshKeepaliveCountMax: 500,
   bookmarks: [],
   folders: []
 };
+
+/**
+ * Ensure a config file exists. If no config is found in any search path,
+ * create config.json in the package root using env var overrides or defaults.
+ * This mirrors the installer create_config behavior.
+ */
+function ensureConfig() {
+  for (const configPath of ENV_CONFIG_PATHS) {
+    if (fs.existsSync(configPath)) {
+      return;
+    }
+  }
+
+  const configPath = path.join(PACKAGE_DIR, 'config.json');
+  const config = { ...defaultConfig };
+
+  if (process.env.PORT) {
+    const port = parseInt(process.env.PORT, 10);
+    if (!isNaN(port)) {
+      config.port = port;
+    }
+  }
+
+  if (process.env.BIND) {
+    config.bind = process.env.BIND;
+  }
+
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+  console.log('[CONFIG] Created default config at', configPath);
+}
 
 /**
  * Get config path (prioritize user install directory)
@@ -109,10 +140,10 @@ function getPort() {
   const config = loadConfig();
   
   if (isDev) {
-    return config.devPort || 3000;
+    return config.devPort || defaultConfig.devPort;
   }
   
-  return config.port || 8022;
+  return config.port || defaultConfig.port;
 }
 
 /**
@@ -129,7 +160,7 @@ function getBindAddress() {
   const config = loadConfig();
   
   // Priority 3: Default
-  return config.bind || '0.0.0.0';
+  return config.bind || defaultConfig.bind;
 }
 
 /**
@@ -139,8 +170,8 @@ function getBindAddress() {
 function getSSHKeepaliveSettings() {
   const config = loadConfig();
   return {
-    sshKeepaliveInterval: config.sshKeepaliveInterval || 10000,
-    sshKeepaliveCountMax: config.sshKeepaliveCountMax || 1000
+    sshKeepaliveInterval: config.sshKeepaliveInterval || defaultConfig.sshKeepaliveInterval,
+    sshKeepaliveCountMax: config.sshKeepaliveCountMax || defaultConfig.sshKeepaliveCountMax
   };
 }
 
@@ -191,6 +222,7 @@ function getEnableHttps() {
 
 module.exports = {
   defaultConfig,
+  ensureConfig,
   getConfigPath,
   loadConfig,
   saveConfig,

@@ -18,7 +18,7 @@ const selfsigned = require('selfsigned');
 const pem = require('pem');
 
 // Import utilities
-const { loadConfig, getPort, getBindAddress, getEnableHttps } = require('./utils/config');
+const { ensureConfig, loadConfig, getPort, getBindAddress, getEnableHttps } = require('./utils/config');
 
 // Import services
 const { sshManager, sftpManager } = require('./services');
@@ -89,6 +89,8 @@ let sslCredentials = null;
 
 // Async initialization function
 async function initializeServer() {
+  ensureConfig();
+
   if (enableHttps) {
     try {
       sslCredentials = await generateSelfSignedCert();
