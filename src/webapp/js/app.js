@@ -595,6 +595,11 @@ class SSHIFTClient {
     if (session.fitAddon && session.isController) {
       session.fitAddon.fit();
     }
+
+    // Refresh mobile selection overlay after font change
+    if (session.mobileHandler) {
+      session.mobileHandler.refreshSelection();
+    }
     
     console.log('[SSHIFT] Font size set to', size, 'for session', sessionId);
   }
@@ -619,6 +624,10 @@ class SSHIFTClient {
         // Non-controllers will receive resize sync from the controller
         if (session.fitAddon && session.isController) {
           session.fitAddon.fit();
+        }
+        // Refresh mobile selection overlay
+        if (session.mobileHandler) {
+          session.mobileHandler.refreshSelection();
         }
       }
     });

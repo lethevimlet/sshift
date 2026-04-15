@@ -36,6 +36,9 @@ class MobileTerminalHandler {
       dragHandle: null, // 'start' or 'end'
       isSelecting: false // True when in selection mode (prevents keyboard)
     };
+
+    // Terminal resize listener disposable
+    this._resizeDisposable = null;
     
     // UI elements
     this.container = null;
@@ -76,7 +79,97 @@ class MobileTerminalHandler {
     
     console.log('[MobileTerminal] Handler created for session:', this.sessionId);
   }
-  
+
+  /**
+   * Get accurate terminal rendering metrics accounting for CSS padding and font size
+   * Uses the actual canvas/xterm-screen element for precise coordinate mapping
+   * @private
+   * @returns {Object|null} Terminal metrics or null if unavailable
+   */
+  _getTerminalMetrics() {
+    if (!this.terminal || !this.terminal.element) return null;
+
+    const containerRect = this.container.getBoundingClientRect();
+    if (containerRect.width === 0 || containerRect.height === 0) return null;
+
+    const cols = this.terminal.cols;
+    const rows = this.terminal.rows;
+    if (cols === 0 || rows === 0) return null;
+
+    const screenEl = this.terminal.element.querySelector('.xterm-screen');
+    if (!screenEl) {
+      return this._getFallbackMetrics(containerRect, cols, rows);
+    }
+
+    const canvasEl = screenEl.querySelector('canvas');
+
+    let contentLeft, contentTop, contentWidth, contentHeight;
+
+    if (canvasEl) {
+      const canvasRect = canvasEl.getBoundingClientRect();
+      if (canvasRect.width === 0 || canvasRect.height === 0) {
+        return this._getFallbackMetrics(containerRect, cols, rows);
+      }
+      contentLeft = canvasRect.left;
+      contentTop = canvasRect.top;
+      contentWidth = canvasRect.width;
+      contentHeight = canvasRect.height;
+    } else {
+      const screenRect = screenEl.getBoundingClientRect();
+      const style = window.getComputedStyle(screenEl);
+      const paddingLeft = parseFloat(style.paddingLeft) || 0;
+      const paddingRight = parseFloat(style.paddingRight) || 0;
+      const paddingTop = parseFloat(style.paddingTop) || 0;
+      const paddingBottom = parseFloat(style.paddingBottom) || 0;
+
+      contentLeft = screenRect.left + paddingLeft;
+      contentTop = screenRect.top + paddingTop;
+      contentWidth = screenRect.width - paddingLeft - paddingRight;
+      contentHeight = screenRect.height - paddingTop - paddingBottom;
+    }
+
+    if (contentWidth <= 0 || contentHeight <= 0) {
+      return this._getFallbackMetrics(containerRect, cols, rows);
+    }
+
+    const cellWidth = contentWidth / cols;
+    const cellHeight = contentHeight / rows;
+
+    return {
+      cellWidth,
+      cellHeight,
+      contentLeft,
+      contentTop,
+      offsetX: contentLeft - containerRect.left,
+      offsetY: contentTop - containerRect.top,
+      cols,
+      rows,
+      scrollOffset: this.terminal.buffer.ydisp || 0,
+      containerRect
+    };
+  }
+
+  /**
+   * Fallback metrics using container rect (legacy behavior)
+   * @private
+   */
+  _getFallbackMetrics(containerRect, cols, rows) {
+    const cellWidth = containerRect.width / cols;
+    const cellHeight = containerRect.height / rows;
+    return {
+      cellWidth,
+      cellHeight,
+      contentLeft: containerRect.left,
+      contentTop: containerRect.top,
+      offsetX: 0,
+      offsetY: 0,
+      cols,
+      rows,
+      scrollOffset: this.terminal.buffer.ydisp || 0,
+      containerRect
+    };
+  }
+
   /**
    * Initialize the mobile handler - attach to terminal element
    * @param {HTMLElement} terminalElement - The terminal wrapper element
@@ -431,6 +524,17 @@ class MobileTerminalHandler {
     
     // Keyboard events
     document.addEventListener('keydown', this._boundHandleKeyDown);
+
+    // Terminal resize events - refresh selection overlay when dimensions change
+    if (this.terminal && this.terminal.onResize) {
+      this._resizeDisposable = this.terminal.onResize(() => {
+        requestAnimationFrame(() => {
+          if (this.selection.active) {
+            this._updateSelection();
+          }
+        });
+      });
+    }
   }
   
   /**
@@ -453,7 +557,13 @@ class MobileTerminalHandler {
     }
     
     document.removeEventListener('keydown', this._boundHandleKeyDown);
-    
+
+    // Dispose terminal resize listener
+    if (this._resizeDisposable) {
+      this._resizeDisposable.dispose();
+      this._resizeDisposable = null;
+    }
+
     // Remove UI elements
     if (this.selectionOverlay && this.selectionOverlay.parentNode) {
       this.selectionOverlay.parentNode.removeChild(this.selectionOverlay);
@@ -687,36 +797,24 @@ class MobileTerminalHandler {
   
   /**
    * Convert screen coordinates to terminal coordinates
+   * Uses actual terminal rendering metrics for accurate mapping
    * @private
    */
   _screenToTerminalCoords(screenX, screenY) {
-    if (!this.terminal || !this.container) return null;
-    
-    const rect = this.container.getBoundingClientRect();
-    const x = screenX - rect.left;
-    const y = screenY - rect.top;
-    
-    // Get terminal dimensions
-    const cols = this.terminal.cols;
-    const rows = this.terminal.rows;
-    
-    // Get cell dimensions
-    const cellWidth = rect.width / cols;
-    const cellHeight = rect.height / rows;
-    
-    // Convert to terminal coordinates
+    const metrics = this._getTerminalMetrics();
+    if (!metrics) return null;
+
+    const { cellWidth, cellHeight, contentLeft, contentTop, scrollOffset, cols } = metrics;
+
+    const x = screenX - contentLeft;
+    const y = screenY - contentTop;
+
     const termX = Math.floor(x / cellWidth);
     const termY = Math.floor(y / cellHeight);
-    
-    // Add scroll offset to get actual buffer line
-    // ydisp is the number of lines scrolled back from the bottom
-    const scrollOffset = this.terminal.buffer.ydisp || 0;
+
     const bufferY = termY + scrollOffset;
-    
-    // Get buffer length for clamping
     const bufferLength = this.terminal.buffer.active.length;
-    
-    // Clamp to valid range
+
     return {
       x: Math.max(0, Math.min(cols - 1, termX)),
       y: Math.max(0, Math.min(bufferLength - 1, bufferY))
@@ -724,26 +822,20 @@ class MobileTerminalHandler {
   }
   
   /**
-   * Convert terminal coordinates to screen position
+   * Convert terminal coordinates to container-relative screen position
+   * Returns coordinates relative to the container for absolute positioning
    * @private
    */
   _terminalToScreenCoords(termX, termY) {
-    if (!this.terminal || !this.container) return null;
-    
-    const rect = this.container.getBoundingClientRect();
-    const cols = this.terminal.cols;
-    const rows = this.terminal.rows;
-    
-    const cellWidth = rect.width / cols;
-    const cellHeight = rect.height / rows;
-    
-    // Subtract scroll offset to get viewport coordinates
-    const scrollOffset = this.terminal.buffer.ydisp || 0;
+    const metrics = this._getTerminalMetrics();
+    if (!metrics) return null;
+
+    const { cellWidth, cellHeight, offsetX, offsetY, scrollOffset } = metrics;
     const viewportY = termY - scrollOffset;
-    
+
     return {
-      x: rect.left + (termX * cellWidth),
-      y: rect.top + (viewportY * cellHeight),
+      x: offsetX + (termX * cellWidth),
+      y: offsetY + (viewportY * cellHeight),
       width: cellWidth,
       height: cellHeight
     };
@@ -835,38 +927,33 @@ class MobileTerminalHandler {
   _updateSelectionOverlay(start, end) {
     const startPos = this._terminalToScreenCoords(start.x, start.y);
     const endPos = this._terminalToScreenCoords(end.x, end.y);
-    
+
     if (!startPos || !endPos) return;
-    
-    const containerRect = this.container.getBoundingClientRect();
-    
-    // Calculate selection rectangle
+
     const startY = Math.min(start.y, end.y);
     const endY = Math.max(start.y, end.y);
-    
-    // Clear existing overlay
+
     this.selectionOverlay.innerHTML = '';
-    
-    // Create selection rectangles for each line
+
     for (let y = startY; y <= endY; y++) {
       const lineStartX = (y === startY) ? Math.min(start.x, end.x) : 0;
       const lineEndX = (y === endY) ? Math.max(start.x, end.x) : this.terminal.cols - 1;
-      
+
       const lineStartPos = this._terminalToScreenCoords(lineStartX, y);
       const lineEndPos = this._terminalToScreenCoords(lineEndX, y);
-      
+
       if (lineStartPos && lineEndPos) {
         const rect = document.createElement('div');
         rect.className = 'mobile-selection-rect';
         rect.style.position = 'absolute';
-        rect.style.left = `${lineStartPos.x - containerRect.left}px`;
-        rect.style.top = `${lineStartPos.y - containerRect.top}px`;
+        rect.style.left = `${lineStartPos.x}px`;
+        rect.style.top = `${lineStartPos.y}px`;
         rect.style.width = `${lineEndPos.x - lineStartPos.x + lineEndPos.width}px`;
         rect.style.height = `${lineStartPos.height}px`;
         this.selectionOverlay.appendChild(rect);
       }
     }
-    
+
     this.selectionOverlay.style.display = 'block';
   }
   
@@ -875,28 +962,23 @@ class MobileTerminalHandler {
    * @private
    */
   _updateHandles(start, end) {
-    const containerRect = this.container.getBoundingClientRect();
-    
-    // Determine which is start and which is end based on position
     const isStartFirst = (start.y < end.y) || (start.y === end.y && start.x <= end.x);
-    
+
     const actualStart = isStartFirst ? start : end;
     const actualEnd = isStartFirst ? end : start;
-    
-    // Position start handle
+
     const startPos = this._terminalToScreenCoords(actualStart.x, actualStart.y);
     if (startPos) {
       this.startHandle.style.display = 'block';
-      this.startHandle.style.left = `${startPos.x - containerRect.left}px`;
-      this.startHandle.style.top = `${startPos.y - containerRect.top + startPos.height}px`;
+      this.startHandle.style.left = `${startPos.x}px`;
+      this.startHandle.style.top = `${startPos.y + startPos.height}px`;
     }
-    
-    // Position end handle
+
     const endPos = this._terminalToScreenCoords(actualEnd.x, actualEnd.y);
     if (endPos) {
       this.endHandle.style.display = 'block';
-      this.endHandle.style.left = `${endPos.x - containerRect.left + endPos.width}px`;
-      this.endHandle.style.top = `${endPos.y - containerRect.top + endPos.height}px`;
+      this.endHandle.style.left = `${endPos.x + endPos.width}px`;
+      this.endHandle.style.top = `${endPos.y + endPos.height}px`;
     }
   }
   
@@ -1090,6 +1172,20 @@ class MobileTerminalHandler {
     // Allow keyboard input again after selection is cleared
     this._enableKeyboardInput();
   }
+
+  /**
+   * Refresh selection overlay positions
+   * Called after font size changes or terminal dimension changes
+   */
+  refreshSelection() {
+    if (this.selection.active) {
+      requestAnimationFrame(() => {
+        if (this.selection.active) {
+          this._updateSelection();
+        }
+      });
+    }
+  }
   
   /**
    * Focus hidden textarea for keyboard input
@@ -1179,9 +1275,12 @@ class MobileTerminalHandler {
    * @private
    */
   _handleResize() {
-    // Update selection overlay if active
     if (this.selection.active) {
-      this._updateSelection();
+      requestAnimationFrame(() => {
+        if (this.selection.active) {
+          this._updateSelection();
+        }
+      });
     }
   }
   
