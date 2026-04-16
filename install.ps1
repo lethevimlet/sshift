@@ -242,10 +242,44 @@ function Start-App {
         return
     }
     
-    # Get the full path to sshift
-    $sshiftPath = (Get-Command -Name "sshift" -ErrorAction SilentlyContinue).Source
-    if (-not $sshiftPath) {
-        Write-Error "Could not find sshift executable. Make sure sshift is installed and in PATH."
+    # Resolve the actual node script path (npm shims are .cmd files that can't be run directly)
+    $sshiftCmd = (Get-Command -Name "sshift" -ErrorAction SilentlyContinue).Source
+    if (-not $sshiftCmd) {
+        Write-Error "Could not find sshift. Make sure sshift is installed and in PATH."
+        return
+    }
+    
+    # Find the node script - npm .cmd shims wrap a .js file, find the actual entry point
+    $nodeExe = (Get-Command -Name "node" -ErrorAction SilentlyContinue).Source
+    if (-not $nodeExe) {
+        Write-Error "Could not find node executable."
+        return
+    }
+    
+    # Determine the actual script to run
+    # For .cmd shims, find the real sshift script in node_modules
+    $sshiftScript = $null
+    if ($sshiftCmd -match '\.cmd$') {
+        # Find the sshift script in the npm global modules directory
+        $npmPrefix = npm config get prefix 2>$null
+        if ($npmPrefix) {
+            $candidateScripts = @(
+                (Join-Path $npmPrefix "node_modules\@lethevimlet\sshift\sshift"),
+                (Join-Path $npmPrefix "node_modules\@lethevimlet\sshift\src\server\index.js")
+            )
+            foreach ($candidate in $candidateScripts) {
+                if (Test-Path $candidate) {
+                    $sshiftScript = $candidate
+                    break
+                }
+            }
+        }
+    } else {
+        $sshiftScript = $sshiftCmd
+    }
+    
+    if (-not $sshiftScript) {
+        Write-Error "Could not resolve sshift script path."
         return
     }
     
@@ -255,9 +289,9 @@ function Start-App {
         New-Item -ItemType Directory -Force -Path $envDir | Out-Null
     }
     
-    # Start sshift in background with full path and working directory
+    # Start sshift in background using node directly
     try {
-        $process = Start-Process -FilePath $sshiftPath -WorkingDirectory $InstallDir -WindowStyle Hidden -PassThru -RedirectStandardOutput "$InstallDir\sshift.log" -RedirectStandardError "$InstallDir\sshift-error.log"
+        $process = Start-Process -FilePath $nodeExe -ArgumentList $sshiftScript -WorkingDirectory $InstallDir -WindowStyle Hidden -PassThru -RedirectStandardOutput "$InstallDir\sshift.log" -RedirectStandardError "$InstallDir\sshift-error.log"
         
         # Save PID
         New-Item -ItemType Directory -Force -Path (Split-Path $PidFile -Parent) | Out-Null
@@ -270,7 +304,6 @@ function Start-App {
         if ($running) {
             Write-Success "sshift started (PID: $($process.Id))"
             Write-Info "Logs: $InstallDir\sshift.log"
-            Write-Info "Config: $envDir\config.json"
         } else {
             Write-Error "sshift failed to start. Check logs at $InstallDir\sshift-error.log"
         }
@@ -477,10 +510,30 @@ function Add-ToPath {
 function Enable-Autostart {
     Write-Info "Setting up autostart via Task Scheduler..."
     
-    # Get the full path to sshift
-    $sshiftPath = (Get-Command -Name "sshift" -ErrorAction SilentlyContinue).Source
-    if (-not $sshiftPath) {
-        Write-Error "Could not find sshift executable. Make sure sshift is installed and in PATH."
+    # Resolve the node executable and script path (npm .cmd shims can't be used directly)
+    $nodeExe = (Get-Command -Name "node" -ErrorAction SilentlyContinue).Source
+    if (-not $nodeExe) {
+        Write-Error "Could not find node executable."
+        return
+    }
+    
+    $sshiftScript = $null
+    $npmPrefix = npm config get prefix 2>$null
+    if ($npmPrefix) {
+        $candidateScripts = @(
+            (Join-Path $npmPrefix "node_modules\@lethevimlet\sshift\sshift"),
+            (Join-Path $npmPrefix "node_modules\@lethevimlet\sshift\src\server\index.js")
+        )
+        foreach ($candidate in $candidateScripts) {
+            if (Test-Path $candidate) {
+                $sshiftScript = $candidate
+                break
+            }
+        }
+    }
+    
+    if (-not $sshiftScript) {
+        Write-Error "Could not resolve sshift script path."
         return
     }
     
@@ -490,8 +543,8 @@ function Enable-Autostart {
         New-Item -ItemType Directory -Force -Path $envDir | Out-Null
     }
     
-    # Create task action with full path and working directory
-    $action = New-ScheduledTaskAction -Execute $sshiftPath -WorkingDirectory $InstallDir
+    # Create task action using node directly, passing the script as argument
+    $action = New-ScheduledTaskAction -Execute $nodeExe -Argument """$sshiftScript""" -WorkingDirectory $InstallDir
     
     # Create task trigger (at logon)
     $trigger = New-ScheduledTaskTrigger -AtLogon
