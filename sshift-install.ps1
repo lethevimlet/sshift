@@ -2,78 +2,78 @@
 # Installs Node.js (if not present) and installs sshift via npm
 # Checks for updates and restarts the app if needed
 #
-# Usage: ./install.ps1 [OPTIONS]
-#   -InstallDir DIR   Installation directory (default: ~/.local/share/sshift)
-#   -Port PORT        Server port (default: 8022)
-#   -Start            Start sshift after installation/update
-#   -Stop             Stop running sshift instance
-#   -Restart          Restart sshift
-#   -Status           Check if sshift is running
-#   -Update           Update existing installation (non-interactive)
-#   -Uninstall        Remove sshift from the system
-#   -Help             Show this help message
+# Usage: ./sshift-install.ps1 [OPTIONS]
+#   -installDir DIR   Installation directory (default: ~/.local/share/sshift)
+#   -port PORT        Server port (default: 8022)
+#   -start            Start sshift after installation/update
+#   -stop             Stop running sshift instance
+#   -restart          Restart sshift
+#   -status           Check if sshift is running
+#   -update           Update existing installation (non-interactive)
+#   -uninstall        Remove sshift from the system
+#   -help             Show this help message
 
 param(
-    [string]$InstallDir = "",
-    [string]$Port = "",
-    [switch]$Start,
-    [switch]$Stop,
-    [switch]$Restart,
-    [switch]$Status,
-    [switch]$Uninstall,
-    [switch]$Update,
-    [switch]$Help
+    [string]$installDir = "",
+    [string]$port = "",
+    [switch]$start,
+    [switch]$stop,
+    [switch]$restart,
+    [switch]$status,
+    [switch]$uninstall,
+    [switch]$update,
+    [switch]$help
 )
 
 # Configuration (defaults, can be overridden by arguments)
-$NodeVersion = "20"  # Minimum LTS version
+$NodeVersion = "20"
 $NpmPackage = "@lethevimlet/sshift"
-if ($InstallDir -eq "") {
-    $InstallDir = "$env:USERPROFILE\.local\share\sshift"
+if ($installDir -eq "") {
+    $installDir = "$env:USERPROFILE\.local\share\sshift"
 }
-$BinDir = Split-Path $InstallDir -Parent
+$BinDir = Split-Path $installDir -Parent
 $BinDir = Join-Path $BinDir "bin"
 $PidFile = "$env:TEMP\sshift.pid"
 $ServiceName = "sshift"
-$ServerPort = $Port
+$ServerPort = $port
 
 # Show help message
 function Show-Help {
     Write-Host "sshift Installation Script for Windows"
     Write-Host ""
-    Write-Host "Usage: ./install.ps1 [OPTIONS]"
+    Write-Host "Usage: ./sshift-install.ps1 [OPTIONS]"
     Write-Host ""
     Write-Host "Options:"
-    Write-Host "  -InstallDir DIR   Installation directory (default: ~/.local/share/sshift)"
-    Write-Host "  -Port PORT        Server port (default: 8022)"
-    Write-Host "  -Start            Start sshift after installation/update"
-    Write-Host "  -Stop             Stop running sshift instance"
-    Write-Host "  -Restart          Restart sshift"
-    Write-Host "  -Status           Check if sshift is running"
-    Write-Host "  -Update           Update existing installation (non-interactive)"
-    Write-Host "  -Uninstall        Remove sshift from the system"
-    Write-Host "  -Help             Show this help message"
+    Write-Host "  -installDir DIR   Installation directory (default: ~/.local/share/sshift)"
+    Write-Host "  -port PORT        Server port (default: 8022)"
+    Write-Host "  -start            Start sshift after installation/update"
+    Write-Host "  -stop             Stop running sshift instance"
+    Write-Host "  -restart          Restart sshift"
+    Write-Host "  -status           Check if sshift is running"
+    Write-Host "  -update           Update existing installation (non-interactive)"
+    Write-Host "  -uninstall        Remove sshift from the system"
+    Write-Host "  -help             Show this help message"
     Write-Host ""
     Write-Host "IMPORTANT: Run PowerShell as Administrator before executing this script."
     Write-Host "           This is required for npm global installations."
     Write-Host ""
     Write-Host "Examples:"
-    Write-Host "  ./install.ps1                              # Install with defaults"
-    Write-Host "  ./install.ps1 -Port 8080                   # Install with custom port"
-    Write-Host "  ./install.ps1 -InstallDir C:\sshift        # Install to custom directory"
-    Write-Host "  ./install.ps1 -Update                      # Update existing installation"
-    Write-Host "  ./install.ps1 -Start                      # Start sshift"
-    Write-Host "  ./install.ps1 -Stop                       # Stop sshift"
-    Write-Host "  ./install.ps1 -Restart                    # Restart sshift"
-    Write-Host "  ./install.ps1 -Status                    # Check status"
-    Write-Host "  ./install.ps1 -Uninstall                  # Remove sshift"
+    Write-Host "  ./sshift-install.ps1                              # Install with defaults"
+    Write-Host "  ./sshift-install.ps1 -port 8080                   # Install with custom port"
+    Write-Host "  ./sshift-install.ps1 -installDir C:\sshift        # Install to custom directory"
+    Write-Host "  ./sshift-install.ps1 -update                      # Update existing installation"
+    Write-Host "  ./sshift-install.ps1 -start                      # Start sshift"
+    Write-Host "  ./sshift-install.ps1 -stop                       # Stop sshift"
+    Write-Host "  ./sshift-install.ps1 -restart                    # Restart sshift"
+    Write-Host "  ./sshift-install.ps1 -status                     # Check status"
+    Write-Host "  ./sshift-install.ps1 -uninstall                  # Remove sshift"
     Write-Host ""
     Write-Host "One-liner installation:"
-    Write-Host "  Invoke-Expression (Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/lethevimlet/sshift/main/install.ps1' -UseBasicParsing).Content"
+    Write-Host "  Invoke-Expression (Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/lethevimlet/sshift/main/sshift-install.ps1' -UseBasicParsing).Content"
     exit 0
 }
 
-if ($Help) {
+if ($help) {
     Show-Help
 }
 
@@ -81,12 +81,11 @@ if ($Help) {
 if ($Host.Name -eq "ConsoleHost") {
     # Running in console, good
 } else {
-    # Might be running in an unusual host
     Write-Host ""
     Write-Host "Note: This script is designed to run in PowerShell console." -ForegroundColor Yellow
     Write-Host "If you double-clicked the .ps1 file, you may need to:" -ForegroundColor Yellow
     Write-Host "  1. Right-click the file -> 'Run with PowerShell'" -ForegroundColor Cyan
-    Write-Host "  2. Or open PowerShell and run: .\install.ps1" -ForegroundColor Cyan
+    Write-Host "  2. Or open PowerShell and run: .\sshift-install.ps1" -ForegroundColor Cyan
     Write-Host ""
 }
 
@@ -113,13 +112,11 @@ function Command-Exists {
 function Get-InstalledVersion {
     if (Command-Exists "sshift") {
         try {
-            # Use --json for reliable parsing
             $result = npm list -g @lethevimlet/sshift --depth=0 --json 2>$null | ConvertFrom-Json
             if ($result.dependencies -and $result.dependencies.'@lethevimlet/sshift') {
                 return $result.dependencies.'@lethevimlet/sshift'.version
             }
         } catch {
-            # Fallback to regex parsing
             try {
                 $result = npm list -g @lethevimlet/sshift --depth=0 2>$null
                 if ($result -match "@lethevimlet/sshift@(\d+\.\d+\.\d+)") {
@@ -162,9 +159,9 @@ function Compare-Versions {
         $remote = [int]($remoteParts[$i] -as [int])
         
         if ($local -lt $remote) {
-            return 1  # local < remote
+            return 1
         } elseif ($local -gt $remote) {
-            return 2  # local > remote
+            return 2
         }
     }
     
@@ -189,6 +186,85 @@ function Test-IsRunning {
     return $false
 }
 
+# Wait for a process to fully terminate and release file handles
+function Wait-ProcessTerminated {
+    param(
+        [int]$ProcessId,
+        [int]$TimeoutSeconds = 15
+    )
+    
+    $startTime = Get-Date
+    while (((Get-Date) - $startTime).TotalSeconds -lt $TimeoutSeconds) {
+        $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+        if (-not $process) {
+            Write-Info "Process $ProcessId has terminated"
+            return $true
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    
+    # Process still running after timeout
+    $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+    if ($process) {
+        Write-Warning "Process $ProcessId did not terminate within $TimeoutSeconds seconds"
+        return $false
+    }
+    return $true
+}
+
+# Kill all node processes running sshift (handles orphaned processes)
+function Stop-AllSshiftProcesses {
+    $sshiftScript = $null
+    $npmPrefix = npm config get prefix 2>$null
+    if ($npmPrefix) {
+        $candidateScripts = @(
+            (Join-Path $npmPrefix "node_modules\@lethevimlet\sshift\sshift"),
+            (Join-Path $npmPrefix "node_modules\@lethevimlet\sshift\src\server\index.js")
+        )
+        foreach ($candidate in $candidateScripts) {
+            if (Test-Path $candidate) {
+                $sshiftScript = $candidate
+                break
+            }
+        }
+    }
+    
+    if (-not $sshiftScript) {
+        $sshiftCmd = (Get-Command -Name "sshift" -ErrorAction SilentlyContinue).Source
+        if ($sshiftCmd) {
+            $shimDir = Split-Path $sshiftCmd -Parent
+            $pkgDir = Join-Path $shimDir "node_modules\@lethevimlet\sshift"
+            if (Test-Path (Join-Path $pkgDir "sshift")) {
+                $sshiftScript = Join-Path $pkgDir "sshift"
+            } elseif (Test-Path (Join-Path $pkgDir "src\server\index.js")) {
+                $sshiftScript = Join-Path $pkgDir "src\server\index.js"
+            }
+        }
+    }
+    
+    # Find node processes that are running the sshift script
+    $killedAny = $false
+    $nodeProcesses = Get-Process -Name "node" -ErrorAction SilentlyContinue
+    foreach ($nodeProc in $nodeProcesses) {
+        try {
+            $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId = $($nodeProc.Id)" -ErrorAction SilentlyContinue).CommandLine
+            if ($cmdLine -and $cmdLine -match "sshift") {
+                Write-Info "Stopping sshift node process (PID: $($nodeProc.Id))..."
+                Stop-Process -Id $nodeProc.Id -Force -ErrorAction SilentlyContinue
+                $killedAny = $true
+            }
+        } catch {
+            # Ignore errors accessing process info
+        }
+    }
+    
+    if ($killedAny) {
+        Start-Sleep -Seconds 2
+    }
+    
+    return $killedAny
+}
+
 # Stop running instance
 function Stop-App {
     # Check if running via Task Scheduler
@@ -196,25 +272,40 @@ function Stop-App {
     if ($task -and $task.State -eq "Running") {
         Write-Info "Stopping sshift via Task Scheduler..."
         Stop-ScheduledTask -TaskName $ServiceName
-        Start-Sleep -Seconds 2
-        return
+        Start-Sleep -Seconds 3
+        
+        # Verify task stopped
+        $task = Get-ScheduledTask -TaskName $ServiceName -ErrorAction SilentlyContinue
+        if ($task -and $task.State -eq "Running") {
+            Write-Warning "Task Scheduler task did not stop, will force kill process..."
+        }
     }
     
-    # Otherwise, stop via PID file
+    # Stop via PID file
     if (Test-IsRunning) {
         $pid = Get-Content $PidFile
         Write-Info "Stopping sshift (PID: $pid)..."
         
         try {
-            Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
-            Start-Sleep -Seconds 2
+            # Try graceful stop first
+            Stop-Process -Id $pid -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 3
             
-            # Force kill if still running
+            # Check if still running
             $process = Get-Process -Id $pid -ErrorAction SilentlyContinue
             if ($process) {
                 Write-Warning "Process did not stop gracefully, force killing..."
                 Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
-                Start-Sleep -Seconds 1
+                Start-Sleep -Seconds 2
+            }
+            
+            # Wait for process to fully terminate and release file handles
+            $terminated = Wait-ProcessTerminated -ProcessId $pid -TimeoutSeconds 10
+            
+            if (-not $terminated) {
+                Write-Warning "Attempting to kill any remaining sshift node processes..."
+                Stop-AllSshiftProcesses
+                Start-Sleep -Seconds 3
             }
             
             Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
@@ -223,10 +314,13 @@ function Stop-App {
             Write-Error "Failed to stop sshift"
         }
     } else {
-        # Clean up stale PID file if it exists
-        if (Test-Path $PidFile) {
-            Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
-            Write-Info "Removed stale PID file"
+        # Check for orphaned processes (no PID file but process may still be running)
+        $orphaned = Stop-AllSshiftProcesses
+        if (-not $orphaned) {
+            if (Test-Path $PidFile) {
+                Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
+                Write-Info "Removed stale PID file"
+            }
         }
     }
 }
@@ -287,14 +381,14 @@ function Start-App {
     }
     
     # Ensure config directory exists
-    $envDir = Join-Path $InstallDir ".env"
+    $envDir = Join-Path $installDir ".env"
     if (-not (Test-Path $envDir)) {
         New-Item -ItemType Directory -Force -Path $envDir | Out-Null
     }
     
     # Start sshift in background using node directly
     try {
-        $process = Start-Process -FilePath $nodeExe -ArgumentList "`"$sshiftScript`"" -WorkingDirectory $InstallDir -WindowStyle Hidden -PassThru
+        $process = Start-Process -FilePath $nodeExe -ArgumentList "`"$sshiftScript`"" -WorkingDirectory $installDir -WindowStyle Hidden -PassThru
         
         # Save PID
         New-Item -ItemType Directory -Force -Path (Split-Path $PidFile -Parent) | Out-Null
@@ -305,9 +399,9 @@ function Start-App {
         # Check if process is still running
         $running = Get-Process -Id $process.Id -ErrorAction SilentlyContinue
         if ($running) {
-            $port = Get-EffectivePort
+            $effectivePort = Get-EffectivePort
             Write-Success "sshift started (PID: $($process.Id))"
-            Write-Info "Access: https://localhost:$port"
+            Write-Info "Access: https://localhost:$effectivePort"
         } else {
             # Process crashed - try to provide useful diagnostics
             Write-Error "sshift failed to start."
@@ -315,7 +409,7 @@ function Start-App {
             Write-Host "Diagnostic information:" -ForegroundColor Yellow
             Write-Host "  Node path: $nodeExe" -ForegroundColor Yellow
             Write-Host "  Script path: $sshiftScript" -ForegroundColor Yellow
-            Write-Host "  Working dir: $InstallDir" -ForegroundColor Yellow
+            Write-Host "  Working dir: $installDir" -ForegroundColor Yellow
             Write-Host ""
             Write-Host "Try running manually to see the error:" -ForegroundColor Cyan
             Write-Host "  node `"$sshiftScript`"" -ForegroundColor Cyan
@@ -405,10 +499,19 @@ function Install-Sshift {
 function Update-Sshift {
     Write-Info "Updating sshift..."
     
-    # Stop running instance if any
+    # Stop running instance before updating
+    $wasRunning = $false
     if (Test-IsRunning) {
+        $wasRunning = $true
         Stop-App
+    } else {
+        # Check for orphaned sshift node processes
+        Stop-AllSshiftProcesses
     }
+    
+    # Give extra time for file handles to be released after stopping
+    Write-Info "Waiting for file handles to be released..."
+    Start-Sleep -Seconds 3
     
     # Update via npm (may require admin privileges on Windows)
     npm update -g @lethevimlet/sshift
@@ -424,6 +527,7 @@ function Update-Sshift {
         Write-Host "  2. Check your internet connection" -ForegroundColor Cyan
         Write-Host "  3. Try: npm cache clean --force" -ForegroundColor Cyan
         Write-Host "  4. Check npm logs for details" -ForegroundColor Cyan
+        Write-Host "  5. If sshift was running, stop it first: ./sshift-install.ps1 -stop" -ForegroundColor Cyan
         Write-Host ""
         Write-Host "Press any key to exit..."
         $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
@@ -436,7 +540,7 @@ function New-Config {
     Write-Info "Creating configuration..."
     
     # Create .env directory if it doesn't exist
-    $envDir = Join-Path $InstallDir ".env"
+    $envDir = Join-Path $installDir ".env"
     New-Item -ItemType Directory -Force -Path $envDir | Out-Null
     
     # Create config.json with HTTPS enabled
@@ -565,7 +669,7 @@ function Enable-Autostart {
     }
     
     # Ensure config directory exists
-    $envDir = Join-Path $InstallDir ".env"
+    $envDir = Join-Path $installDir ".env"
     if (-not (Test-Path $envDir)) {
         New-Item -ItemType Directory -Force -Path $envDir | Out-Null
     }
@@ -573,17 +677,17 @@ function Enable-Autostart {
     # Create a VBS wrapper script to run sshift without a visible window.
     # Task Scheduler running node.exe directly shows a console window; wscript
     # with Run(...,0) launches it completely hidden.
-    $vbsPath = Join-Path $InstallDir "sshift-launcher.vbs"
+    $vbsPath = Join-Path $installDir "sshift-launcher.vbs"
     $vbsContent = @"
 Set WshShell = CreateObject("WScript.Shell")
-WshShell.CurrentDirectory = "$InstallDir"
+WshShell.CurrentDirectory = "$installDir"
 WshShell.Run """$nodeExe"" ""$sshiftScript""", 0, False
 "@
     Set-Content -Path $vbsPath -Value $vbsContent -Encoding ASCII
     
     # Create task action using wscript to run the VBS launcher (no console window)
     $wscriptExe = Join-Path $env:SystemRoot "System32\wscript.exe"
-    $action = New-ScheduledTaskAction -Execute $wscriptExe -Argument "//B `"$vbsPath`"" -WorkingDirectory $InstallDir
+    $action = New-ScheduledTaskAction -Execute $wscriptExe -Argument "//B `"$vbsPath`"" -WorkingDirectory $installDir
     
     # Create task trigger (at logon)
     $trigger = New-ScheduledTaskTrigger -AtLogon
@@ -606,7 +710,7 @@ function Remove-Autostart {
     Unregister-ScheduledTask -TaskName $ServiceName -Confirm:$false -ErrorAction SilentlyContinue
     
     # Remove VBS launcher script
-    $vbsPath = Join-Path $InstallDir "sshift-launcher.vbs"
+    $vbsPath = Join-Path $installDir "sshift-launcher.vbs"
     if (Test-Path $vbsPath) {
         Remove-Item -Path $vbsPath -Force -ErrorAction SilentlyContinue
     }
@@ -637,7 +741,7 @@ function Get-LANIP {
 function Get-EffectivePort {
     $port = if ($ServerPort -ne "") { $ServerPort } else { "8022" }
     if ($ServerPort -eq "") {
-        $configFile = Join-Path $InstallDir ".env\config.json"
+        $configFile = Join-Path $installDir ".env\config.json"
         if (Test-Path $configFile) {
             try {
                 $config = Get-Content $configFile -Raw | ConvertFrom-Json
@@ -654,11 +758,11 @@ function Get-EffectivePort {
 
 # Print installation summary
 function Show-Summary {
-    $port = Get-EffectivePort
+    $effectivePort = Get-EffectivePort
     $lanIP = Get-LANIP
     $version = Get-InstalledVersion
     $sshiftPath = (Get-Command -Name "sshift" -ErrorAction SilentlyContinue).Source
-    $configPath = Join-Path $InstallDir ".env\config.json"
+    $configPath = Join-Path $installDir ".env\config.json"
     
     Write-Host ""
     Write-Host "==========================================" -ForegroundColor White
@@ -668,11 +772,11 @@ function Show-Summary {
     Write-Host "  Version:       $version" -ForegroundColor Cyan
     Write-Host "  Installed:     $sshiftPath" -ForegroundColor Cyan
     Write-Host "  Config:        $configPath" -ForegroundColor Cyan
-    Write-Host "  Data dir:      $InstallDir" -ForegroundColor Cyan
+    Write-Host "  Data dir:      $installDir" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "  Access sshift at:" -ForegroundColor Green
-    Write-Host "    https://localhost:$port" -ForegroundColor White
-    Write-Host "    https://${lanIP}:$port" -ForegroundColor White
+    Write-Host "    https://localhost:$effectivePort" -ForegroundColor White
+    Write-Host "    https://${lanIP}:$effectivePort" -ForegroundColor White
     Write-Host ""
     Write-Host "  Commands:" -ForegroundColor Cyan
     Write-Host "    sshift              Start server"
@@ -700,7 +804,7 @@ function Uninstall-Sshift {
     
     Write-Info "This will remove:"
     Write-Host "  - sshift npm package"
-    Write-Host "  - Configuration files in $InstallDir"
+    Write-Host "  - Configuration files in $installDir"
     Write-Host "  - Autostart configuration (if any)"
     Write-Host "  - PATH configuration"
     Write-Host ""
@@ -717,7 +821,14 @@ function Uninstall-Sshift {
     if (Test-IsRunning) {
         Write-Info "Stopping running instance..."
         Stop-App
+    } else {
+        # Check for orphaned sshift node processes
+        Stop-AllSshiftProcesses
     }
+    
+    # Give extra time for file handles to be released
+    Write-Info "Waiting for file handles to be released..."
+    Start-Sleep -Seconds 3
     
     # Remove autostart
     Write-Info "Removing autostart configuration..."
@@ -729,12 +840,23 @@ function Uninstall-Sshift {
     
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "npm uninstall failed. If you see permission errors, try running PowerShell as Administrator"
+        
+        # Retry once after a longer wait if it failed (file may still be locked)
+        Write-Info "Retrying uninstall after waiting for file handles to be released..."
+        Start-Sleep -Seconds 5
+        npm uninstall -g @lethevimlet/sshift
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Uninstall still failed. You may need to close any applications using sshift and try again"
+        } else {
+            Write-Success "sshift uninstalled successfully on retry"
+        }
     }
     
     # Remove installation directory
-    if (Test-Path $InstallDir) {
+    if (Test-Path $installDir) {
         Write-Info "Removing configuration directory..."
-        Remove-Item -Path $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path $installDir -Recurse -Force -ErrorAction SilentlyContinue
         Write-Success "Configuration directory removed"
     }
     
@@ -766,7 +888,7 @@ function Test-Updates {
     
     if ($result -eq 1) {
         Write-Warning "New version available: $remoteVersion (current: $localVersion)"
-        return $false  # Update available
+        return $false
     } elseif ($result -eq 2) {
         Write-Info "Local version is newer than remote (development version?)"
         return $true
@@ -798,7 +920,7 @@ function Main {
     }
     
     # Handle uninstall
-    if ($Uninstall) {
+    if ($uninstall) {
         Uninstall-Sshift
         Write-Host ""
         Write-Host "Press any key to exit..."
@@ -807,7 +929,7 @@ function Main {
     }
     
     # Handle status check
-    if ($Status) {
+    if ($status) {
         if (Test-IsRunning) {
             $pid = Get-Content $PidFile
             Write-Success "sshift is running (PID: $pid)"
@@ -821,7 +943,7 @@ function Main {
     }
     
     # Handle stop
-    if ($Stop) {
+    if ($stop) {
         Stop-App
         Write-Host ""
         Write-Host "Press any key to exit..."
@@ -830,7 +952,7 @@ function Main {
     }
     
     # Handle restart
-    if ($Restart) {
+    if ($restart) {
         Write-Info "Restarting sshift..."
         Stop-App
         Start-App
@@ -841,7 +963,7 @@ function Main {
     }
     
     # Handle start
-    if ($Start) {
+    if ($start) {
         Start-App
         Write-Host ""
         Write-Host "Press any key to exit..."
@@ -850,7 +972,7 @@ function Main {
     }
     
     # Handle update-only mode
-    if ($Update) {
+    if ($update) {
         # Check if installed
         if (-not (Command-Exists "sshift")) {
             Write-Error "sshift is not installed"
@@ -862,7 +984,6 @@ function Main {
         Write-Host "=========================================="
         Write-Host ""
         
-        Write-Info "Updating sshift..."
         Update-Sshift
         
         Show-Summary

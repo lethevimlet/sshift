@@ -3,7 +3,7 @@
 # Installs Node.js (if not present) and installs sshift via npm
 # Checks for updates and restarts the app if needed
 #
-# Usage: ./install.sh [OPTIONS]
+# Usage: ./sshift-install.sh [OPTIONS]
 #   --install-dir DIR   Installation directory (default: ~/.local/share/sshift)
 #   --port PORT         Server port (default: 8022)
 #   --start             Start sshift after installation/update
@@ -71,7 +71,7 @@ show_help() {
     cat << EOF
 sshift Installation Script for Linux/macOS
 
-Usage: ./install.sh [OPTIONS]
+Usage: ./sshift-install.sh [OPTIONS]
 
 Options:
   --install-dir DIR   Installation directory (default: ~/.local/share/sshift)
@@ -85,19 +85,19 @@ Options:
   --help              Show this help message
 
 Examples:
-  ./install.sh                              # Install with defaults
-  ./install.sh --port 8080                  # Install with custom port
-  ./install.sh --install-dir /opt/sshift    # Install to custom directory
-  ./install.sh --update                     # Update existing installation
-  ./install.sh --start                      # Start sshift
-  ./install.sh --stop                       # Stop sshift
-  ./install.sh --restart                    # Restart sshift
-  ./install.sh --status                     # Check status
-  ./install.sh --uninstall                  # Remove sshift
+  ./sshift-install.sh                              # Install with defaults
+  ./sshift-install.sh --port 8080                   # Install with custom port
+  ./sshift-install.sh --install-dir /opt/sshift     # Install to custom directory
+  ./sshift-install.sh --update                      # Update existing installation
+  ./sshift-install.sh --start                       # Start sshift
+  ./sshift-install.sh --stop                        # Stop sshift
+  ./sshift-install.sh --restart                     # Restart sshift
+  ./sshift-install.sh --status                      # Check status
+  ./sshift-install.sh --uninstall                   # Remove sshift
 
 One-liner installation:
-  curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/install.sh | bash
-  wget -qO- https://raw.githubusercontent.com/lethevimlet/sshift/main/install.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/sshift-install.sh | bash
+  wget -qO- https://raw.githubusercontent.com/lethevimlet/sshift/main/sshift-install.sh | bash
 EOF
     exit 0
 }

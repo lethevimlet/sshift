@@ -40,7 +40,7 @@ This project uses a `.agents` directory for all AI-generated documentation files
 
 The project includes installation scripts for easy setup:
 
-### install.sh (Linux/macOS)
+### sshift-install.sh (Linux/macOS)
 - Installs Node.js 20+ and npm if not present
 - Installs sshift globally via npm (`npm install -g @lethevimlet/sshift`)
 - Creates config at `~/.local/share/sshift/.env/config.json` (also writes to npm package dir for compatibility)
@@ -49,13 +49,13 @@ The project includes installation scripts for easy setup:
 - Prints summary with install path and clickable HTTPS links (localhost + LAN IP)
 - Supports arguments: `--install-dir DIR`, `--port PORT`, `--start`, `--stop`, `--restart`, `--status`, `--update`, `--uninstall`
 
-### install.ps1 (Windows)
+### sshift-install.ps1 (Windows)
 - Installs Node.js 20+ if not present
 - Installs sshift via npm
 - Creates config at `~/.local/share/sshift/.env/config.json` (also writes to npm package dir for compatibility)
 - Auto-starts sshift after installation
 - Prints summary with install path and clickable HTTPS links (localhost + LAN IP)
-- Supports arguments: `-InstallDir DIR`, `-Port PORT`, `-Start`, `-Stop`, `-Restart`, `-Status`, `-Update`, `-Uninstall`, `-Help`
+- Supports arguments: `-installDir DIR`, `-port PORT`, `-start`, `-stop`, `-restart`, `-status`, `-update`, `-uninstall`, `-help`
 
 ### sshift (Executable)
 - Node.js executable with hashbang (`#!/usr/bin/env node`)
@@ -77,8 +77,8 @@ The project includes installation scripts for easy setup:
 
 ```bash
 # Linux/macOS
-curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/sshift-install.sh | bash
 
 # Windows (PowerShell)
-Invoke-Expression (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/lethevimlet/sshift/main/install.ps1" -UseBasicParsing).Content
+Invoke-Expression (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/lethevimlet/sshift/main/sshift-install.ps1" -UseBasicParsing).Content
 ```

@@ -56,14 +56,14 @@ The recommended way to install sshift - automatically handles updates and autost
 
 **Linux/macOS:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/sshift-install.sh | bash
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
 Set-ExecutionPolicy Bypass -Scope Process
-Invoke-Expression (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/lethevimlet/sshift/main/install.ps1" -UseBasicParsing).Content
+Invoke-Expression (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/lethevimlet/sshift/main/sshift-install.ps1" -UseBasicParsing).Content
 ```
 
 > **Note:** The Windows installer requires PowerShell to be run as Administrator for npm global installations.

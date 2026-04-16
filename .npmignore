@@ -34,10 +34,8 @@ Thumbs.db
 server.log
 
 # Installation scripts (not needed for npm package)
-install.sh
-install.ps1
-install-npm.sh
-install-npm.ps1
+sshift-install.sh
+sshift-install.ps1
 
 # Documentation and agent files
 .agents/

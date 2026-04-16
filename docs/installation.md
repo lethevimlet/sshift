@@ -17,20 +17,20 @@ The recommended way to install sshift - automatically handles updates and autost
 ### Linux / macOS
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/sshift-install.sh | bash
 ```
 
 Or with wget:
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/lethevimlet/sshift/main/install.sh | bash
+wget -qO- https://raw.githubusercontent.com/lethevimlet/sshift/main/sshift-install.sh | bash
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
 Set-ExecutionPolicy Bypass -Scope Process
-Invoke-Expression (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/lethevimlet/sshift/main/install.ps1" -UseBasicParsing).Content
+Invoke-Expression (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/lethevimlet/sshift/main/sshift-install.ps1" -UseBasicParsing).Content
 ```
 
 ### What the Installer Does
@@ -50,21 +50,21 @@ You can customize the installation with command-line arguments:
 
 ```bash
 # Install with custom port
-curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/install.sh | bash -s -- --port 8080
+curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/sshift-install.sh | bash -s -- --port 8080
 
 # Show help
-./install.sh --help
+./sshift-install.sh --help
 ```
 
 #### Windows (PowerShell)
 
 ```powershell
 # Install with custom port
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/lethevimlet/sshift/main/install.ps1" -OutFile "install.ps1"
-.\install.ps1 -Port 8080
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/lethevimlet/sshift/main/sshift-install.ps1" -OutFile "sshift-install.ps1"
+.\sshift-install.ps1 -port 8080
 
 # Show help
-.\install.ps1 -Help
+.\sshift-install.ps1 -help
 ```
 
 ## Docker
