@@ -858,13 +858,16 @@ main() {
         add_to_path
     fi
 
+    local autostart_configured=false
     prompt_user "Start sshift automatically on login? [y/N] " "n"
     if [[ $PROMPT_RESPONSE =~ ^[Yy]$ ]]; then
         setup_autostart
+        autostart_configured=true
     fi
 
     # Start sshift if not already running
-    if ! is_running; then
+    # Skip if autostart was configured — launchd/systemd already started it
+    if ! $autostart_configured && ! is_running; then
         start_app
     fi
 
