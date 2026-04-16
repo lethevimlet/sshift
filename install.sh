@@ -404,12 +404,44 @@ EOF
 
 add_to_path() {
     local sshift_bin_path=$(which sshift 2>/dev/null)
+
+    # Check if sshift command is already accessible
     if [ -n "$sshift_bin_path" ]; then
         local bin_dir=$(dirname "$sshift_bin_path")
+        # The command works - check if its directory is in PATH
         if echo "$PATH" | grep -q "$bin_dir"; then
-            info "$bin_dir is already in PATH"
+            success "sshift command available at $sshift_bin_path"
             return
         fi
+        # Command works but dir not in PATH (unlikely but handle it)
+        success "sshift command available at $sshift_bin_path"
+        return
+    fi
+
+    # sshift not found in PATH - need to add its bin directory
+    # Determine the npm global bin directory
+    local npm_bin_dir=$(npm config get prefix 2>/dev/null)/bin
+    if [ ! -d "$npm_bin_dir" ]; then
+        # Some npm setups use prefix directly as the bin dir
+        local npm_prefix=$(npm config get prefix 2>/dev/null)
+        if [ -f "$npm_prefix/sshift" ]; then
+            npm_bin_dir="$npm_prefix"
+        fi
+    fi
+
+    # Fall back to common locations
+    if [ -z "$npm_bin_dir" ] || [ ! -d "$npm_bin_dir" ]; then
+        for candidate in "/usr/local/bin" "/usr/bin" "$HOME/.local/bin" "$HOME/.npm-global/bin"; do
+            if [ -f "$candidate/sshift" ]; then
+                npm_bin_dir="$candidate"
+                break
+            fi
+        done
+    fi
+
+    if [ -z "$npm_bin_dir" ]; then
+        warn "Could not determine sshift binary location. You may need to add it to PATH manually."
+        return
     fi
 
     local shell_rc=""
@@ -421,19 +453,12 @@ add_to_path() {
         shell_rc="$HOME/.profile"
     fi
 
-    if [ -n "$sshift_bin_path" ]; then
-        local bin_dir=$(dirname "$sshift_bin_path")
-        if [ -d "$bin_dir" ] && ! echo "$PATH" | grep -q "$bin_dir"; then
-            if ! grep -q "$bin_dir" "$shell_rc" 2>/dev/null; then
-                echo "" >> "$shell_rc"
-                echo "# sshift" >> "$shell_rc"
-                echo "export PATH=\"$bin_dir:\$PATH\"" >> "$shell_rc"
-                success "Added $bin_dir to PATH in $shell_rc"
-                info "You may need to restart your terminal or run: source $shell_rc"
-            fi
-        else
-            info "$bin_dir is already in PATH"
-        fi
+    if ! grep -q "$npm_bin_dir" "$shell_rc" 2>/dev/null; then
+        echo "" >> "$shell_rc"
+        echo "# sshift" >> "$shell_rc"
+        echo "export PATH=\"$npm_bin_dir:\$PATH\"" >> "$shell_rc"
+        success "Added $npm_bin_dir to PATH in $shell_rc"
+        info "Run: source $shell_rc  (or restart your terminal)"
     fi
 }
 
