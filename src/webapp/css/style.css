@@ -2508,6 +2508,77 @@ body.dragging-tabs .tabs-container {
   resize: vertical;
 }
 
+.private-key-upload {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.key-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  white-space: nowrap;
+}
+
+.key-upload-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-light);
+}
+
+.key-upload-btn i {
+  font-size: 11px;
+}
+
+.key-clear-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  font-size: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.key-clear-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-light);
+}
+
+.key-format-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  background: var(--accent-primary);
+  color: #fff;
+  white-space: nowrap;
+}
+
+.key-format-badge.format-warning {
+  background: #e67e22;
+}
+
+.key-format-badge.format-error {
+  background: #e74c3c;
+}
+
 .form-row {
   display: flex;
   gap: 12px;

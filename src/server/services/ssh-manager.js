@@ -76,14 +76,13 @@ class SSHManager {
         config.password = options.password;
         console.log('[SSH] Using password authentication');
       } else if (options.privateKey && options.privateKey.length > 0) {
-        // Handle private key - can be string or buffer
+        // Handle private key - supports OpenSSH, PEM, PKCS8, and base64-encoded formats
         try {
-          // If it's a base64 encoded key, decode it
           if (options.privateKey.includes('BEGIN')) {
             config.privateKey = options.privateKey;
           } else {
-            // Try to decode base64
-            config.privateKey = Buffer.from(options.privateKey, 'base64').toString('utf8');
+            const decoded = Buffer.from(options.privateKey, 'base64').toString('utf8');
+            config.privateKey = decoded;
           }
         } catch (e) {
           config.privateKey = options.privateKey;

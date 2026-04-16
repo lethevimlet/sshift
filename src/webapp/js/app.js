@@ -3608,6 +3608,28 @@ class SSHIFTClient {
       this.togglePasswordVisibility();
     });
 
+    // Private key upload - connection modal
+    document.getElementById('connKeyUploadBtn').addEventListener('click', () => {
+      document.getElementById('connKeyFileInput').click();
+    });
+    document.getElementById('connKeyFileInput').addEventListener('change', (e) => {
+      this.handleKeyFileUpload(e, 'connPrivateKey', 'connKeyFormatBadge', 'connKeyClearBtn');
+    });
+    document.getElementById('connKeyClearBtn').addEventListener('click', () => {
+      this.clearKeyField('connPrivateKey', 'connKeyFormatBadge', 'connKeyClearBtn');
+    });
+
+    // Private key upload - bookmark modal
+    document.getElementById('bookmarkKeyUploadBtn').addEventListener('click', () => {
+      document.getElementById('bookmarkKeyFileInput').click();
+    });
+    document.getElementById('bookmarkKeyFileInput').addEventListener('change', (e) => {
+      this.handleKeyFileUpload(e, 'bookmarkPrivateKey', 'bookmarkKeyFormatBadge', 'bookmarkKeyClearBtn');
+    });
+    document.getElementById('bookmarkKeyClearBtn').addEventListener('click', () => {
+      this.clearKeyField('bookmarkPrivateKey', 'bookmarkKeyFormatBadge', 'bookmarkKeyClearBtn');
+    });
+
     // Bookmark modal
     document.getElementById('addBookmarkBtn').addEventListener('click', () => {
       this.openBookmarkModal();
@@ -4619,7 +4641,197 @@ class SSHIFTClient {
       type === 'ssh' ? 'New SSH Connection' : 'New SFTP Connection';
     document.getElementById('connectionForm').reset();
     document.getElementById('connPort').value = '22';
+    this.clearKeyField('connPrivateKey', 'connKeyFormatBadge', 'connKeyClearBtn');
     this.openModal('connectionModal');
+  }
+
+  async handleKeyFileUpload(event, textareaId, badgeId, clearBtnId) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const badge = document.getElementById(badgeId);
+    const clearBtn = document.getElementById(clearBtnId);
+    const textarea = document.getElementById(textareaId);
+
+    badge.style.display = 'inline-flex';
+    badge.textContent = 'Reading...';
+    badge.className = 'key-format-badge';
+
+    try {
+      const content = await file.text();
+      if (!content || !content.trim()) {
+        badge.textContent = 'Empty file';
+        badge.classList.add('format-error');
+        badge.style.display = 'inline-flex';
+        return;
+      }
+
+      const detectResult = await this.detectAndConvertKey(content);
+      if (detectResult.error) {
+        badge.textContent = detectResult.format || 'Error';
+        badge.classList.add('format-error');
+        badge.style.display = 'inline-flex';
+        textarea.value = content;
+        clearBtn.style.display = 'inline-flex';
+        this.showToast(detectResult.error, 'error');
+        return;
+      }
+
+      textarea.value = detectResult.key;
+
+      let formatLabel = detectResult.format;
+      if (detectResult.wasConverted) {
+        formatLabel = `PPK → OpenSSH`;
+      } else if (detectResult.format === 'openssh') {
+        formatLabel = 'OpenSSH';
+      } else if (detectResult.format === 'pem-rsa') {
+        formatLabel = 'PEM (RSA)';
+      } else if (detectResult.format === 'pem-ec') {
+        formatLabel = 'PEM (EC)';
+      } else if (detectResult.format === 'pem-dsa') {
+        formatLabel = 'PEM (DSA)';
+      } else if (detectResult.format === 'pkcs8') {
+        formatLabel = 'PKCS8';
+      } else if (detectResult.format === 'pkcs8-encrypted') {
+        formatLabel = 'PKCS8 (Encrypted)';
+      }
+
+      badge.textContent = formatLabel;
+      badge.className = 'key-format-badge';
+      if (detectResult.encrypted) {
+        badge.classList.add('format-warning');
+      }
+      badge.style.display = 'inline-flex';
+      clearBtn.style.display = 'inline-flex';
+
+      if (detectResult.wasConverted) {
+        this.showToast('PPK key converted to OpenSSH format', 'success');
+      } else if (detectResult.format === 'openssh') {
+        this.showToast('OpenSSH key loaded', 'success');
+      } else if (detectResult.format === 'pem-rsa' || detectResult.format === 'pem-ec' || detectResult.format === 'pem-dsa') {
+        this.showToast('PEM key loaded', 'success');
+      } else if (detectResult.format === 'pkcs8') {
+        this.showToast('PKCS8 key loaded', 'success');
+      } else if (detectResult.format === 'pkcs8-encrypted') {
+        this.showToast('Encrypted PKCS8 key loaded - passphrase required', 'info');
+      }
+    } catch (err) {
+      badge.textContent = 'Error';
+      badge.classList.add('format-error');
+      badge.style.display = 'inline-flex';
+      this.showToast('Failed to read key file: ' + err.message, 'error');
+    }
+
+    event.target.value = '';
+  }
+
+  async detectAndConvertKey(content) {
+    try {
+      const response = await fetch('/api/utils/detect-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content })
+      });
+
+      if (!response.ok) {
+        return { format: 'unknown', key: content, error: 'Failed to detect key format' };
+      }
+
+      const info = await response.json();
+
+      if (info.format === 'ppk') {
+        try {
+          const convertResponse = await fetch('/api/utils/convert-key', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content })
+          });
+
+          if (!convertResponse.ok) {
+            const errData = await convertResponse.json().catch(() => ({}));
+            return {
+              format: 'PPK',
+              key: content,
+              encrypted: info.encrypted,
+              wasConverted: false,
+              error: errData.error || 'Failed to convert PPK key. Try converting with PuTTYgen first.'
+            };
+          }
+
+          const result = await convertResponse.json();
+          return {
+            format: 'openssh',
+            key: result.key,
+            encrypted: false,
+            wasConverted: true
+          };
+        } catch (e) {
+          return {
+            format: 'PPK',
+            key: content,
+            encrypted: info.encrypted,
+            wasConverted: false,
+            error: 'Network error converting PPK key: ' + e.message
+          };
+        }
+      }
+
+      if (info.format === 'unknown') {
+        if (content.includes('BEGIN')) {
+          return { format: 'unknown', key: content, error: 'Unrecognized key format. The SSH library (ssh2) supports OpenSSH, PEM, and PKCS8 formats.' };
+        }
+        return { format: 'unknown', key: content, error: 'Unrecognized key format. Please upload a valid SSH private key file.' };
+      }
+
+      if (info.format === 'pkcs8-encrypted') {
+        return {
+          format: info.format,
+          key: content,
+          encrypted: true
+        };
+      }
+
+      return {
+        format: info.format,
+        key: content,
+        encrypted: info.encrypted || false
+      };
+    } catch (e) {
+      if (content.includes('PuTTY-user-key-file')) {
+        return {
+          format: 'PPK',
+          key: content,
+          encrypted: content.includes('Encryption:') && !content.includes('Encryption: none'),
+          wasConverted: false,
+          error: 'Cannot convert PPK offline. Please try again when connected to the server, or convert using PuTTYgen.'
+        };
+      }
+      return {
+        format: this.detectKeyFormatOffline(content),
+        key: content,
+        encrypted: content.includes('ENCRYPTED') || (content.includes('Encryption:') && !content.includes('Encryption: none'))
+      };
+    }
+  }
+
+  detectKeyFormatOffline(content) {
+    if (content.includes('BEGIN OPENSSH PRIVATE KEY')) return 'openssh';
+    if (content.includes('BEGIN RSA PRIVATE KEY')) return 'pem-rsa';
+    if (content.includes('BEGIN EC PRIVATE KEY')) return 'pem-ec';
+    if (content.includes('BEGIN DSA PRIVATE KEY')) return 'pem-dsa';
+    if (content.includes('BEGIN PRIVATE KEY')) return 'pkcs8';
+    if (content.includes('BEGIN ENCRYPTED PRIVATE KEY')) return 'pkcs8-encrypted';
+    if (content.includes('PuTTY-user-key-file')) return 'ppk';
+    return 'unknown';
+  }
+
+  clearKeyField(textareaId, badgeId, clearBtnId) {
+    document.getElementById(textareaId).value = '';
+    const badge = document.getElementById(badgeId);
+    badge.style.display = 'none';
+    badge.textContent = '';
+    badge.className = 'key-format-badge';
+    document.getElementById(clearBtnId).style.display = 'none';
   }
 
   togglePasswordVisibility() {
@@ -4681,13 +4893,11 @@ class SSHIFTClient {
 
     // Save bookmark if requested
     if (saveBookmark) {
-      this.addBookmark({
-        name,
-        host,
-        port,
-        username,
-        type
-      });
+      const bookmarkData = { name, host, port, username, type };
+      if (password) bookmarkData.password = password;
+      if (privateKey) bookmarkData.privateKey = privateKey;
+      if (passphrase) bookmarkData.passphrase = passphrase;
+      this.addBookmark(bookmarkData);
     }
 
     // Show connecting status
@@ -7753,6 +7963,7 @@ class SSHIFTClient {
 
   openBookmarkModal(bookmark = null, folderId = null) {
     document.getElementById('bookmarkForm').reset();
+    this.clearKeyField('bookmarkPrivateKey', 'bookmarkKeyFormatBadge', 'bookmarkKeyClearBtn');
     
     // Populate folder dropdown
     const folderSelect = document.getElementById('bookmarkFolder');
@@ -7781,6 +7992,23 @@ class SSHIFTClient {
         document.getElementById('bookmarkPassword').value = bookmark.password || '';
         document.getElementById('bookmarkPrivateKey').value = bookmark.privateKey || '';
         document.getElementById('bookmarkPassphrase').value = bookmark.passphrase || '';
+        if (bookmark.privateKey) {
+          const fmt = this.detectKeyFormatOffline(bookmark.privateKey);
+          const badge = document.getElementById('bookmarkKeyFormatBadge');
+          const clearBtn = document.getElementById('bookmarkKeyClearBtn');
+          const formatLabels = {
+            'openssh': 'OpenSSH', 'pem-rsa': 'PEM (RSA)', 'pem-ec': 'PEM (EC)',
+            'pem-dsa': 'PEM (DSA)', 'pkcs8': 'PKCS8', 'pkcs8-encrypted': 'PKCS8 (Encrypted)',
+            'ppk': 'PPK'
+          };
+          badge.textContent = formatLabels[fmt] || fmt;
+          badge.className = 'key-format-badge';
+          if (bookmark.privateKey.includes('ENCRYPTED') || fmt === 'pkcs8-encrypted') {
+            badge.classList.add('format-warning');
+          }
+          badge.style.display = 'inline-flex';
+          clearBtn.style.display = 'inline-flex';
+        }
       }
     } else {
       document.getElementById('bookmarkModalTitle').textContent = 'Add Bookmark';

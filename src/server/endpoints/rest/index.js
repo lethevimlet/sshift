@@ -8,6 +8,7 @@ const { registerConfigEndpoints } = require('./config');
 const { registerFolderEndpoints } = require('./folders');
 const { registerSessionsEndpoints } = require('./sessions');
 const { registerSystemEndpoints } = require('./system');
+const { registerUtilsEndpoints } = require('./utils');
 
 /**
  * Register all REST endpoints
@@ -20,6 +21,7 @@ function registerAllRestEndpoints(app, io) {
   registerFolderEndpoints(app, io);
   registerSessionsEndpoints(app, io);
   registerSystemEndpoints(app, io);
+  registerUtilsEndpoints(app, io);
 }
 
 module.exports = {
@@ -28,5 +30,6 @@ module.exports = {
   registerFolderEndpoints,
   registerSessionsEndpoints,
   registerSystemEndpoints,
+  registerUtilsEndpoints,
   registerAllRestEndpoints
 };

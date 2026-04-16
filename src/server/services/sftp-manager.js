@@ -28,11 +28,13 @@ class SFTPManager {
         config.password = options.password;
         console.log('[SFTP] Using password authentication');
       } else if (options.privateKey && options.privateKey.length > 0) {
+        // Handle private key - supports OpenSSH, PEM, PKCS8, and base64-encoded formats
         try {
           if (options.privateKey.includes('BEGIN')) {
             config.privateKey = options.privateKey;
           } else {
-            config.privateKey = Buffer.from(options.privateKey, 'base64').toString('utf8');
+            const decoded = Buffer.from(options.privateKey, 'base64').toString('utf8');
+            config.privateKey = decoded;
           }
         } catch (e) {
           config.privateKey = options.privateKey;

@@ -357,7 +357,17 @@
           </div>
           <div class="form-group">
             <label for="connPrivateKey">Private Key (optional)</label>
-            <textarea id="connPrivateKey" rows="4" placeholder="Paste your private key here..."></textarea>
+            <div class="private-key-upload">
+              <button type="button" class="btn btn-sm key-upload-btn" id="connKeyUploadBtn" title="Upload key file">
+                <i class="fas fa-upload"></i> Upload File
+              </button>
+              <input type="file" id="connKeyFileInput" accept=".pem,.key,.ppk,.pub,.priv,.id_rsa,.id_ed25519,.id_ecdsa,.id_dsa" style="display:none">
+              <span class="key-format-badge" id="connKeyFormatBadge" style="display:none"></span>
+              <button type="button" class="btn btn-sm key-clear-btn" id="connKeyClearBtn" style="display:none" title="Clear key">
+                <i class="fas fa-times"></i>
+              </button>
+            </div>
+            <textarea id="connPrivateKey" rows="4" placeholder="Paste your private key or upload a file (supports OpenSSH, PEM, PPK, PKCS8)..."></textarea>
           </div>
           <div class="form-group">
             <label for="connPassphrase">Key Passphrase (optional)</label>
@@ -436,7 +446,17 @@
             </div>
             <div class="form-group">
               <label for="bookmarkPrivateKey">Private Key (optional)</label>
-              <textarea id="bookmarkPrivateKey" rows="4" placeholder="Paste your private key here..."></textarea>
+              <div class="private-key-upload">
+                <button type="button" class="btn btn-sm key-upload-btn" id="bookmarkKeyUploadBtn" title="Upload key file">
+                  <i class="fas fa-upload"></i> Upload File
+                </button>
+                <input type="file" id="bookmarkKeyFileInput" accept=".pem,.key,.ppk,.pub,.priv,.id_rsa,.id_ed25519,.id_ecdsa,.id_dsa" style="display:none">
+                <span class="key-format-badge" id="bookmarkKeyFormatBadge" style="display:none"></span>
+                <button type="button" class="btn btn-sm key-clear-btn" id="bookmarkKeyClearBtn" style="display:none" title="Clear key">
+                  <i class="fas fa-times"></i>
+                </button>
+              </div>
+              <textarea id="bookmarkPrivateKey" rows="4" placeholder="Paste your private key or upload a file (supports OpenSSH, PEM, PPK, PKCS8)..."></textarea>
             </div>
             <div class="form-group">
               <label for="bookmarkPassphrase">Key Passphrase (optional)</label>
