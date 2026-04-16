@@ -385,19 +385,32 @@ create_config() {
     mkdir -p "$INSTALL_DIR/.env"
 
     local port="${SERVER_PORT:-8022}"
-    cat > "$INSTALL_DIR/.env/config.json" << EOF
-{
-  "port": $port,
-  "devPort": 3000,
-  "bind": "0.0.0.0",
-  "enableHttps": true,
-  "sticky": true,
-  "sshKeepaliveInterval": 15000,
-  "sshKeepaliveCountMax": 500,
-  "bookmarks": [],
-  "folders": []
-}
-EOF
+    local config_content="{
+  \"port\": $port,
+  \"devPort\": 3000,
+  \"bind\": \"0.0.0.0\",
+  \"enableHttps\": true,
+  \"sticky\": true,
+  \"sshKeepaliveInterval\": 15000,
+  \"sshKeepaliveCountMax\": 500,
+  \"bookmarks\": [],
+  \"folders\": []
+}"
+
+    # Write config to user install directory (preferred by updated config loader)
+    echo "$config_content" > "$INSTALL_DIR/.env/config.json"
+
+    # Also write config to the npm package directory so the older config loader finds it
+    local sshift_bin_path=$(which sshift 2>/dev/null)
+    if [ -n "$sshift_bin_path" ]; then
+        local real_path=$(readlink -f "$sshift_bin_path" 2>/dev/null || echo "$sshift_bin_path")
+        local pkg_dir=$(dirname "$real_path")
+        if [ -d "$pkg_dir" ]; then
+            mkdir -p "$pkg_dir/.env"
+            echo "$config_content" > "$pkg_dir/.env/config.json"
+            echo "$config_content" > "$pkg_dir/config.json"
+        fi
+    fi
 
     success "Configuration created with HTTPS enabled on port $port"
 }
@@ -780,6 +793,11 @@ main() {
     prompt_user "Start sshift automatically on login? [y/N] " "n"
     if [[ $PROMPT_RESPONSE =~ ^[Yy]$ ]]; then
         setup_autostart
+    fi
+
+    # Start sshift if not already running
+    if ! is_running; then
+        start_app
     fi
 
     print_summary
