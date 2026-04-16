@@ -4234,8 +4234,8 @@ body.dragging-tabs .tabs-container {
 /* Mobile selection handles - draggable anchors */
 .mobile-selection-handle {
   position: absolute;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   z-index: 100;
   cursor: pointer;
   touch-action: none;
@@ -4243,7 +4243,7 @@ body.dragging-tabs .tabs-container {
 }
 
 .mobile-selection-handle-start {
-  transform: translate(-50%, -100%);
+  transform: translate(-50%, 0%);
 }
 
 .mobile-selection-handle-end {
@@ -4254,10 +4254,17 @@ body.dragging-tabs .tabs-container {
   width: 100%;
   height: 100%;
   background: var(--accent-primary, #c10059);
-  border-radius: 50%;
   border: 2px solid white;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-radius 0.15s ease;
+}
+
+.mobile-selection-handle-start .handle-visual {
+  border-radius: 12px 2px 12px 12px;
+}
+
+.mobile-selection-handle-end .handle-visual {
+  border-radius: 2px 12px 12px 12px;
 }
 
 .mobile-selection-handle.active .handle-visual {

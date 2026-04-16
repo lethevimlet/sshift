@@ -922,33 +922,44 @@ class MobileTerminalHandler {
    * @private
    */
   _updateSelectionOverlay(start, end) {
-    const startPos = this._terminalToScreenCoords(start.x, start.y);
-    const endPos = this._terminalToScreenCoords(end.x, end.y);
-
-    if (!startPos || !endPos) return;
+    const metrics = this._getTerminalMetrics();
+    if (!metrics) return;
 
     const startY = Math.min(start.y, end.y);
     const endY = Math.max(start.y, end.y);
 
+    const textBeginX = (start.y < end.y || (start.y === end.y && start.x <= end.x)) ? start.x : end.x;
+    const textEndX = (start.y < end.y || (start.y === end.y && start.x <= end.x)) ? end.x : start.x;
+
+    const rightEdge = metrics.offsetX + metrics.cellWidth * metrics.cols;
+
     this.selectionOverlay.innerHTML = '';
 
     for (let y = startY; y <= endY; y++) {
-      const lineStartX = (y === startY) ? Math.min(start.x, end.x) : 0;
-      const lineEndX = (y === endY) ? Math.max(start.x, end.x) : this.terminal.cols - 1;
+      const lineStartX = (y === startY) ? textBeginX : 0;
+      const lineEndX = (y === endY) ? textEndX : metrics.cols - 1;
+      const extendsToRight = (lineEndX === metrics.cols - 1);
 
       const lineStartPos = this._terminalToScreenCoords(lineStartX, y);
-      const lineEndPos = this._terminalToScreenCoords(lineEndX, y);
 
-      if (lineStartPos && lineEndPos) {
-        const rect = document.createElement('div');
-        rect.className = 'mobile-selection-rect';
-        rect.style.position = 'absolute';
-        rect.style.left = `${lineStartPos.x}px`;
-        rect.style.top = `${lineStartPos.y}px`;
-        rect.style.width = `${lineEndPos.x - lineStartPos.x + lineEndPos.width}px`;
-        rect.style.height = `${lineStartPos.height}px`;
-        this.selectionOverlay.appendChild(rect);
+      if (!lineStartPos) continue;
+
+      const rect = document.createElement('div');
+      rect.className = 'mobile-selection-rect';
+      rect.style.position = 'absolute';
+      rect.style.left = `${lineStartPos.x}px`;
+      rect.style.top = `${lineStartPos.y}px`;
+      rect.style.height = `${lineStartPos.height}px`;
+
+      if (extendsToRight) {
+        rect.style.width = `${Math.ceil(rightEdge - lineStartPos.x)}px`;
+      } else {
+        const lineEndPos = this._terminalToScreenCoords(lineEndX, y);
+        if (!lineEndPos) continue;
+        rect.style.width = `${Math.ceil(lineEndPos.x - lineStartPos.x + lineEndPos.width)}px`;
       }
+
+      this.selectionOverlay.appendChild(rect);
     }
 
     this.selectionOverlay.style.display = 'block';
@@ -962,9 +973,6 @@ class MobileTerminalHandler {
     const startPos = start.y * this.terminal.cols + start.x;
     const endPos = end.y * this.terminal.cols + end.x;
     const isInverted = startPos > endPos;
-
-    const textBegin = isInverted ? end : start;
-    const textEnd = isInverted ? start : end;
 
     const startCoords = this._terminalToScreenCoords(start.x, start.y);
     if (startCoords) {
