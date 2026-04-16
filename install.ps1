@@ -397,7 +397,7 @@ function New-Config {
     $configFile = Join-Path $envDir "config.json"
     $port = if ($ServerPort -ne "") { $ServerPort } else { "8022" }
     
-    @"
+    $configContent = @"
 {
   "port": $port,
   "devPort": 3000,
@@ -409,26 +409,68 @@ function New-Config {
   "bookmarks": [],
   "folders": []
 }
-"@ | Out-File -FilePath $configFile -Encoding ASCII
+"@
+    
+    # Write config to user install directory (preferred by updated config loader)
+    $configContent | Out-File -FilePath $configFile -Encoding ASCII
+    
+    # Also write config to the npm package directory so the older config loader finds it
+    $sshiftPath = (Get-Command -Name "sshift" -ErrorAction SilentlyContinue).Source
+    if ($sshiftPath) {
+        # sshift is typically at <npm_prefix>\sshift.cmd, package dir is <npm_prefix>\node_modules\@lethevimlet\sshift
+        $npmPrefix = npm config get prefix 2>$null
+        if ($npmPrefix) {
+            $pkgDir = Join-Path $npmPrefix "node_modules\@lethevimlet\sshift"
+            if (Test-Path $pkgDir) {
+                $pkgEnvDir = Join-Path $pkgDir ".env"
+                New-Item -ItemType Directory -Force -Path $pkgEnvDir | Out-Null
+                $configContent | Out-File -FilePath (Join-Path $pkgEnvDir "config.json") -Encoding ASCII
+                $configContent | Out-File -FilePath (Join-Path $pkgDir "config.json") -Encoding ASCII
+            }
+        }
+    }
     
     Write-Success "Configuration created with HTTPS enabled on port $port"
 }
 
 # Add to PATH
 function Add-ToPath {
-    # Check if already in PATH
-    $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
-    if ($userPath -like "*$BinDir*") {
-        Write-Info "$BinDir is already in PATH"
+    # Check if sshift command is already accessible
+    $sshiftPath = (Get-Command -Name "sshift" -ErrorAction SilentlyContinue).Source
+    
+    if ($sshiftPath) {
+        Write-Success "sshift command available at $sshiftPath"
+        
+        # Check if its directory is in user PATH
+        $sshiftDir = Split-Path $sshiftPath -Parent
+        $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+        if ($userPath -like "*$sshiftDir*") {
+            return
+        }
+        
+        # Add to user PATH if not already there
+        $newPath = "$sshiftDir;$userPath"
+        [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
+        Write-Success "Added $sshiftDir to PATH"
+        Write-Info "Restart your terminal for PATH changes to take effect"
         return
     }
     
-    # Add to user PATH
-    $newPath = "$BinDir;$userPath"
-    [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
-    
-    Write-Success "Added $BinDir to PATH"
-    Write-Info "You may need to restart your terminal for PATH changes to take effect"
+    # sshift not found - add npm global bin directory to PATH
+    $npmPrefix = npm config get prefix 2>$null
+    if ($npmPrefix) {
+        $npmBinDir = Join-Path $npmPrefix ""
+        $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+        
+        if ($userPath -notlike "*$npmBinDir*") {
+            $newPath = "$npmBinDir;$userPath"
+            [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
+            Write-Success "Added $npmBinDir to PATH"
+            Write-Info "Restart your terminal for PATH changes to take effect"
+        }
+    } else {
+        Write-Warning "Could not determine sshift binary location. You may need to add it to PATH manually."
+    }
 }
 
 # Setup autostart via Task Scheduler
@@ -471,19 +513,75 @@ function Remove-Autostart {
     Unregister-ScheduledTask -TaskName $ServiceName -Confirm:$false -ErrorAction SilentlyContinue
 }
 
+# Get LAN IP address
+function Get-LANIP {
+    try {
+        $ip = (Get-NetIPConfiguration | Where-Object {
+            $_.IPv4DefaultGateway -ne $null -and
+            $_.NetAdapter.Status -eq "Up"
+        } | Select-Object -First 1).IPv4Address.IPAddress
+        
+        if (-not $ip) {
+            $ip = (Test-Connection -ComputerName (hostname) -Count 1 -ErrorAction SilentlyContinue).IPV4Address.IPAddressToString
+        }
+        
+        if (-not $ip) {
+            $ip = "0.0.0.0"
+        }
+    } catch {
+        $ip = "0.0.0.0"
+    }
+    return $ip
+}
+
+# Get effective port from config or default
+function Get-EffectivePort {
+    $port = if ($ServerPort -ne "") { $ServerPort } else { "8022" }
+    if ($ServerPort -eq "") {
+        $configFile = Join-Path $InstallDir ".env\config.json"
+        if (Test-Path $configFile) {
+            try {
+                $config = Get-Content $configFile -Raw | ConvertFrom-Json
+                if ($config.port) {
+                    $port = $config.port
+                }
+            } catch {
+                # Use default
+            }
+        }
+    }
+    return $port
+}
+
 # Print installation summary
 function Show-Summary {
+    $port = Get-EffectivePort
+    $lanIP = Get-LANIP
+    $version = Get-InstalledVersion
+    $sshiftPath = (Get-Command -Name "sshift" -ErrorAction SilentlyContinue).Source
+    $configPath = Join-Path $InstallDir ".env\config.json"
+    
     Write-Host ""
-    Write-Host "=========================================="
-    Write-Host "sshift installed successfully!" -ForegroundColor Green
-    Write-Host "=========================================="
+    Write-Host "==========================================" -ForegroundColor White
+    Write-Host "  sshift installed successfully!" -ForegroundColor Green
+    Write-Host "==========================================" -ForegroundColor White
     Write-Host ""
-    Write-Host "Version: $(Get-InstalledVersion)"
+    Write-Host "  Version:       $version" -ForegroundColor Cyan
+    Write-Host "  Installed:     $sshiftPath" -ForegroundColor Cyan
+    Write-Host "  Config:        $configPath" -ForegroundColor Cyan
+    Write-Host "  Data dir:      $InstallDir" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "To start sshift, run:"
-    Write-Host "    sshift"
+    Write-Host "  Access sshift at:" -ForegroundColor Green
+    Write-Host "    https://localhost:$port" -ForegroundColor White
+    Write-Host "    https://$lanIP:$port" -ForegroundColor White
     Write-Host ""
-    Write-Host "You may need to restart your terminal for PATH changes to take effect"
+    Write-Host "  Commands:" -ForegroundColor Cyan
+    Write-Host "    sshift              Start server"
+    Write-Host "    sshift --stop       Stop server"
+    Write-Host "    sshift --restart    Restart server"
+    Write-Host "    sshift --status     Check status"
+    Write-Host ""
+    Write-Host "  You may need to restart your terminal for PATH changes to take effect" -ForegroundColor Yellow
     Write-Host ""
 }
 
@@ -667,6 +765,9 @@ function Main {
         
         Write-Info "Updating sshift..."
         Update-Sshift
+        
+        Show-Summary
+        
         Write-Host ""
         Write-Host "Press any key to exit..."
         $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
@@ -731,6 +832,11 @@ function Main {
     $enableAutostart = Read-Host "Start sshift automatically on login? [y/N]"
     if ($enableAutostart -match "^[Yy]$") {
         Enable-Autostart
+    }
+    
+    # Start sshift if not already running
+    if (-not (Test-IsRunning)) {
+        Start-App
     }
     
     # Print summary
