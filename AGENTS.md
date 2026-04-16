@@ -41,15 +41,16 @@ This project uses a `.agents` directory for all AI-generated documentation files
 The project includes installation scripts for easy setup:
 
 ### install.sh (Linux/macOS)
-- Installs Node.js 18+ if not present
-- Clones the repository to `~/.local/share/sshift` (or custom directory)
-- Creates executable symlink in `~/.local/bin/sshift`
+- Installs Node.js 20+ and npm if not present
+- Installs sshift globally via npm (`npm install -g @lethevimlet/sshift`)
+- Creates config at `~/.local/share/sshift/.env/config.json`
 - Configures autostart (systemd on Linux, launchd on macOS)
-- Supports arguments: `--install-dir DIR`, `--port PORT`
+- Prints summary with install path and clickable HTTPS links (localhost + LAN IP)
+- Supports arguments: `--install-dir DIR`, `--port PORT`, `--start`, `--stop`, `--restart`, `--status`, `--update`, `--uninstall`
 
 ### install.ps1 (Windows)
-- Installs Node.js 18+ if not present
-- Clones the repository to `~/.local/share/sshift` (or custom directory)
+- Installs Node.js 20+ if not present
+- Installs sshift via npm
 - Creates executable wrappers in `~/.local/bin/` (sshift.cmd and sshift.ps1)
 - Configures autostart (Task Scheduler)
 - Supports arguments: `-InstallDir DIR`, `-Port PORT`
