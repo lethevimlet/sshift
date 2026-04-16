@@ -294,36 +294,31 @@ function Start-App {
     
     # Start sshift in background using node directly
     try {
-        # Use Start-Process with node directly to avoid .cmd/.ps1 shim issues
-        # Redirect output to log files so we can diagnose failures
-        $logFile = "$InstallDir\sshift.log"
-        $errorLogFile = "$InstallDir\sshift-error.log"
-        
-        $process = Start-Process -FilePath $nodeExe -ArgumentList "`"$sshiftScript`"" -WorkingDirectory $InstallDir -WindowStyle Hidden -PassThru -RedirectStandardOutput $logFile -RedirectStandardError $errorLogFile
+        $process = Start-Process -FilePath $nodeExe -ArgumentList "`"$sshiftScript`"" -WorkingDirectory $InstallDir -WindowStyle Hidden -PassThru
         
         # Save PID
         New-Item -ItemType Directory -Force -Path (Split-Path $PidFile -Parent) | Out-Null
         $process.Id | Out-File -FilePath $PidFile -Encoding ASCII
         
-        Start-Sleep -Seconds 3
+        Start-Sleep -Seconds 4
         
         # Check if process is still running
         $running = Get-Process -Id $process.Id -ErrorAction SilentlyContinue
         if ($running) {
             $port = Get-EffectivePort
             Write-Success "sshift started (PID: $($process.Id))"
-            Write-Info "Logs: $logFile"
             Write-Info "Access: https://localhost:$port"
         } else {
+            # Process crashed - try to provide useful diagnostics
             Write-Error "sshift failed to start."
-            if (Test-Path $errorLogFile) {
-                $errorContent = Get-Content $errorLogFile -Raw -ErrorAction SilentlyContinue
-                if ($errorContent) {
-                    Write-Host ""
-                    Write-Host "Error log:" -ForegroundColor Red
-                    Write-Host $errorContent -ForegroundColor Red
-                }
-            }
+            Write-Host ""
+            Write-Host "Diagnostic information:" -ForegroundColor Yellow
+            Write-Host "  Node path: $nodeExe" -ForegroundColor Yellow
+            Write-Host "  Script path: $sshiftScript" -ForegroundColor Yellow
+            Write-Host "  Working dir: $InstallDir" -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "Try running manually to see the error:" -ForegroundColor Cyan
+            Write-Host "  node `"$sshiftScript`"" -ForegroundColor Cyan
         }
     } catch {
         Write-Error "Failed to start sshift: $_"
