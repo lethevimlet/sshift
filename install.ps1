@@ -573,7 +573,7 @@ function Show-Summary {
     Write-Host ""
     Write-Host "  Access sshift at:" -ForegroundColor Green
     Write-Host "    https://localhost:$port" -ForegroundColor White
-    Write-Host "    https://$lanIP:$port" -ForegroundColor White
+    Write-Host "    https://${lanIP}:$port" -ForegroundColor White
     Write-Host ""
     Write-Host "  Commands:" -ForegroundColor Cyan
     Write-Host "    sshift              Start server"
