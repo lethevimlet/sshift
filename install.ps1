@@ -242,44 +242,47 @@ function Start-App {
         return
     }
     
-    # Resolve the actual node script path (npm shims are .cmd files that can't be run directly)
-    $sshiftCmd = (Get-Command -Name "sshift" -ErrorAction SilentlyContinue).Source
-    if (-not $sshiftCmd) {
-        Write-Error "Could not find sshift. Make sure sshift is installed and in PATH."
-        return
-    }
-    
-    # Find the node script - npm .cmd shims wrap a .js file, find the actual entry point
+    # Find node executable
     $nodeExe = (Get-Command -Name "node" -ErrorAction SilentlyContinue).Source
     if (-not $nodeExe) {
         Write-Error "Could not find node executable."
         return
     }
     
-    # Determine the actual script to run
-    # For .cmd shims, find the real sshift script in node_modules
+    # npm creates .cmd and .ps1 shims on Windows that can't be run directly by Start-Process
+    # Always resolve the actual entry point in node_modules
     $sshiftScript = $null
-    if ($sshiftCmd -match '\.cmd$') {
-        # Find the sshift script in the npm global modules directory
-        $npmPrefix = npm config get prefix 2>$null
-        if ($npmPrefix) {
-            $candidateScripts = @(
-                (Join-Path $npmPrefix "node_modules\@lethevimlet\sshift\sshift"),
-                (Join-Path $npmPrefix "node_modules\@lethevimlet\sshift\src\server\index.js")
-            )
-            foreach ($candidate in $candidateScripts) {
-                if (Test-Path $candidate) {
-                    $sshiftScript = $candidate
-                    break
-                }
+    $npmPrefix = npm config get prefix 2>$null
+    if ($npmPrefix) {
+        $candidateScripts = @(
+            (Join-Path $npmPrefix "node_modules\@lethevimlet\sshift\sshift"),
+            (Join-Path $npmPrefix "node_modules\@lethevimlet\sshift\src\server\index.js")
+        )
+        foreach ($candidate in $candidateScripts) {
+            if (Test-Path $candidate) {
+                $sshiftScript = $candidate
+                break
             }
         }
-    } else {
-        $sshiftScript = $sshiftCmd
     }
     
     if (-not $sshiftScript) {
-        Write-Error "Could not resolve sshift script path."
+        # Fallback: try to resolve from the sshift command location
+        $sshiftCmd = (Get-Command -Name "sshift" -ErrorAction SilentlyContinue).Source
+        if ($sshiftCmd) {
+            # Walk up from shim to find the package directory
+            $shimDir = Split-Path $sshiftCmd -Parent
+            $pkgDir = Join-Path $shimDir "node_modules\@lethevimlet\sshift"
+            if (Test-Path (Join-Path $pkgDir "sshift")) {
+                $sshiftScript = Join-Path $pkgDir "sshift"
+            } elseif (Test-Path (Join-Path $pkgDir "src\server\index.js")) {
+                $sshiftScript = Join-Path $pkgDir "src\server\index.js"
+            }
+        }
+    }
+    
+    if (-not $sshiftScript) {
+        Write-Error "Could not resolve sshift script path. Make sure sshift is installed."
         return
     }
     
@@ -510,13 +513,14 @@ function Add-ToPath {
 function Enable-Autostart {
     Write-Info "Setting up autostart via Task Scheduler..."
     
-    # Resolve the node executable and script path (npm .cmd shims can't be used directly)
+    # Find node executable
     $nodeExe = (Get-Command -Name "node" -ErrorAction SilentlyContinue).Source
     if (-not $nodeExe) {
         Write-Error "Could not find node executable."
         return
     }
     
+    # Resolve the actual entry point (npm shims can't be used directly in Task Scheduler)
     $sshiftScript = $null
     $npmPrefix = npm config get prefix 2>$null
     if ($npmPrefix) {
@@ -528,6 +532,19 @@ function Enable-Autostart {
             if (Test-Path $candidate) {
                 $sshiftScript = $candidate
                 break
+            }
+        }
+    }
+    
+    if (-not $sshiftScript) {
+        $sshiftCmd = (Get-Command -Name "sshift" -ErrorAction SilentlyContinue).Source
+        if ($sshiftCmd) {
+            $shimDir = Split-Path $sshiftCmd -Parent
+            $pkgDir = Join-Path $shimDir "node_modules\@lethevimlet\sshift"
+            if (Test-Path (Join-Path $pkgDir "sshift")) {
+                $sshiftScript = Join-Path $pkgDir "sshift"
+            } elseif (Test-Path (Join-Path $pkgDir "src\server\index.js")) {
+                $sshiftScript = Join-Path $pkgDir "src\server\index.js"
             }
         }
     }
