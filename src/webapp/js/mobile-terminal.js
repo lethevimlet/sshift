@@ -140,6 +140,8 @@ class MobileTerminalHandler {
       cellHeight,
       contentLeft,
       contentTop,
+      contentWidth,
+      contentHeight,
       offsetX: contentLeft - containerRect.left,
       offsetY: contentTop - containerRect.top,
       cols,
@@ -161,6 +163,8 @@ class MobileTerminalHandler {
       cellHeight,
       contentLeft: containerRect.left,
       contentTop: containerRect.top,
+      contentWidth: containerRect.width,
+      contentHeight: containerRect.height,
       offsetX: 0,
       offsetY: 0,
       cols,
@@ -931,8 +935,6 @@ class MobileTerminalHandler {
     const textBeginX = (start.y < end.y || (start.y === end.y && start.x <= end.x)) ? start.x : end.x;
     const textEndX = (start.y < end.y || (start.y === end.y && start.x <= end.x)) ? end.x : start.x;
 
-    const rightEdge = metrics.offsetX + metrics.cellWidth * metrics.cols;
-
     this.selectionOverlay.innerHTML = '';
 
     for (let y = startY; y <= endY; y++) {
@@ -952,7 +954,7 @@ class MobileTerminalHandler {
       rect.style.height = `${lineStartPos.height}px`;
 
       if (extendsToRight) {
-        rect.style.width = `${Math.ceil(rightEdge - lineStartPos.x)}px`;
+        rect.style.right = '0px';
       } else {
         const lineEndPos = this._terminalToScreenCoords(lineEndX, y);
         if (!lineEndPos) continue;
