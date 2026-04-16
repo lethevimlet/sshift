@@ -254,18 +254,12 @@ class MobileTerminalHandler {
       const coords = this._screenToTerminalCoords(touch.clientX, touch.clientY);
       
       if (coords) {
-        // Update the appropriate handle position
         if (type === 'start') {
-          // When dragging start handle, update start position
           this.selection.start = coords;
         } else {
-          // When dragging end handle, update end position
           this.selection.end = coords;
         }
         
-        // Ensure start is always before end in buffer order
-        // This prevents selection from inverting
-        this._normalizeSelection();
         this._updateSelection();
       }
     }, { passive: false });
@@ -650,14 +644,17 @@ class MobileTerminalHandler {
       }
     }
     
-    // Handle selection dragging
     if (this.selection.active && this.touchState.isDragging) {
       e.preventDefault();
       const touch = e.touches[0];
       const coords = this._screenToTerminalCoords(touch.clientX, touch.clientY);
       
       if (coords) {
-        this.selection.end = coords;
+        if (this.touchState.dragHandle === 'start') {
+          this.selection.start = coords;
+        } else {
+          this.selection.end = coords;
+        }
         this._updateSelection();
       }
     }
@@ -962,23 +959,45 @@ class MobileTerminalHandler {
    * @private
    */
   _updateHandles(start, end) {
-    const isStartFirst = (start.y < end.y) || (start.y === end.y && start.x <= end.x);
+    const startPos = start.y * this.terminal.cols + start.x;
+    const endPos = end.y * this.terminal.cols + end.x;
+    const isInverted = startPos > endPos;
 
-    const actualStart = isStartFirst ? start : end;
-    const actualEnd = isStartFirst ? end : start;
+    const textBegin = isInverted ? end : start;
+    const textEnd = isInverted ? start : end;
 
-    const startPos = this._terminalToScreenCoords(actualStart.x, actualStart.y);
-    if (startPos) {
+    const startCoords = this._terminalToScreenCoords(start.x, start.y);
+    if (startCoords) {
       this.startHandle.style.display = 'block';
-      this.startHandle.style.left = `${startPos.x}px`;
-      this.startHandle.style.top = `${startPos.y + startPos.height}px`;
+      if (isInverted) {
+        this.startHandle.style.left = `${startCoords.x + startCoords.width}px`;
+      } else {
+        this.startHandle.style.left = `${startCoords.x}px`;
+      }
+      this.startHandle.style.top = `${startCoords.y + startCoords.height}px`;
     }
 
-    const endPos = this._terminalToScreenCoords(actualEnd.x, actualEnd.y);
-    if (endPos) {
+    const endCoords = this._terminalToScreenCoords(end.x, end.y);
+    if (endCoords) {
       this.endHandle.style.display = 'block';
-      this.endHandle.style.left = `${endPos.x + endPos.width}px`;
-      this.endHandle.style.top = `${endPos.y + endPos.height}px`;
+      if (isInverted) {
+        this.endHandle.style.left = `${endCoords.x}px`;
+      } else {
+        this.endHandle.style.left = `${endCoords.x + endCoords.width}px`;
+      }
+      this.endHandle.style.top = `${endCoords.y + endCoords.height}px`;
+    }
+
+    if (isInverted) {
+      this.startHandle.classList.add('mobile-selection-handle-end');
+      this.startHandle.classList.remove('mobile-selection-handle-start');
+      this.endHandle.classList.add('mobile-selection-handle-start');
+      this.endHandle.classList.remove('mobile-selection-handle-end');
+    } else {
+      this.startHandle.classList.add('mobile-selection-handle-start');
+      this.startHandle.classList.remove('mobile-selection-handle-end');
+      this.endHandle.classList.add('mobile-selection-handle-end');
+      this.endHandle.classList.remove('mobile-selection-handle-start');
     }
   }
   
