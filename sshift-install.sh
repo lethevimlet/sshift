@@ -403,12 +403,28 @@ create_config() {
     # Also write config to the npm package directory so the older config loader finds it
     local sshift_bin_path=$(which sshift 2>/dev/null)
     if [ -n "$sshift_bin_path" ]; then
-        local real_path=$(readlink -f "$sshift_bin_path" 2>/dev/null || echo "$sshift_bin_path")
+        local real_path="$sshift_bin_path"
+        # Resolve symlinks portably (readlink -f is not available on macOS BSD)
+        while [ -L "$real_path" ]; do
+            local target=$(readlink "$real_path" 2>/dev/null)
+            if [ -z "$target" ]; then break; fi
+            # Handle relative symlinks
+            case "$target" in
+                /*) real_path="$target" ;;
+                *) real_path="$(dirname "$real_path")/$target" ;;
+            esac
+        done
         local pkg_dir=$(dirname "$real_path")
         if [ -d "$pkg_dir" ]; then
-            mkdir -p "$pkg_dir/.env"
-            echo "$config_content" > "$pkg_dir/.env/config.json"
-            echo "$config_content" > "$pkg_dir/config.json"
+            if mkdir -p "$pkg_dir/.env" 2>/dev/null; then
+                echo "$config_content" > "$pkg_dir/.env/config.json"
+                echo "$config_content" > "$pkg_dir/config.json"
+            else
+                # Package directory may be root-owned (e.g. Homebrew npm global installs on macOS)
+                # The user-space config at INSTALL_DIR is already written, so this is just a
+                # backwards-compat fallback — skip silently if we lack permissions.
+                warn "Cannot write to package directory $pkg_dir (permission denied). Using config at $INSTALL_DIR/.env/config.json instead."
+            fi
         fi
     fi
 
