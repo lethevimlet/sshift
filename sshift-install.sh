@@ -46,23 +46,22 @@ prompt_user() {
         echo
         PROMPT_RESPONSE="$REPLY"
     else
-        # No interactive terminal (piped or non-interactive)
-        # Use default value if available
-        if [ -n "$default" ]; then
+        # No interactive terminal (piped or non-interactive, e.g. curl | bash)
+        # Try /dev/tty first so the user can still interact
+        local prompted=false
+        if [ -e /dev/tty ]; then
+            printf "%s" "$prompt" > /dev/tty 2>/dev/null && prompted=true
+        fi
+        if $prompted; then
+            IFS= read -n 1 -r < /dev/tty 2>/dev/null
+            echo > /dev/tty 2>/dev/null
+            PROMPT_RESPONSE="${REPLY:-$default}"
+        elif [ -n "$default" ]; then
+            # No terminal available at all, use default
             info "$prompt(default: $default)"
             PROMPT_RESPONSE="$default"
         else
-            # Try /dev/tty as last resort
-            if [ -e /dev/tty ]; then
-                printf "%s" "$prompt" > /dev/tty 2>/dev/null || true
-                IFS= read -n 1 -r < /dev/tty 2>/dev/null && echo > /dev/tty 2>/dev/null
-                PROMPT_RESPONSE="${REPLY:-$default}"
-                if [ -z "$PROMPT_RESPONSE" ] && [ -z "$default" ]; then
-                    error "Cannot read user input (no terminal available)"
-                fi
-            else
-                error "Cannot read user input (no terminal available) and no default value"
-            fi
+            error "Cannot read user input (no terminal available) and no default value"
         fi
     fi
 }
@@ -498,9 +497,51 @@ setup_autostart() {
     mkdir -p "$env_dir"
 
     local sshift_path=$(which sshift 2>/dev/null || echo "sshift")
+    local node_path=$(which node 2>/dev/null || echo "node")
 
     if [ "$(uname)" = "Darwin" ]; then
         local plist_path="$HOME/Library/LaunchAgents/com.sshift.plist"
+
+        # Resolve symlinks to get the real sshift script path
+        local real_sshift_path="$sshift_path"
+        while [ -L "$real_sshift_path" ]; do
+            local target=$(readlink "$real_sshift_path" 2>/dev/null)
+            if [ -z "$target" ]; then break; fi
+            case "$target" in
+                /*) real_sshift_path="$target" ;;
+                *) real_sshift_path="$(dirname "$real_sshift_path")/$target" ;;
+            esac
+        done
+
+        # Resolve node path
+        local real_node_path="$node_path"
+        while [ -L "$real_node_path" ]; do
+            local target=$(readlink "$real_node_path" 2>/dev/null)
+            if [ -z "$target" ]; then break; fi
+            case "$target" in
+                /*) real_node_path="$target" ;;
+                *) real_node_path="$(dirname "$real_node_path")/$target" ;;
+            esac
+        done
+
+        # Build PATH from common macOS node locations
+        local path_dirs=""
+        local bin_dirs=("/opt/homebrew/bin" "/usr/local/bin" "/usr/bin" "$HOME/.local/bin")
+        for d in "${bin_dirs[@]}"; do
+            if [ -d "$d" ]; then
+                if [ -n "$path_dirs" ]; then
+                    path_dirs="$path_dirs:$d"
+                else
+                    path_dirs="$d"
+                fi
+            fi
+        done
+
+        # Unload existing plist if present
+        if [ -f "$plist_path" ]; then
+            launchctl bootout gui/$(id -u) "$plist_path" 2>/dev/null || \
+            launchctl unload "$plist_path" 2>/dev/null || true
+        fi
 
         cat > "$plist_path" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -511,10 +552,18 @@ setup_autostart() {
     <string>com.sshift</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$sshift_path</string>
+        <string>$real_node_path</string>
+        <string>$real_sshift_path</string>
     </array>
     <key>WorkingDirectory</key>
     <string>$INSTALL_DIR</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>$path_dirs</string>
+        <key>HOME</key>
+        <string>$HOME</string>
+    </dict>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
@@ -527,10 +576,12 @@ setup_autostart() {
 </plist>
 EOF
 
+        launchctl bootstrap gui/$(id -u) "$plist_path" 2>/dev/null || \
         launchctl load "$plist_path" 2>/dev/null || true
         success "Autostart configured via launchd"
         info "Config directory: $env_dir"
         info "To start now: launchctl start com.sshift"
+        info "To stop: launchctl bootout gui/$(id -u) $plist_path"
     else
         local service_dir="$HOME/.config/systemd/user"
         local service_path="$service_dir/$SERVICE_NAME.service"
@@ -566,6 +617,7 @@ remove_autostart() {
     if [ "$(uname)" = "Darwin" ]; then
         local plist_path="$HOME/Library/LaunchAgents/com.sshift.plist"
         if [ -f "$plist_path" ]; then
+            launchctl bootout gui/$(id -u) "$plist_path" 2>/dev/null || \
             launchctl unload "$plist_path" 2>/dev/null || true
             rm -f "$plist_path"
         fi
