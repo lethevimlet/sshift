@@ -294,21 +294,36 @@ function Start-App {
     
     # Start sshift in background using node directly
     try {
-        $process = Start-Process -FilePath $nodeExe -ArgumentList $sshiftScript -WorkingDirectory $InstallDir -WindowStyle Hidden -PassThru -RedirectStandardOutput "$InstallDir\sshift.log" -RedirectStandardError "$InstallDir\sshift-error.log"
+        # Use Start-Process with node directly to avoid .cmd/.ps1 shim issues
+        # Redirect output to log files so we can diagnose failures
+        $logFile = "$InstallDir\sshift.log"
+        $errorLogFile = "$InstallDir\sshift-error.log"
+        
+        $process = Start-Process -FilePath $nodeExe -ArgumentList "`"$sshiftScript`"" -WorkingDirectory $InstallDir -WindowStyle Hidden -PassThru -RedirectStandardOutput $logFile -RedirectStandardError $errorLogFile
         
         # Save PID
         New-Item -ItemType Directory -Force -Path (Split-Path $PidFile -Parent) | Out-Null
         $process.Id | Out-File -FilePath $PidFile -Encoding ASCII
         
-        Start-Sleep -Seconds 2
+        Start-Sleep -Seconds 3
         
         # Check if process is still running
         $running = Get-Process -Id $process.Id -ErrorAction SilentlyContinue
         if ($running) {
+            $port = Get-EffectivePort
             Write-Success "sshift started (PID: $($process.Id))"
-            Write-Info "Logs: $InstallDir\sshift.log"
+            Write-Info "Logs: $logFile"
+            Write-Info "Access: https://localhost:$port"
         } else {
-            Write-Error "sshift failed to start. Check logs at $InstallDir\sshift-error.log"
+            Write-Error "sshift failed to start."
+            if (Test-Path $errorLogFile) {
+                $errorContent = Get-Content $errorLogFile -Raw -ErrorAction SilentlyContinue
+                if ($errorContent) {
+                    Write-Host ""
+                    Write-Host "Error log:" -ForegroundColor Red
+                    Write-Host $errorContent -ForegroundColor Red
+                }
+            }
         }
     } catch {
         Write-Error "Failed to start sshift: $_"
