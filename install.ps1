@@ -570,8 +570,20 @@ function Enable-Autostart {
         New-Item -ItemType Directory -Force -Path $envDir | Out-Null
     }
     
-    # Create task action using node directly, passing the script as argument
-    $action = New-ScheduledTaskAction -Execute $nodeExe -Argument """$sshiftScript""" -WorkingDirectory $InstallDir
+    # Create a VBS wrapper script to run sshift without a visible window.
+    # Task Scheduler running node.exe directly shows a console window; wscript
+    # with Run(...,0) launches it completely hidden.
+    $vbsPath = Join-Path $InstallDir "sshift-launcher.vbs"
+    $vbsContent = @"
+Set WshShell = CreateObject("WScript.Shell")
+WshShell.CurrentDirectory = "$InstallDir"
+WshShell.Run """$nodeExe"" ""$sshiftScript""", 0, False
+"@
+    Set-Content -Path $vbsPath -Value $vbsContent -Encoding ASCII
+    
+    # Create task action using wscript to run the VBS launcher (no console window)
+    $wscriptExe = Join-Path $env:SystemRoot "System32\wscript.exe"
+    $action = New-ScheduledTaskAction -Execute $wscriptExe -Argument "//B `"$vbsPath`"" -WorkingDirectory $InstallDir
     
     # Create task trigger (at logon)
     $trigger = New-ScheduledTaskTrigger -AtLogon
@@ -584,6 +596,7 @@ function Enable-Autostart {
     
     Write-Success "Autostart configured via Task Scheduler"
     Write-Info "Config directory: $envDir"
+    Write-Info "Launcher script: $vbsPath"
     Write-Info "To start now: Start-ScheduledTask -TaskName $ServiceName"
 }
 
@@ -591,6 +604,12 @@ function Enable-Autostart {
 function Remove-Autostart {
     # Unregister scheduled task
     Unregister-ScheduledTask -TaskName $ServiceName -Confirm:$false -ErrorAction SilentlyContinue
+    
+    # Remove VBS launcher script
+    $vbsPath = Join-Path $InstallDir "sshift-launcher.vbs"
+    if (Test-Path $vbsPath) {
+        Remove-Item -Path $vbsPath -Force -ErrorAction SilentlyContinue
+    }
 }
 
 # Get LAN IP address

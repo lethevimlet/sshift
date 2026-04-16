@@ -15,7 +15,6 @@ const https = require('https');
 const path = require('path');
 const socketIO = require('socket.io');
 const selfsigned = require('selfsigned');
-const pem = require('pem');
 
 // Import utilities
 const { ensureConfig, loadConfig, getPort, getBindAddress, getEnableHttps } = require('./utils/config');
@@ -27,55 +26,60 @@ const { sshManager, sftpManager } = require('./services');
 const { rest, ws } = require('./endpoints');
 
 /**
- * Generate self-signed SSL certificates in memory using pem package
+ * Generate self-signed SSL certificates in memory using selfsigned package (pure JS, no OpenSSL dependency)
  * @returns {Promise<Object>} Certificate and private key
  */
-function generateSelfSignedCert() {
-  return new Promise((resolve, reject) => {
-    console.log('[HTTPS] Generating self-signed certificate...');
-    
-    const os = require('os');
-    
-    // Get local IP addresses for SAN
-    const interfaces = os.networkInterfaces();
-    const localIPs = ['127.0.0.1'];
-    
-    // Extract all IPv4 addresses from network interfaces
-    Object.values(interfaces).forEach(iface => {
-      iface.forEach(addr => {
-        if (addr.family === 'IPv4' && !addr.internal) {
-          localIPs.push(addr.address);
-        }
-      });
-    });
-    
-    // Get hostname
-    const hostname = os.hostname();
-    
-    console.log('[HTTPS] Certificate will be valid for:', localIPs.join(', '), 'and hostname:', hostname);
-    
-    // Build alt names array
-    const altNames = ['localhost', hostname || 'localhost', ...localIPs];
-    
-    pem.createCertificate({
-      days: 365,
-      selfSigned: true,
-      commonName: hostname || 'localhost',
-      altNames: altNames
-    }, (err, keys) => {
-      if (err) {
-        console.error('[HTTPS] Error generating certificate:', err);
-        reject(err);
-        return;
+async function generateSelfSignedCert() {
+  console.log('[HTTPS] Generating self-signed certificate...');
+  
+  const os = require('os');
+  
+  // Get local IP addresses for SAN
+  const interfaces = os.networkInterfaces();
+  const localIPs = ['127.0.0.1'];
+  
+  // Extract all IPv4 addresses from network interfaces
+  Object.values(interfaces).forEach(iface => {
+    iface.forEach(addr => {
+      if (addr.family === 'IPv4' && !addr.internal) {
+        localIPs.push(addr.address);
       }
-      
-      console.log('[HTTPS] Self-signed certificate generated successfully');
-      resolve({
-        cert: keys.certificate,
-        key: keys.serviceKey
-      });
     });
   });
+  
+  // Get hostname
+  const hostname = os.hostname() || 'localhost';
+  
+  console.log('[HTTPS] Certificate will be valid for:', localIPs.join(', '), 'and hostname:', hostname);
+  
+  // Build Subject Alternative Names
+  const altNames = [
+    { type: 2, value: 'localhost' },
+    { type: 2, value: hostname },
+    ...localIPs.map(ip => ({ type: 7, ip }))
+  ];
+  
+  try {
+    const attrs = [{ name: 'commonName', value: hostname }];
+    const pems = await selfsigned.generate(attrs, {
+      days: 365,
+      keySize: 2048,
+      algorithm: 'sha256',
+      extensions: [{
+        name: 'subjectAltName',
+        altNames
+      }]
+    });
+    
+    console.log('[HTTPS] Self-signed certificate generated successfully');
+    return {
+      cert: pems.cert,
+      key: pems.private
+    };
+  } catch (err) {
+    console.error('[HTTPS] Error generating certificate:', err);
+    throw err;
+  }
 }
 
 // Create Express app
