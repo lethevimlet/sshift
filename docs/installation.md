@@ -35,11 +35,12 @@ Invoke-Expression (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/let
 
 ### What the Installer Does
 
-1. **Checks for Node.js** - Installs Node.js 18+ if not present
+1. **Checks for Node.js** - Installs Node.js 20+ if not present
 2. **Installs via npm** - Installs sshift globally using npm
-3. **Creates executable** - Sets up `sshift` command in your PATH
+3. **Creates configuration** - Sets up config at `~/.local/share/sshift/.env/config.json` with HTTPS enabled
 4. **Configures autostart** (optional) - Sets up sshift to start on boot
-5. **Checks for updates** - Compares local and remote versions
+5. **Starts the service** - Automatically starts sshift after installation
+6. **Checks for updates** - Compares local and remote versions
 
 ### Custom Installation Options
 
@@ -81,7 +82,7 @@ curl -O https://raw.githubusercontent.com/lethevimlet/sshift/main/docker/docker-
 docker-compose up -d
 ```
 
-See [Docker documentation](docker.html) for detailed instructions.
+See [Docker documentation]({{ site.baseurl }}/docker.html) for detailed instructions.
 
 ## npm Installation
 
@@ -95,7 +96,7 @@ npm install -g @lethevimlet/sshift
 sshift
 ```
 
-The application will be available at `http://localhost:8022`
+The application will be available at `https://localhost:8022`
 
 ### Updating
 
@@ -125,7 +126,7 @@ npm install
 npm start
 ```
 
-The application will be available at `http://localhost:8022` (default production port)
+The application will be available at `https://localhost:8022` (default production port)
 
 ## Development Mode
 

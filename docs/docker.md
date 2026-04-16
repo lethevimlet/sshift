@@ -22,7 +22,7 @@ docker run -d \
   ghcr.io/lethevimlet/sshift:latest
 
 # Access the application
-# Open http://localhost:8022 in your browser
+# Open https://localhost:8022 in your browser
 ```
 
 ### Using Docker Compose
@@ -139,7 +139,7 @@ services:
       - sshift-data:/app/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8022/', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      test: ["CMD", "node", "-e", "require('https').get('https://localhost:8022/', {rejectUnauthorized: false}, (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
       interval: 30s
       timeout: 3s
       retries: 3
@@ -254,7 +254,7 @@ server {
     server_name sshift.example.com;
 
     location / {
-        proxy_pass http://localhost:8022;
+        proxy_pass https://localhost:8022;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -368,7 +368,7 @@ docker run -d \
   -e PORT=8022 \
   ghcr.io/lethevimlet/sshift:latest
 
-# Access at http://localhost:9000
+# Access at https://localhost:9000
 ```
 
 ### Multiple Instances
@@ -479,6 +479,6 @@ docker run --rm \
 
 ## See Also
 
-- [Installation Guide](installation.md) - Other installation methods
-- [Configuration Guide](configuration.md) - Detailed configuration options
-- [API Reference](api-reference.md) - API documentation
+- [Installation Guide]({{ site.baseurl }}/installation.html) - Other installation methods
+- [Configuration Guide]({{ site.baseurl }}/configuration.html) - Detailed configuration options
+- [API Reference]({{ site.baseurl }}/api-reference.html) - API documentation

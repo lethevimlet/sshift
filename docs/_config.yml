@@ -2,6 +2,8 @@ title: SSHIFT
 description: Web-based SSH & SFTP Terminal Client
 author: SSHIFT Team
 theme: minima
+url: "https://lethevimlet.github.io"
+baseurl: "/sshift"
 
 # GitHub Pages settings
 markdown: kramdown

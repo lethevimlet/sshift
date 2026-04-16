@@ -12,13 +12,13 @@ title: Home
 
 A modern, responsive web-based SSH and SFTP terminal client built with Node.js, Express, and xterm.js. Features excellent TUI support, tabbed sessions, bookmarks, and mobile-friendly design.
 
-![SSHIFT Logo](../media/logo.jpg)
+![SSHIFT Logo]({{ site.baseurl }}/media/logo.jpg)
 
 ## 📸 Screenshots
 
 <div align="center">
-  <img src="../media/screenshot1.png" alt="SSH Terminal" width="45%">
-  <img src="../media/screenshot2.png" alt="SFTP Browser" width="45%">
+  <img src="{{ site.baseurl }}/media/screenshot1.png" alt="SSH Terminal" width="45%">
+  <img src="{{ site.baseurl }}/media/screenshot2.png" alt="SFTP Browser" width="45%">
 </div>
 
 ## ✨ Features
@@ -81,21 +81,23 @@ Invoke-Expression (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/let
 ```
 
 The installer will:
-- Install Node.js 18+ if not present
-- Install sshift globally
-- Configure autostart (systemd on Linux, launchd on macOS, Task Scheduler on Windows)
-- Set up automatic updates
+- Install Node.js 20+ if not present
+- Install sshift globally via npm
+- Start sshift after installation
+- Configure autostart (optional, systemd on Linux, launchd on macOS, Task Scheduler on Windows)
+- Create config at `~/.local/share/sshift/.env/config.json`
+- Print summary with HTTPS access links
 
-For detailed installation options, see the [Installation guide](installation.html).
+For detailed installation options, see the [Installation guide]({{ site.baseurl }}/installation.html).
 
 ## 📖 Documentation
 
-- **[Installation](installation.html)** - Installation methods and configuration
-- **[Docker](docker.html)** - Docker deployment and usage
-- **[Configuration](configuration.html)** - Configuration files and options
-- **[API Reference](api-reference.html)** - Socket.IO events and API
-- **[Testing](testing.html)** - Running and writing tests
-- **[Contributing](contributing.html)** - How to contribute
+- **[Installation]({{ site.baseurl }}/installation.html)** - Installation methods and configuration
+- **[Docker]({{ site.baseurl }}/docker.html)** - Docker deployment and usage
+- **[Configuration]({{ site.baseurl }}/configuration.html)** - Configuration files and options
+- **[API Reference]({{ site.baseurl }}/api-reference.html)** - Socket.IO events and API
+- **[Testing]({{ site.baseurl }}/testing.html)** - Running and writing tests
+- **[Contributing]({{ site.baseurl }}/contributing.html)** - How to contribute
 
 ## 🛠️ Technology Stack
 
@@ -122,7 +124,7 @@ For detailed installation options, see the [Installation guide](installation.htm
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](../LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](https://github.com/lethevimlet/sshift/blob/main/LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 

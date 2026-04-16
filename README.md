@@ -35,7 +35,7 @@ npm install -g @lethevimlet/sshift
 sshift
 ```
 
-The application will be available at `http://localhost:8022`
+The application will be available at `https://localhost:8022`
 
 ## 📖 Documentation
 
@@ -69,10 +69,12 @@ Invoke-Expression (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/let
 > **Note:** The Windows installer requires PowerShell to be run as Administrator for npm global installations.
 
 The installer will:
-- Install Node.js 18+ if not present
-- Install sshift globally
-- Configure autostart (systemd on Linux, launchd on macOS, Task Scheduler on Windows)
-- Set up automatic updates
+- Install Node.js 20+ if not present
+- Install sshift globally via npm
+- Start sshift after installation
+- Configure autostart (optional, systemd on Linux, launchd on macOS, Task Scheduler on Windows)
+- Create config at `~/.local/share/sshift/.env/config.json` with HTTPS enabled
+- Print summary with HTTPS access links
 
 ### Docker
 

@@ -43,17 +43,19 @@ The project includes installation scripts for easy setup:
 ### install.sh (Linux/macOS)
 - Installs Node.js 20+ and npm if not present
 - Installs sshift globally via npm (`npm install -g @lethevimlet/sshift`)
-- Creates config at `~/.local/share/sshift/.env/config.json`
+- Creates config at `~/.local/share/sshift/.env/config.json` (also writes to npm package dir for compatibility)
 - Configures autostart (systemd on Linux, launchd on macOS)
+- Auto-starts sshift after installation
 - Prints summary with install path and clickable HTTPS links (localhost + LAN IP)
 - Supports arguments: `--install-dir DIR`, `--port PORT`, `--start`, `--stop`, `--restart`, `--status`, `--update`, `--uninstall`
 
 ### install.ps1 (Windows)
 - Installs Node.js 20+ if not present
 - Installs sshift via npm
-- Creates executable wrappers in `~/.local/bin/` (sshift.cmd and sshift.ps1)
-- Configures autostart (Task Scheduler)
-- Supports arguments: `-InstallDir DIR`, `-Port PORT`
+- Creates config at `~/.local/share/sshift/.env/config.json` (also writes to npm package dir for compatibility)
+- Auto-starts sshift after installation
+- Prints summary with install path and clickable HTTPS links (localhost + LAN IP)
+- Supports arguments: `-InstallDir DIR`, `-Port PORT`, `-Start`, `-Stop`, `-Restart`, `-Status`, `-Update`, `-Uninstall`, `-Help`
 
 ### sshift (Executable)
 - Node.js executable with hashbang (`#!/usr/bin/env node`)
@@ -64,6 +66,7 @@ The project includes installation scripts for easy setup:
 ### Port Configuration
 - **Default port**: 8022 (production)
 - **Development port**: 3000 (when `NODE_ENV=development`)
+- **Default protocol**: HTTPS (self-signed certificates, configurable via `enableHttps`)
 - **Port Priority**:
   1. `PORT` environment variable (highest priority)
   2. `config.json` `port`/`devPort` based on `NODE_ENV`

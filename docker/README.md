@@ -20,7 +20,7 @@ docker run -d \
   ghcr.io/lethevimlet/sshift:latest
 
 # Access the application
-# Open http://localhost:8022 in your browser
+# Open https://localhost:8022 in your browser
 ```
 
 ### Using Docker Compose
@@ -136,7 +136,7 @@ docker run -d \
   -e PORT=8022 \
   lethevimlet/sshift:latest
 
-# Access at http://localhost:9000
+# Access at https://localhost:9000
 ```
 
 ### Localhost Only
@@ -171,7 +171,7 @@ server {
     server_name sshift.example.com;
 
     location / {
-        proxy_pass http://localhost:8022;
+        proxy_pass https://localhost:8022;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
