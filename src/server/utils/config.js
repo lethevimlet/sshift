@@ -220,6 +220,23 @@ function getEnableHttps() {
   return config.enableHttps !== false; // Default to true
 }
 
+/**
+ * Get the data directory for persistent storage (SSL certs, etc.)
+ * Searches the same paths as config to find a writable data directory.
+ * @returns {string} Path to data directory
+ */
+function getDataDir() {
+  const configPath = getConfigPath();
+  const configDir = path.dirname(configPath);
+  
+  // If config is in a .env subdirectory, use parent
+  if (path.basename(configDir) === '.env') {
+    return path.dirname(configDir);
+  }
+  
+  return configDir;
+}
+
 module.exports = {
   defaultConfig,
   ensureConfig,
@@ -233,5 +250,6 @@ module.exports = {
   getTakeControlDefault,
   getMobileKeysBarEnabled,
   getLayouts,
-  getEnableHttps
+  getEnableHttps,
+  getDataDir
 };

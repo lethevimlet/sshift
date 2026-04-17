@@ -55,3 +55,18 @@ temp
 
 # Docker files (don't need docker directory in image)
 docker
+
+# Sensitive files (SSH keys, SSL certificates, user data)
+*.pem
+*.key
+*.ppk
+id_rsa*
+id_ed25519*
+id_ecdsa*
+id_dsa*
+known_hosts
+ssl-cert.pem
+ssl-key.pem
+.local/
+.agents/
+server.log

@@ -48,6 +48,21 @@ Thumbs.db
 *.tgz
 .npm
 
+# Sensitive files (SSH keys, SSL certificates, user data)
+*.pem
+*.key
+*.ppk
+id_rsa*
+id_ed25519*
+id_ecdsa*
+id_dsa*
+known_hosts
+ssl-cert.pem
+ssl-key.pem
+.local/
+.agents/
+server.log
+
 # Temporary files
 tmp
 temp

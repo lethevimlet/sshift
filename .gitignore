@@ -58,6 +58,10 @@ id_ecdsa*
 id_dsa*
 known_hosts
 
+# SSL certificates (persisted self-signed server certs)
+ssl-cert.pem
+ssl-key.pem
+
 # User data directory (contains config with private keys/passwords)
 .local/
 

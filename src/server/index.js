@@ -12,12 +12,13 @@ require('./utils/env-loader');
 const express = require('express');
 const http = require('http');
 const https = require('https');
+const fs = require('fs');
 const path = require('path');
 const socketIO = require('socket.io');
 const selfsigned = require('selfsigned');
 
 // Import utilities
-const { ensureConfig, loadConfig, getPort, getBindAddress, getEnableHttps } = require('./utils/config');
+const { ensureConfig, loadConfig, getPort, getBindAddress, getEnableHttps, getDataDir } = require('./utils/config');
 
 // Import services
 const { sshManager, sftpManager } = require('./services');
@@ -25,8 +26,49 @@ const { sshManager, sftpManager } = require('./services');
 // Import endpoints
 const { rest, ws } = require('./endpoints');
 
+const SSL_CERT_FILE = 'ssl-cert.pem';
+const SSL_KEY_FILE = 'ssl-key.pem';
+
 /**
- * Generate self-signed SSL certificates in memory using selfsigned package (pure JS, no OpenSSL dependency)
+ * Get SSL credentials, reusing persisted certificates if available.
+ * Generates new self-signed certificates only if no persisted ones exist.
+ * @returns {Promise<Object>} Certificate and private key
+ */
+async function getSSLCredentials() {
+  const dataDir = getDataDir();
+  const certPath = path.join(dataDir, SSL_CERT_FILE);
+  const keyPath = path.join(dataDir, SSL_KEY_FILE);
+
+  if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+    console.log('[HTTPS] Reusing persisted SSL certificate from', dataDir);
+    try {
+      return {
+        cert: fs.readFileSync(certPath, 'utf8'),
+        key: fs.readFileSync(keyPath, 'utf8')
+      };
+    } catch (err) {
+      console.warn('[HTTPS] Failed to read persisted certificate, regenerating:', err.message);
+    }
+  }
+
+  const creds = await generateSelfSignedCert();
+
+  try {
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    fs.writeFileSync(certPath, creds.cert, { mode: 0o600 });
+    fs.writeFileSync(keyPath, creds.key, { mode: 0o600 });
+    console.log('[HTTPS] SSL certificate persisted to', dataDir);
+  } catch (err) {
+    console.warn('[HTTPS] Failed to persist certificate:', err.message);
+  }
+
+  return creds;
+}
+
+/**
+ * Generate self-signed SSL certificates using selfsigned package (pure JS, no OpenSSL dependency)
  * @returns {Promise<Object>} Certificate and private key
  */
 async function generateSelfSignedCert() {
@@ -34,11 +76,9 @@ async function generateSelfSignedCert() {
   
   const os = require('os');
   
-  // Get local IP addresses for SAN
   const interfaces = os.networkInterfaces();
   const localIPs = ['127.0.0.1'];
   
-  // Extract all IPv4 addresses from network interfaces
   Object.values(interfaces).forEach(iface => {
     iface.forEach(addr => {
       if (addr.family === 'IPv4' && !addr.internal) {
@@ -47,12 +87,10 @@ async function generateSelfSignedCert() {
     });
   });
   
-  // Get hostname
   const hostname = os.hostname() || 'localhost';
   
   console.log('[HTTPS] Certificate will be valid for:', localIPs.join(', '), 'and hostname:', hostname);
   
-  // Build Subject Alternative Names
   const altNames = [
     { type: 2, value: 'localhost' },
     { type: 2, value: hostname },
@@ -97,7 +135,7 @@ async function initializeServer() {
 
   if (enableHttps) {
     try {
-      sslCredentials = await generateSelfSignedCert();
+      sslCredentials = await getSSLCredentials();
       server = https.createServer({
         key: sslCredentials.key,
         cert: sslCredentials.cert
