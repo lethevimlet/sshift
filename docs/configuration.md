@@ -93,6 +93,14 @@ The application configuration (bookmarks, settings) is loaded from:
 - **`sshKeepaliveInterval`** (number): SSH keepalive interval in milliseconds (default: `15000`)
 - **`sshKeepaliveCountMax`** (number): Maximum keepalive count (default: `500`)
 
+### Password Protection
+
+- **`passwordHash`** (string|null): SHA-256 hash of a password to restrict access to the application. When set, all API endpoints and WebSocket connections require authentication. Set to `null` (default) to disable password protection.
+
+> **Note:** Password protection is intended as a basic access restriction for local/private networks. It is **not** a replacement for proper authentication. If you expose sshift to a public network, use additional security measures such as a reverse proxy with authentication, a VPN, or firewall rules.
+
+Password protection can also be enabled/disabled through the Settings UI in the application. When enabling, you will be prompted to set a password; when disabling, you must provide the current password.
+
 ### HTTPS Configuration
 
 By default, sshift uses HTTPS with self-signed certificates. This provides:

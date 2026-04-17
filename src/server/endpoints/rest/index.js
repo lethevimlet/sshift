@@ -9,13 +9,10 @@ const { registerFolderEndpoints } = require('./folders');
 const { registerSessionsEndpoints } = require('./sessions');
 const { registerSystemEndpoints } = require('./system');
 const { registerUtilsEndpoints } = require('./utils');
+const { registerAuthEndpoints, isValidAuthToken } = require('./auth');
 
-/**
- * Register all REST endpoints
- * @param {Object} app - Express app
- * @param {Object} io - Socket.IO instance
- */
 function registerAllRestEndpoints(app, io) {
+  registerAuthEndpoints(app, io);
   registerBookmarkEndpoints(app, io);
   registerConfigEndpoints(app, io);
   registerFolderEndpoints(app, io);
@@ -31,5 +28,7 @@ module.exports = {
   registerSessionsEndpoints,
   registerSystemEndpoints,
   registerUtilsEndpoints,
+  registerAuthEndpoints,
+  isValidAuthToken,
   registerAllRestEndpoints
 };

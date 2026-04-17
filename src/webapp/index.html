@@ -4,6 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:;">
+  <meta name="theme-color" content="#1a1b26">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="SSHIFT">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16x16.png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
   <title>SSHIFT - SSH & SFTP Terminal Client</title>
   <!-- Local resources for offline support -->
   <link rel="stylesheet" href="/libs/xterm/xterm.css">
@@ -12,6 +20,24 @@
   <script src="/libs/lucide/lucide.min.js"></script>
 </head>
 <body>
+  <!-- Lock Screen Overlay (shown by default, hidden by JS if no password) -->
+  <div class="lock-screen" id="lockScreen">
+    <div class="lock-screen-content">
+      <div class="lock-screen-icon">
+        <i class="fas fa-spinner fa-spin"></i>
+      </div>
+      <h2 class="lock-screen-title">SSHIFT</h2>
+      <p class="lock-screen-subtitle" id="lockScreenSubtitle">Loading...</p>
+      <form id="lockScreenForm" class="lock-screen-form" style="display: none;">
+        <input type="password" id="lockScreenPassword" class="lock-screen-input" placeholder="Enter password" autocomplete="current-password" autofocus>
+        <button type="submit" class="btn btn-primary lock-screen-submit">
+          <i class="fas fa-sign-in-alt"></i> Unlock
+        </button>
+      </form>
+      <p class="lock-screen-error" id="lockScreenError" style="display: none;"></p>
+    </div>
+  </div>
+
   <div class="app-container">
     <!-- Header -->
     <header class="header">
@@ -792,6 +818,26 @@
           </div>
         </div>
         
+        <!-- Password Protection -->
+        <div class="setting-group">
+          <div class="setting-item">
+            <label class="setting-label">
+              <i class="fas fa-lock"></i> Password Protection
+            </label>
+            <div class="setting-description">
+              Require a password to access the application. When enabled, all endpoints are blocked until the correct password is provided.
+            </div>
+            <div class="setting-description password-disclaimer">
+              <i class="fas fa-exclamation-triangle"></i> <strong>Disclaimer:</strong> This is a basic access restriction, not a substitute for proper authentication. If you expose sshift to a public network, you should use additional security measures such as a reverse proxy with authentication, a VPN, or firewall rules.
+            </div>
+            <div class="setting-control">
+              <button class="btn btn-secondary" id="togglePasswordBtn">
+                <i class="fas fa-lock-open"></i> <span id="togglePasswordLabel">Enable Password</span>
+              </button>
+            </div>
+          </div>
+        </div>
+        
         <!-- Manage Sessions -->
         <div class="setting-group">
           <div class="setting-item">
@@ -809,7 +855,11 @@
           </div>
         </div>
       </div>
-      <div class="modal-footer">
+      <div class="modal-footer" style="justify-content: space-between;">
+        <button class="btn btn-danger" id="logoutBtn" style="display: none;">
+          <i class="fas fa-sign-out-alt"></i> Logout
+        </button>
+        <div style="flex:1;"></div>
         <button class="btn" id="cancelSettings">Cancel</button>
         <button class="btn btn-primary" id="saveSettings">
           <i class="fas fa-save"></i> Save
@@ -839,6 +889,37 @@
         <button class="btn" id="closeManageSessions">Close</button>
         <button class="btn btn-danger" id="closeAllSessions">
           <i class="fas fa-times-circle"></i> Close All Sessions
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Password Modal -->
+  <div class="modal" id="passwordModal">
+    <div class="modal-content modal-sm">
+      <div class="modal-header">
+        <h2 id="passwordModalTitle"><i class="fas fa-lock"></i> Enter Password</h2>
+        <button class="modal-close" id="closePasswordModal">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="setting-group">
+          <div class="setting-item" style="flex-direction: column; align-items: stretch;">
+            <label class="setting-label" id="passwordModalLabel">Password</label>
+            <input type="password" id="passwordModalInput" class="setting-input" placeholder="Enter password" autocomplete="off" style="width:100%; margin-top:8px;">
+            <div id="confirmPasswordGroup" style="display: none; margin-top: 12px;">
+              <label class="setting-label" style="margin-bottom: 8px;">Confirm Password</label>
+              <input type="password" id="passwordModalConfirmInput" class="setting-input" placeholder="Confirm password" autocomplete="off" style="width:100%;">
+            </div>
+          </div>
+        </div>
+        <p class="password-modal-error" id="passwordModalError" style="display: none; color: var(--accent-danger); font-size: 13px; margin-top: 8px;"></p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="passwordModalCancel">Cancel</button>
+        <button class="btn btn-primary" id="passwordModalSubmit">
+          <i class="fas fa-check"></i> Confirm
         </button>
       </div>
     </div>
@@ -1027,5 +1108,12 @@
   
   <script src="/socket.io/socket.io.js"></script>
   <script src="/js/app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      });
+    }
+  </script>
 </body>
 </html>

@@ -6,6 +6,7 @@
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
 
 // Get user's home directory
 const HOME_DIR = os.homedir();
@@ -39,7 +40,8 @@ const defaultConfig = {
   sshKeepaliveInterval: 15000,
   sshKeepaliveCountMax: 500,
   bookmarks: [],
-  folders: []
+  folders: [],
+  passwordHash: null
 };
 
 /**
@@ -237,6 +239,33 @@ function getDataDir() {
   return configDir;
 }
 
+function hashPassword(password) {
+  return crypto.createHash('sha3-256').update(password).digest('hex');
+}
+
+function isPasswordSet() {
+  const config = loadConfig();
+  return !!config.passwordHash;
+}
+
+function verifyPassword(password) {
+  const config = loadConfig();
+  if (!config.passwordHash) return true;
+  return hashPassword(password) === config.passwordHash;
+}
+
+function setPassword(password) {
+  const config = loadConfig();
+  config.passwordHash = hashPassword(password);
+  return saveConfig(config);
+}
+
+function removePassword() {
+  const config = loadConfig();
+  config.passwordHash = null;
+  return saveConfig(config);
+}
+
 module.exports = {
   defaultConfig,
   ensureConfig,
@@ -251,5 +280,10 @@ module.exports = {
   getMobileKeysBarEnabled,
   getLayouts,
   getEnableHttps,
-  getDataDir
+  getDataDir,
+  hashPassword,
+  isPasswordSet,
+  verifyPassword,
+  setPassword,
+  removePassword
 };

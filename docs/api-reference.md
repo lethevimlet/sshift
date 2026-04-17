@@ -209,6 +209,73 @@ socket.on('sftp-error', (error) => {
 });
 ```
 
+## REST API Endpoints
+
+### Authentication
+
+#### Check Password Status
+
+```
+GET /api/auth/status
+```
+
+Returns whether password protection is enabled.
+
+**Response:**
+```json
+{ "passwordEnabled": true }
+```
+
+#### Login
+
+```
+POST /api/auth/login
+```
+
+Authenticate with a password when password protection is enabled.
+
+**Request:**
+```json
+{ "password": "your-password" }
+```
+
+**Response (success):**
+```json
+{ "success": true, "token": "hex-auth-token" }
+```
+
+The token should be sent in subsequent requests via the `Authorization: Bearer <token>` header, or as the `token` query parameter for WebSocket connections.
+
+#### Set Password
+
+```
+POST /api/auth/set-password
+```
+
+Enable or change password protection. If a password is already set, requires the current password.
+
+**Request:**
+```json
+{ "currentPassword": "old-password", "newPassword": "new-password" }
+```
+
+#### Remove Password
+
+```
+POST /api/auth/remove-password
+```
+
+Disable password protection. Requires the current password.
+
+**Request:**
+```json
+{ "currentPassword": "current-password" }
+```
+
+### Protected Endpoints
+
+When password protection is enabled, all `/api/*` endpoints (except `/api/auth/status` and `/api/auth/login`) require a valid authentication token via the `Authorization: Bearer <token>` header. WebSocket connections require the token via `auth.token` in the connection handshake.
+
 ## Best Practices
 
 ### Session Management

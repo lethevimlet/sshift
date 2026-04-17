@@ -3,11 +3,13 @@ class SSHIFTClient {
   constructor() {
     console.log('[SSHIFT] Initializing client...');
     try {
+      const authToken = localStorage.getItem('sshift_auth_token');
       this.socket = io({
         transports: ['websocket', 'polling'],
         reconnection: true,
         reconnectionAttempts: 5,
-        reconnectionDelay: 1000
+        reconnectionDelay: 1000,
+        auth: authToken ? { token: authToken } : {}
       });
       console.log('[SSHIFT] Socket created');
     } catch (e) {
@@ -47,6 +49,24 @@ class SSHIFTClient {
     this.ctrlPressed = false; // Track Ctrl key state
     this.altPressed = false; // Track Alt key state
     this.currentKeyboardHeight = 0; // Track actual keyboard height for positioning
+    
+    // Password protection state
+    this.passwordEnabled = false;
+    this.authToken = localStorage.getItem('sshift_auth_token') || null;
+    
+    this._origFetch = window.fetch.bind(window);
+    window.fetch = (url, options = {}) => {
+      if (typeof url === 'string' && url.startsWith('/api/') && this.authToken) {
+        if (!options.headers) options.headers = {};
+        if (!(options.headers instanceof Headers)) {
+          options.headers = { ...options.headers };
+        }
+        if (typeof options.headers === 'object' && !options.headers['Authorization']) {
+          options.headers['Authorization'] = `Bearer ${this.authToken}`;
+        }
+      }
+      return this._origFetch(url, options);
+    };
     
     // Terminal font size (for pinch-to-zoom on mobile)
     this.terminalFontSize = 14; // Default font size
@@ -99,6 +119,7 @@ class SSHIFTClient {
       this.sshKeepaliveCountMax = config.sshKeepaliveCountMax || 1000;
       // Load mobile keys bar setting
       this.mobileKeysBarEnabled = config.mobileKeysBarEnabled !== undefined ? config.mobileKeysBarEnabled : true;
+      this.passwordEnabled = config.passwordEnabled || false;
       console.log('[SSHIFT] Loaded from server - Sticky:', this.sticky ? 'enabled' : 'disabled',
                   'Take Control Default:', this.takeControlDefault ? 'enabled' : 'disabled',
                   'Keepalive Interval:', this.sshKeepaliveInterval,
@@ -111,6 +132,241 @@ class SSHIFTClient {
       this.sshKeepaliveInterval = 10000;
       this.sshKeepaliveCountMax = 1000;
       this.mobileKeysBarEnabled = true; // Default to true
+    }
+  }
+
+  async checkAuthStatus() {
+    const lockScreen = document.getElementById('lockScreen');
+    const lockScreenForm = document.getElementById('lockScreenForm');
+    const lockScreenSubtitle = document.getElementById('lockScreenSubtitle');
+    
+    try {
+      const response = await this._origFetch('/api/auth/status');
+      const data = await response.json();
+      this.passwordEnabled = data.passwordEnabled;
+      
+      if (!this.passwordEnabled) {
+        if (lockScreen) lockScreen.style.display = 'none';
+        return;
+      }
+      
+      const storedToken = localStorage.getItem('sshift_auth_token');
+      if (storedToken) {
+        try {
+          const verifyResp = await this._origFetch('/api/config', {
+            headers: { 'Authorization': `Bearer ${storedToken}` }
+          });
+          if (verifyResp.ok) {
+            this.authToken = storedToken;
+            this.updateSocketAuth();
+            if (lockScreen) lockScreen.style.display = 'none';
+            return;
+          }
+        } catch (e) {}
+        localStorage.removeItem('sshift_auth_token');
+        this.authToken = null;
+      }
+      
+      await this.showLockScreen();
+    } catch (err) {
+      console.error('[SSHIFT] Failed to check auth status:', err);
+      if (lockScreen) lockScreen.style.display = 'none';
+    }
+  }
+
+  showLockScreen() {
+    return new Promise((resolve) => {
+      const lockScreen = document.getElementById('lockScreen');
+      const lockScreenForm = document.getElementById('lockScreenForm');
+      const lockScreenPassword = document.getElementById('lockScreenPassword');
+      const lockScreenError = document.getElementById('lockScreenError');
+      const lockScreenSubtitle = document.getElementById('lockScreenSubtitle');
+      const lockScreenIcon = lockScreen ? lockScreen.querySelector('.lock-screen-icon i') : null;
+      
+      if (lockScreen) lockScreen.style.display = 'flex';
+      if (lockScreenIcon) lockScreenIcon.className = 'fas fa-lock';
+      if (lockScreenSubtitle) lockScreenSubtitle.textContent = 'Password Required';
+      if (lockScreenForm) lockScreenForm.style.display = 'flex';
+      if (lockScreenError) lockScreenError.style.display = 'none';
+      if (lockScreenPassword) {
+        lockScreenPassword.value = '';
+        lockScreenPassword.focus();
+      }
+      
+      const submitHandler = async (e) => {
+        e.preventDefault();
+        const password = lockScreenPassword.value;
+        if (!password) return;
+        
+        lockScreenError.style.display = 'none';
+        try {
+          const resp = await this._origFetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password })
+          });
+          
+          if (resp.ok) {
+            const data = await resp.json();
+            this.authToken = data.token;
+            localStorage.setItem('sshift_auth_token', data.token);
+            this.updateSocketAuth();
+            lockScreen.style.display = 'none';
+            this.passwordEnabled = true;
+            lockScreenForm.removeEventListener('submit', submitHandler);
+            resolve();
+          } else {
+            const data = await resp.json();
+            lockScreenError.textContent = data.error || 'Invalid password';
+            lockScreenError.style.display = 'block';
+            lockScreenPassword.value = '';
+            lockScreenPassword.focus();
+          }
+        } catch (err) {
+          lockScreenError.textContent = 'Connection error';
+          lockScreenError.style.display = 'block';
+        }
+      };
+      
+      lockScreenForm.addEventListener('submit', submitHandler);
+    });
+  }
+
+  updateSocketAuth() {
+    if (this.socket && this.authToken) {
+      this.socket.auth = { token: this.authToken };
+      this.socket.disconnect().connect();
+    }
+  }
+
+  async togglePasswordProtection() {
+    if (this.passwordEnabled) {
+      this._showPasswordModal({
+        title: 'Disable Password Protection',
+        label: 'Enter current password',
+        confirmText: 'Disable',
+        requireConfirm: false
+      }, async (password) => {
+        try {
+          const resp = await fetch('/api/auth/remove-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': this.authToken ? `Bearer ${this.authToken}` : '' },
+            body: JSON.stringify({ currentPassword: password })
+          });
+          
+          if (resp.ok) {
+            localStorage.removeItem('sshift_auth_token');
+            location.reload();
+          } else {
+            const data = await resp.json();
+            this.showToast(data.error || 'Failed to disable password', 'error');
+          }
+        } catch (err) {
+          this.showToast('Failed to disable password', 'error');
+        }
+      });
+    } else {
+      this._showPasswordModal({
+        title: 'Enable Password Protection',
+        label: 'Set a password',
+        confirmText: 'Enable',
+        requireConfirm: true
+      }, async (password) => {
+        try {
+          const resp = await fetch('/api/auth/set-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ newPassword: password })
+          });
+          
+          if (resp.ok) {
+            location.reload();
+          } else {
+            const data = await resp.json();
+            this.showToast(data.error || 'Failed to enable password', 'error');
+          }
+        } catch (err) {
+          this.showToast('Failed to enable password', 'error');
+        }
+      });
+    }
+  }
+
+  _showPasswordModal(options, onSubmit) {
+    const modal = document.getElementById('passwordModal');
+    const title = document.getElementById('passwordModalTitle');
+    const label = document.getElementById('passwordModalLabel');
+    const input = document.getElementById('passwordModalInput');
+    const confirmInput = document.getElementById('passwordModalConfirmInput');
+    const confirmGroup = document.getElementById('confirmPasswordGroup');
+    const errorEl = document.getElementById('passwordModalError');
+    const submitBtn = document.getElementById('passwordModalSubmit');
+    const cancelBtn = document.getElementById('passwordModalCancel');
+    const closeBtn = document.getElementById('closePasswordModal');
+
+    title.innerHTML = `<i class="fas fa-lock"></i> ${options.title}`;
+    label.textContent = options.label;
+    submitBtn.innerHTML = `<i class="fas fa-check"></i> ${options.confirmText}`;
+    input.value = '';
+    confirmInput.value = '';
+    errorEl.style.display = 'none';
+
+    if (options.requireConfirm) {
+      confirmGroup.style.display = 'block';
+    } else {
+      confirmGroup.style.display = 'none';
+    }
+
+    const cleanup = () => {
+      this.closeModal('passwordModal');
+      submitBtn.removeEventListener('click', handleSubmit);
+      cancelBtn.removeEventListener('click', handleCancel);
+      closeBtn.removeEventListener('click', handleCancel);
+      modal.removeEventListener('click', handleBackdrop);
+      input.removeEventListener('keydown', handleKeydown);
+    };
+
+    const handleSubmit = async () => {
+      const password = input.value;
+      if (!password) {
+        errorEl.textContent = 'Password cannot be empty';
+        errorEl.style.display = 'block';
+        return;
+      }
+      if (options.requireConfirm && password !== confirmInput.value) {
+        errorEl.textContent = 'Passwords do not match';
+        errorEl.style.display = 'block';
+        return;
+      }
+      cleanup();
+      await onSubmit(password);
+    };
+
+    const handleCancel = () => cleanup();
+    const handleBackdrop = (e) => { if (e.target === modal) cleanup(); };
+    const handleKeydown = (e) => { if (e.key === 'Enter') handleSubmit(); };
+
+    submitBtn.addEventListener('click', handleSubmit);
+    cancelBtn.addEventListener('click', handleCancel);
+    closeBtn.addEventListener('click', handleCancel);
+    modal.addEventListener('click', handleBackdrop);
+    input.addEventListener('keydown', handleKeydown);
+
+    this.openModal('passwordModal');
+    setTimeout(() => input.focus(), 100);
+  }
+
+  updatePasswordToggleUI() {
+    const btn = document.getElementById('togglePasswordBtn');
+    const label = document.getElementById('togglePasswordLabel');
+    if (btn && label) {
+      if (this.passwordEnabled) {
+        btn.querySelector('i').className = 'fas fa-lock';
+        label.textContent = 'Disable Password';
+      } else {
+        btn.querySelector('i').className = 'fas fa-lock-open';
+        label.textContent = 'Enable Password';
+      }
     }
   }
 
@@ -1913,6 +2169,8 @@ class SSHIFTClient {
   async init() {
     console.log('[SSHIFT] Setting up listeners...');
     
+    await this.checkAuthStatus();
+    
     // Fix mobile viewport height issues
     this.fixMobileViewport();
     
@@ -2837,7 +3095,13 @@ class SSHIFTClient {
 
     this.socket.on('connect_error', (error) => {
       console.error('[SSHIFT] Connection error:', error);
-      this.showToast('Connection error: ' + error.message, 'error');
+      if (error.message === 'Authentication required') {
+        this.authToken = null;
+        localStorage.removeItem('sshift_auth_token');
+        this.showLockScreen();
+      } else {
+        this.showToast('Connection error: ' + error.message, 'error');
+      }
     });
 
     // Handle receiving open tabs from server (for cross-tab sync)
@@ -3582,6 +3846,9 @@ class SSHIFTClient {
     // Initialize settings modal handlers
     this.initSettingsModalHandlers();
     
+    // Initialize password toggle
+    this.initPasswordToggle();
+    
     // Initialize sessions modal handlers
     this.initSessionsModalHandlers();
 
@@ -3902,6 +4169,9 @@ class SSHIFTClient {
       mobileKeysBarToggle.checked = this.mobileKeysBarEnabled;
     }
     
+    // Update password toggle button state
+    this.updatePasswordToggleUI();
+    
     this.openModal('settingsModal');
   }
 
@@ -4121,6 +4391,24 @@ class SSHIFTClient {
       console.error('[SSHIFT] Failed to close all sessions:', err);
       this.showToast('Failed to close sessions', 'error');
     }
+  }
+
+  initPasswordToggle() {
+    const toggleBtn = document.getElementById('togglePasswordBtn');
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', () => {
+        this.togglePasswordProtection();
+      });
+    }
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) {
+      if (this.passwordEnabled) logoutBtn.style.display = '';
+      logoutBtn.addEventListener('click', () => {
+        localStorage.removeItem('sshift_auth_token');
+        location.reload();
+      });
+    }
+    this.updatePasswordToggleUI();
   }
 
   initSessionsModalHandlers() {
@@ -4562,9 +4850,11 @@ class SSHIFTClient {
     localStorage.setItem('mobileKeysBarEnabled', JSON.stringify(this.mobileKeysBarEnabled));
     
     // Save to server config
+    const headers = { 'Content-Type': 'application/json' };
+    if (this.authToken) headers['Authorization'] = `Bearer ${this.authToken}`;
     fetch('/api/config', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ 
         sticky: this.sticky,
         takeControlDefault: this.takeControlDefault,

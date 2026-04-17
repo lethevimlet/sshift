@@ -4,22 +4,22 @@
 
 const { loadConfig, saveConfig } = require('../../utils/config');
 
-/**
- * Register config endpoints
- * @param {Object} app - Express app
- * @param {Object} io - Socket.IO instance
- */
+const AUTH_WHITELIST = [
+  '/api/auth/status',
+  '/api/auth/login'
+];
+
 function registerConfigEndpoints(app, io) {
-  // API: Get config (for sticky sessions and SSH keepalive)
   app.get('/api/config', (req, res) => {
     const config = loadConfig();
     res.json({ 
-      sticky: config.sticky !== false, // Default to true
-      takeControlDefault: config.takeControlDefault !== false, // Default to true
+      sticky: config.sticky !== false,
+      takeControlDefault: config.takeControlDefault !== false,
       sshKeepaliveInterval: config.sshKeepaliveInterval || 10000,
       sshKeepaliveCountMax: config.sshKeepaliveCountMax || 1000,
-      mobileKeysBarEnabled: config.mobileKeysBarEnabled !== false, // Default to true
-      layouts: config.layouts || null // Include layouts if defined in config
+      mobileKeysBarEnabled: config.mobileKeysBarEnabled !== false,
+      layouts: config.layouts || null,
+      passwordEnabled: !!config.passwordHash
     });
   });
 

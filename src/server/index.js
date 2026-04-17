@@ -18,7 +18,7 @@ const socketIO = require('socket.io');
 const selfsigned = require('selfsigned');
 
 // Import utilities
-const { ensureConfig, loadConfig, getPort, getBindAddress, getEnableHttps, getDataDir } = require('./utils/config');
+const { ensureConfig, loadConfig, getPort, getBindAddress, getEnableHttps, getDataDir, isPasswordSet } = require('./utils/config');
 
 // Import services
 const { sshManager, sftpManager } = require('./services');
@@ -155,10 +155,16 @@ async function initializeServer() {
       origin: "*",
       methods: ["GET", "POST"]
     },
-    // Increase ping timeout for sticky sessions
-    // This prevents disconnection during temporary network issues
-    pingTimeout: 60000, // 60 seconds (default 20s)
-    pingInterval: 25000 // 25 seconds (default)
+    pingTimeout: 60000,
+    pingInterval: 25000
+  });
+
+  // Socket.IO auth middleware
+  io.use((socket, next) => {
+    if (!isPasswordSet()) return next();
+    const token = socket.handshake.auth.token || socket.handshake.query.token;
+    if (isValidAuthToken(token)) return next();
+    next(new Error('Authentication required'));
   });
 
   // Set the socket.io instance for services that need it
@@ -166,6 +172,23 @@ async function initializeServer() {
 
   // Middleware
   app.use(express.json());
+
+  // Auth middleware - block API endpoints when password is set
+  const { isValidAuthToken } = require('./endpoints/rest/auth');
+  const AUTH_WHITELIST = ['/auth/status', '/auth/login'];
+
+  app.use('/api', (req, res, next) => {
+    if (AUTH_WHITELIST.some(p => req.path === p)) return next();
+    if (!isPasswordSet()) return next();
+    const token = req.headers.authorization?.replace('Bearer ', '') || req.query.token;
+    if (isValidAuthToken(token)) return next();
+    res.status(401).json({ error: 'Authentication required' });
+  });
+
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api/') || req.path.startsWith('/socket.io/')) return next();
+    next();
+  });
 
   // Serve static files from the webapp directory
   const webappPath = path.join(__dirname, '../webapp');

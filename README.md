@@ -22,6 +22,7 @@ A modern, responsive web-based SSH and SFTP terminal client built with Node.js, 
 - 📁 **SFTP Browser** - File manager interface with upload/download
 - 🗂️ **Tabbed Interface** - Multiple concurrent sessions
 - 🔖 **Bookmarks** - Save connection details for quick access
+- 🔒 **Password Protection** - Optional password lock for app access
 - ⌨️ **Mobile-Friendly** - Special keys popup for mobile devices
 - 🎨 **Modern UI** - GitHub-inspired dark theme, fully responsive
 

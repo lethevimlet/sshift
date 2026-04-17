@@ -4518,3 +4518,98 @@ body.dragging-tabs .tabs-container {
 [data-theme="light"] .mobile-menu-btn i {
   color: #656d76;
 }
+
+/* Lock Screen */
+.lock-screen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--bg-primary);
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lock-screen-content {
+  text-align: center;
+  width: 100%;
+  max-width: 360px;
+  padding: 40px 24px;
+}
+
+.lock-screen-icon {
+  font-size: 48px;
+  color: var(--accent-primary);
+  margin-bottom: 16px;
+}
+
+.lock-screen-title {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 4px;
+}
+
+.lock-screen-subtitle {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0 0 32px;
+}
+
+.lock-screen-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lock-screen-input {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: var(--font-sans);
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color var(--transition-fast);
+}
+
+.lock-screen-input:focus {
+  border-color: var(--accent-primary);
+}
+
+.lock-screen-submit {
+  width: 100%;
+  padding: 10px 16px;
+  font-size: 14px;
+}
+
+.lock-screen-error {
+  color: var(--accent-danger);
+  font-size: 13px;
+  margin-top: 8px;
+}
+
+/* Password disclaimer */
+.password-disclaimer {
+  background: rgba(210, 153, 34, 0.1);
+  border: 1px solid rgba(210, 153, 34, 0.3);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--accent-warning);
+}
+
+.password-disclaimer i {
+  margin-right: 4px;
+}
+
+.password-disclaimer strong {
+  color: var(--accent-warning);
+}
