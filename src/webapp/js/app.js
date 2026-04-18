@@ -2243,10 +2243,8 @@ class SSHIFTClient {
     }
     
     // Update mobile detection on resize and re-apply layout if needed
-    let previousIsMobile = this.isMobile;
     window.addEventListener('resize', () => {
-      const wasMobile = previousIsMobile;
-      previousIsMobile = this.isMobile;
+      const wasMobile = this.isMobile;
       this.isMobile = window.innerWidth <= 768;
       
       // If we switched between mobile and desktop, re-apply the layout
@@ -3450,6 +3448,21 @@ class SSHIFTClient {
               rows: session.terminal.rows
             });
             console.log('[SSHIFT] Resized terminal after becoming controller:', session.terminal.cols, 'x', session.terminal.rows);
+            
+            // Delayed refit to handle viewport transitions (e.g. mobile -> desktop)
+            setTimeout(() => {
+              if (session.terminal && session.fitAddon && session.isController) {
+                session.isResyncing = true;
+                this._fitTerminal(session);
+                session.isResyncing = false;
+                this.socket.emit('ssh-resize', {
+                  sessionId: data.sessionId,
+                  cols: session.terminal.cols,
+                  rows: session.terminal.rows
+                });
+                console.log('[SSHIFT] Delayed refit after becoming controller:', session.terminal.cols, 'x', session.terminal.rows);
+              }
+            }, 300);
           }
           this.showToast('You are now in control (previous controller left)', 'info');
         } else if (!session.isController) {
@@ -3508,6 +3521,22 @@ class SSHIFTClient {
             });
             
             console.log('[SSHIFT] Resized SSH terminal after taking control:', session.terminal.cols, 'x', session.terminal.rows);
+            
+            // Delayed refit to handle viewport transitions (e.g. mobile -> desktop)
+            // The container dimensions may not be final when fit first runs
+            setTimeout(() => {
+              if (session.terminal && session.fitAddon && session.isController) {
+                session.isResyncing = true;
+                this._fitTerminal(session);
+                session.isResyncing = false;
+                this.socket.emit('ssh-resize', {
+                  sessionId: data.sessionId,
+                  cols: session.terminal.cols,
+                  rows: session.terminal.rows
+                });
+                console.log('[SSHIFT] Delayed refit after take control:', session.terminal.cols, 'x', session.terminal.rows);
+              }
+            }, 300);
           } catch (e) {
             console.warn('[SSHIFT] Error resizing terminal after taking control:', e.message);
             session.isResyncing = false;
@@ -4608,8 +4637,9 @@ class SSHIFTClient {
   updateMobileTabsDropdown(panelId = null) {
     // On mobile, we always show a single dropdown that combines all tabs from all panels
     // On desktop with multi-panel, we show separate dropdowns per panel
+    const isMobileView = window.innerWidth <= 768;
     
-    if (this.isMobile) {
+    if (isMobileView || this.isMobile) {
       // Mobile: Single dropdown with all tabs from all panels
       const mobileTabsLabel = document.getElementById('mobileTabsLabel');
       const mobileTabsMenu = document.getElementById('mobileTabsMenu');
