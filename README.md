@@ -116,6 +116,30 @@ SSHIFT uses a priority-based configuration system:
 
 See [Configuration](docs/configuration.md) for details.
 
+## 🔒 HTTPS on Local Network (PWA / "Not Secure" Warnings)
+
+When accessing sshift from a LAN IP (e.g., `https://192.168.1.50:8022`), browsers show "Not Secure" warnings because the self-signed certificate is untrusted. This also blocks PWA installation.
+
+### Quick Fix: Chrome Flag
+
+1. Go to `chrome://flags/#unsafely-treat-insecure-origin-as-secure`
+2. Enter your LAN URL: `https://192.168.1.50:8022`
+3. Set to **Enabled** → **Relaunch**
+
+### Permanent: Custom Trusted Certificate
+
+Generate a cert for your LAN IP and configure sshift to use it:
+
+```json
+{
+  "enableHttps": true,
+  "certPath": "/path/to/sshift-lan-cert.pem",
+  "keyPath": "/path/to/sshift-lan-key.pem"
+}
+```
+
+Then add the certificate to your device's trusted root store. See [Configuration > HTTPS on Local Network](docs/configuration.md) for full instructions including nginx reverse proxy and mDNS options.
+
 ## 🛠️ Technology Stack
 
 **Backend:** Node.js, Express, Socket.IO, ssh2  

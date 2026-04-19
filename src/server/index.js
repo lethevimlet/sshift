@@ -18,7 +18,7 @@ const socketIO = require('socket.io');
 const selfsigned = require('selfsigned');
 
 // Import utilities
-const { ensureConfig, loadConfig, getPort, getBindAddress, getEnableHttps, getDataDir, isPasswordSet } = require('./utils/config');
+const { ensureConfig, loadConfig, getPort, getBindAddress, getEnableHttps, getCertPath, getKeyPath, getDataDir, isPasswordSet } = require('./utils/config');
 
 // Import services
 const { sshManager, sftpManager } = require('./services');
@@ -35,6 +35,26 @@ const SSL_KEY_FILE = 'ssl-key.pem';
  * @returns {Promise<Object>} Certificate and private key
  */
 async function getSSLCredentials() {
+  const customCertPath = getCertPath();
+  const customKeyPath = getKeyPath();
+
+  if (customCertPath && customKeyPath) {
+    console.log('[HTTPS] Using custom certificate from config:');
+    console.log('[HTTPS]   Cert:', customCertPath);
+    console.log('[HTTPS]   Key:', customKeyPath);
+    try {
+      return {
+        cert: fs.readFileSync(customCertPath, 'utf8'),
+        key: fs.readFileSync(customKeyPath, 'utf8')
+      };
+    } catch (err) {
+      console.error('[HTTPS] Failed to read custom certificate files:', err.message);
+      console.error('[HTTPS] Falling back to self-signed certificate');
+    }
+  } else if (customCertPath || customKeyPath) {
+    console.warn('[HTTPS] Both certPath and keyPath must be set in config. Only one was provided; falling back to self-signed certificate.');
+  }
+
   const dataDir = getDataDir();
   const certPath = path.join(dataDir, SSL_CERT_FILE);
   const keyPath = path.join(dataDir, SSL_KEY_FILE);

@@ -39,6 +39,8 @@ const defaultConfig = {
   sticky: true,
   sshKeepaliveInterval: 15000,
   sshKeepaliveCountMax: 500,
+  certPath: null,
+  keyPath: null,
   bookmarks: [],
   folders: [],
   passwordHash: null
@@ -223,6 +225,24 @@ function getEnableHttps() {
 }
 
 /**
+ * Get custom certificate path from config
+ * @returns {string|null} Path to custom certificate file, or null
+ */
+function getCertPath() {
+  const config = loadConfig();
+  return config.certPath || null;
+}
+
+/**
+ * Get custom private key path from config
+ * @returns {string|null} Path to custom private key file, or null
+ */
+function getKeyPath() {
+  const config = loadConfig();
+  return config.keyPath || null;
+}
+
+/**
  * Get the data directory for persistent storage (SSL certs, etc.)
  * Searches the same paths as config to find a writable data directory.
  * @returns {string} Path to data directory
@@ -280,6 +300,8 @@ module.exports = {
   getMobileKeysBarEnabled,
   getLayouts,
   getEnableHttps,
+  getCertPath,
+  getKeyPath,
   getDataDir,
   hashPassword,
   isPasswordSet,

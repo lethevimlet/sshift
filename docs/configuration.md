@@ -86,6 +86,8 @@ The application configuration (bookmarks, settings) is loaded from:
 - **`devPort`** (number): Development server port (default: `3000`)
 - **`bind`** (string): Bind address (default: `"0.0.0.0"`)
 - **`enableHttps`** (boolean): Enable HTTPS with self-signed certificates (default: `true`)
+- **`certPath`** (string|null): Absolute path to a custom TLS certificate file (PEM format). Both `certPath` and `keyPath` must be set together (default: `null`)
+- **`keyPath`** (string|null): Absolute path to a custom TLS private key file (PEM format). Both `certPath` and `keyPath` must be set together (default: `null`)
 - **`sticky`** (boolean): Enable sticky sessions (default: `true`)
 
 ### SSH Settings
@@ -114,6 +116,168 @@ When HTTPS is enabled, sshift automatically generates a self-signed certificate 
 - All local IP addresses
 
 > **Note:** Your browser will show a security warning for self-signed certificates. This is normal for development/local use. Click "Advanced" → "Proceed to localhost (unsafe)" to continue.
+
+#### Custom Certificate Paths
+
+You can specify your own trusted certificates in `config.json` using `certPath` and `keyPath`:
+
+```json
+{
+  "enableHttps": true,
+  "certPath": "/path/to/your/certificate.pem",
+  "keyPath": "/path/to/your/private-key.pem"
+}
+```
+
+Both `certPath` and `keyPath` must be set together; if only one is provided, sshift will fall back to its self-signed certificate. Use absolute paths for reliability.
+
+### HTTPS on Local Network (LAN) — PWA and "Not Secure" Warnings
+
+When accessing sshift from a device on your local network (e.g., `https://192.168.1.50:8022`), browsers will display a "Not Secure" warning because the self-signed certificate is not trusted. This also prevents Progressive Web App (PWA) installation, which requires a trusted secure context.
+
+There are several ways to resolve this:
+
+#### Option 1: Chrome "Insecure Origins Treated as Secure" Flag (Quick)
+
+This is the fastest method for development or personal use. It tells Chrome to treat a specific origin as secure, enabling PWA features.
+
+1. Open Chrome and navigate to:
+   ```
+   chrome://flags/#unsafely-treat-insecure-origin-as-secure
+   ```
+2. In the text box, enter your sshift LAN URL, e.g.:
+   ```
+   https://192.168.1.50:8022
+   ```
+   Include the protocol (`https://`) and port number.
+3. Set the dropdown to **Enabled**.
+4. Click the **Relaunch** button at the bottom to restart Chrome.
+
+After relaunching, Chrome will treat that origin as a secure context — the "Not Secure" warning will disappear, and you can install sshift as a PWA.
+
+> **Note:** This flag is per-device and per-browser. Each device on your LAN needs its own configuration. It is intended for development and personal use, not production.
+
+#### Option 2: Custom Trusted Certificate
+
+For a more permanent solution, create a certificate for your LAN IP and add it to your device's trusted root store.
+
+**Step 1: Generate a certificate for your LAN IP**
+
+Using OpenSSL:
+```bash
+# Create a config file for the certificate
+cat > sshift-lan.cnf <<EOF
+[req]
+default_bits = 2048
+prompt = no
+distinguished_name = dn
+x509_extensions = v3_req
+
+[dn]
+CN = sshift
+
+[v3_req]
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = localhost
+DNS.2 = your-hostname
+IP.1 = 192.168.1.50
+IP.2 = 127.0.0.1
+EOF
+
+# Generate the certificate and private key
+openssl req -new -x509 -days 3650 -nodes \
+  -keyout sshift-lan-key.pem \
+  -out sshift-lan-cert.pem \
+  -config sshift-lan.cnf
+```
+
+Replace `192.168.1.50` with your actual LAN IP and `your-hostname` with your machine's hostname.
+
+**Step 2: Configure sshift to use the certificate**
+
+Add the certificate paths to your `config.json`:
+```json
+{
+  "enableHttps": true,
+  "certPath": "/path/to/sshift-lan-cert.pem",
+  "keyPath": "/path/to/sshift-lan-key.pem"
+}
+```
+
+**Step 3: Trust the certificate on your devices**
+
+- **Windows:** Double-click the `.pem` file → Install Certificate → Local Machine → Place all certificates in "Trusted Root Certification Authorities"
+- **macOS:** Double-click the `.pem` file → Add to Keychain → Set to "Always Trust" in Keychain Access
+- **Linux:** Copy to `/usr/local/share/ca-certificates/` and run `sudo update-ca-certificates`
+- **Android:** Settings → Security → Install from storage → Select the `.pem` file
+- **iOS:** Send the file via AirDrop/email → Open → Install profile → Go to Settings → General → About → Certificate Trust Settings → Enable full trust
+
+After trusting the certificate, the "Not Secure" warning will disappear and PWA installation will work.
+
+#### Option 3: Reverse Proxy with nginx
+
+For production or multi-device deployments, use nginx as a reverse proxy with a trusted certificate (e.g., from Let's Encrypt or a self-signed CA).
+
+**Example nginx configuration:**
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name sshift.lan;
+
+    ssl_certificate     /etc/nginx/ssl/sshift-cert.pem;
+    ssl_certificate_key /etc/nginx/ssl/sshift-key.pem;
+
+    location / {
+        proxy_pass https://127.0.0.1:8022;
+        proxy_http_version 1.1;
+
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_ssl_verify off;
+    }
+}
+```
+
+Then configure sshift to listen on localhost only:
+
+```json
+{
+  "bind": "127.0.0.1",
+  "port": 8022,
+  "enableHttps": true
+}
+```
+
+> **Note:** If you use nginx with HTTPS in front, you can also set `"enableHttps": false` in sshift's config to have nginx handle all TLS termination. Configure nginx to proxy to `http://127.0.0.1:8022` in that case.
+
+#### Option 4: Local DNS with mDNS/Avahi
+
+Assign a `.local` hostname to your machine using mDNS, then use that hostname in your browser. Combined with Option 2 or 3, this provides a clean URL like `https://sshift.local` instead of an IP address.
+
+```bash
+# Install avahi (Linux)
+sudo apt install avahi-daemon
+
+# Verify your .local hostname
+avahi-resolve -4 --name your-hostname.local
+```
+
+### Comparison of HTTPS/LAN Options
+
+| Method | Ease | Per-Device Setup | PWA Support | Trust Level |
+|--------|------|-------------------|-------------|-------------|
+| Chrome flag | Easiest | Yes (each browser) | Yes | Dev/personal only |
+| Trusted cert | Moderate | Yes (each OS) | Yes | Full |
+| nginx reverse proxy | Advanced | No (trust once) | Yes | Full |
+| mDNS hostname | Moderate | No | Yes (with cert) | Full |
 
 ## Custom Layouts
 
