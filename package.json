@@ -61,6 +61,7 @@
     "sshift",
     "src/server/",
     "src/webapp/",
+    "plugins/",
     "example.config.json",
     "README.md",
     "LICENSE"

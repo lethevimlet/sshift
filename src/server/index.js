@@ -23,6 +23,12 @@ const { ensureConfig, loadConfig, getPort, getBindAddress, getEnableHttps, getCe
 // Import services
 const { sshManager, sftpManager } = require('./services');
 
+// Import tab manager
+const tabManager = require('./utils/tab-manager');
+
+// Import plugin manager
+const pluginManager = require('./plugins/plugin-manager');
+
 // Import endpoints
 const { rest, ws } = require('./endpoints');
 
@@ -190,6 +196,15 @@ async function initializeServer() {
   // Set the socket.io instance for services that need it
   sshManager.setIO(io);
 
+  // Initialize plugin system
+  const config = loadConfig();
+  pluginManager.init({
+    io,
+    sshManager,
+    tabManager,
+    config,
+  });
+
   // Middleware
   app.use(express.json());
 
@@ -268,6 +283,9 @@ async function initializeServer() {
       theme: currentTheme,
       accent: currentAccent
     });
+
+    // Sync flash state for tabs that need attention
+    pluginManager.syncFlashState(socket);
 
     // Register all WebSocket handlers
     ws.registerAllWSHandlers(socket, io);

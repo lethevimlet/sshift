@@ -1920,6 +1920,144 @@ body {
   color: var(--text-primary);
 }
 
+.tab.flashing {
+  animation: tab-flash 1s ease-in-out infinite;
+  transition: none;
+}
+
+@keyframes tab-flash {
+  0%, 100% {
+    background: transparent;
+    border-bottom-color: var(--accent-primary);
+    color: var(--accent-primary);
+  }
+  50% {
+    background: var(--accent-primary);
+    color: #fff;
+    border-bottom-color: var(--accent-primary);
+  }
+}
+
+.tab.active.flashing {
+  animation: tab-flash-active 1s ease-in-out infinite;
+  transition: none;
+}
+
+@keyframes tab-flash-active {
+  0%, 100% {
+    background: var(--bg-tertiary);
+    border-bottom-color: var(--accent-primary);
+    color: var(--accent-primary);
+  }
+  50% {
+    background: var(--accent-primary);
+    color: #fff;
+    border-bottom-color: var(--accent-primary);
+  }
+}
+
+.mobile-tabs-toggle.flashing {
+  animation: mobile-toggle-flash 1s ease-in-out infinite;
+  transition: none;
+}
+
+@keyframes mobile-toggle-flash {
+  0%, 100% {
+    background: var(--bg-tertiary);
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 1px var(--accent-primary);
+  }
+  50% {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    color: #fff;
+    box-shadow: 0 0 8px var(--accent-primary);
+  }
+}
+
+.mobile-tab-option.flashing {
+  animation: mobile-option-flash 1s ease-in-out infinite;
+  transition: none;
+}
+
+@keyframes mobile-option-flash {
+  0%, 100% {
+    background: transparent;
+    color: var(--accent-primary);
+  }
+  50% {
+    background: var(--accent-primary);
+    color: #fff;
+  }
+}
+
+[data-theme="light"] .tab.flashing {
+  animation: tab-flash-light 1s ease-in-out infinite;
+}
+
+@keyframes tab-flash-light {
+  0%, 100% {
+    background: transparent;
+    border-bottom-color: var(--accent-primary);
+    color: var(--accent-primary);
+  }
+  50% {
+    background: var(--accent-primary);
+    color: #fff;
+    border-bottom-color: var(--accent-primary);
+  }
+}
+
+[data-theme="light"] .tab.active.flashing {
+  animation: tab-flash-active-light 1s ease-in-out infinite;
+}
+
+@keyframes tab-flash-active-light {
+  0%, 100% {
+    background: var(--bg-tertiary);
+    border-bottom-color: var(--accent-primary);
+    color: var(--accent-primary);
+  }
+  50% {
+    background: var(--accent-primary);
+    color: #fff;
+    border-bottom-color: var(--accent-primary);
+  }
+}
+
+[data-theme="light"] .mobile-tabs-toggle.flashing {
+  animation: mobile-toggle-flash-light 1s ease-in-out infinite;
+}
+
+@keyframes mobile-toggle-flash-light {
+  0%, 100% {
+    background: var(--bg-tertiary);
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 1px var(--accent-primary);
+  }
+  50% {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    color: #fff;
+    box-shadow: 0 0 8px var(--accent-primary);
+  }
+}
+
+[data-theme="light"] .mobile-tab-option.flashing {
+  animation: mobile-option-flash-light 1s ease-in-out infinite;
+}
+
+@keyframes mobile-option-flash-light {
+  0%, 100% {
+    background: transparent;
+    color: var(--accent-primary);
+  }
+  50% {
+    background: var(--accent-primary);
+    color: #fff;
+  }
+}
+
 .tab-icon {
   font-size: 12px;
 }

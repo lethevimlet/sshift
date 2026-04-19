@@ -1,6 +1,7 @@
 const { Client } = require('ssh2');
 const { Terminal } = require('@xterm/headless');
 const { SerializeAddon } = require('@xterm/addon-serialize');
+const pluginManager = require('../plugins/plugin-manager');
 
 class SSHManager {
   constructor() {
@@ -132,6 +133,14 @@ class SSHManager {
           socket.join(`session-${sessionId}`);
           console.log(`[SSH] Shell started: ${sessionId}`);
 
+          // Notify plugins about new session
+          pluginManager.onSessionConnect(sessionId, {
+            host: options.host,
+            port: options.port || 22,
+            username: options.username,
+            name: options.name || 'SSH',
+          });
+
           // Handle stream data with batching to reduce socket events
           // This prevents performance issues when multiple clients are connected
           stream.on('data', (data) => {
@@ -215,6 +224,9 @@ class SSHManager {
   bufferData(sessionId, dataStr) {
     const session = this.sessions.get(sessionId);
     if (!session) return;
+    
+    // Notify plugins about terminal output
+    pluginManager.onData(sessionId, dataStr);
     
     // Add data to buffer
     session.dataBuffer += dataStr;
@@ -507,6 +519,8 @@ class SSHManager {
         session.terminal.dispose();
       }
       this.sessions.delete(sessionId);
+      // Notify plugins about disconnect
+      pluginManager.onSessionDisconnect(sessionId);
     }
   }
 

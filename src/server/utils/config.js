@@ -41,6 +41,7 @@ const defaultConfig = {
   sshKeepaliveCountMax: 500,
   certPath: null,
   keyPath: null,
+  plugins: [],
   bookmarks: [],
   folders: [],
   passwordHash: null

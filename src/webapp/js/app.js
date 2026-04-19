@@ -3058,6 +3058,9 @@ class SSHIFTClient {
     // Update mobile tabs Dropdown after restoration
     this.updateMobileTabsDropdown();
     
+    // Apply any flash states that arrived before DOM elements existed
+    this.applyFlashStates();
+    
     // Clear restoring flag after restoration is complete
     this.isRestoring = false;
   }
@@ -3160,6 +3163,7 @@ class SSHIFTClient {
       console.log('[SSHIFT] Tab order updated:', data.order);
       if (this.sticky) {
         this.reorderTabsInDOM(data.order);
+        this.updateMobileTabsDropdown();
       }
     });
 
@@ -3720,6 +3724,15 @@ class SSHIFTClient {
         });
         this.renderBookmarks();
       }
+    });
+
+    // Plugin-driven tab flash events
+    this.socket.on('tab-flash', (data) => {
+      this.startTabFlash(data.sessionId, data);
+    });
+
+    this.socket.on('tab-flash-stop', (data) => {
+      this.stopTabFlash(data.sessionId);
     });
   }
 
@@ -4676,6 +4689,9 @@ class SSHIFTClient {
           const option = document.createElement('div');
           option.className = `mobile-tab-option${isActive ? ' active' : ''}`;
           option.dataset.sessionId = sessionId;
+          if (this._flashingSessions && this._flashingSessions.has(sessionId)) {
+            option.classList.add('flashing');
+          }
           option.innerHTML = `
             <i class="fas ${icon} tab-icon ${iconClass}"></i>
             <span class="tab-name">${displayName}</span>
@@ -4723,6 +4739,13 @@ class SSHIFTClient {
         iconElement.className = `fas ${activeTabIcon} tab-icon-active`;
       }
       mobileTabsLabel.textContent = activeTabName;
+
+      // Restore flashing state on toggle if any tab is flashing
+      if (this._flashingSessions && this._flashingSessions.size > 0) {
+        mobileTabsToggle.classList.add('flashing');
+      } else {
+        mobileTabsToggle.classList.remove('flashing');
+      }
     } else {
       // Desktop: Update dropdowns per panel (original behavior)
       // If panelId is provided, update only that panel's dropdown
@@ -4766,6 +4789,9 @@ class SSHIFTClient {
             const option = document.createElement('div');
             option.className = `mobile-tab-option${isActive ? ' active' : ''}`;
             option.dataset.sessionId = sessionId;
+            if (this._flashingSessions && this._flashingSessions.has(sessionId)) {
+              option.classList.add('flashing');
+            }
             option.innerHTML = `
               <i class="fas ${icon} tab-icon ${iconClass}"></i>
               <span class="tab-name">${name}</span>
@@ -4813,6 +4839,15 @@ class SSHIFTClient {
           iconElement.className = `fas ${activeTabIcon} tab-icon-active`;
         }
         mobileTabsLabel.textContent = activeTabName;
+
+        // Restore flashing state on toggle if any tab is flashing
+        if (mobileTabsToggle) {
+          if (this._flashingSessions && this._flashingSessions.size > 0) {
+            mobileTabsToggle.classList.add('flashing');
+          } else {
+            mobileTabsToggle.classList.remove('flashing');
+          }
+        }
       });
     }
   }
@@ -6531,9 +6566,100 @@ class SSHIFTClient {
     URL.revokeObjectURL(url);
   }
 
-  // Tab Management
+// Tab Management
+
+  startTabFlash(sessionId, options = {}) {
+    const flashingSessions = this._flashingSessions || (this._flashingSessions = new Set());
+    flashingSessions.add(sessionId);
+
+    const tab = document.querySelector(`.tab[data-session-id="${sessionId}"]`);
+    if (tab) {
+      tab.classList.add('flashing');
+    }
+
+    const mobileOption = document.querySelector(`.mobile-tab-option[data-session-id="${sessionId}"]`);
+    if (mobileOption) {
+      mobileOption.classList.add('flashing');
+    }
+
+    const mobileToggle = document.querySelector('.mobile-tabs-toggle');
+    if (mobileToggle) {
+      mobileToggle.classList.add('flashing');
+    }
+
+    if (!this._tabFlashTimers) this._tabFlashTimers = new Map();
+    if (options.duration) {
+      const existing = this._tabFlashTimers.get(sessionId);
+      if (existing) clearTimeout(existing);
+      this._tabFlashTimers.set(sessionId, setTimeout(() => {
+        this.stopTabFlash(sessionId);
+      }, options.duration));
+    }
+
+    // Safety net: schedule a delayed applyFlashStates in case DOM elements
+    // didn't exist yet when this call was made (e.g., during tab sync)
+    if (!this._flashApplyTimer) this._flashApplyTimer = null;
+    clearTimeout(this._flashApplyTimer);
+    this._flashApplyTimer = setTimeout(() => this.applyFlashStates(), 150);
+  }
+
+  stopTabFlash(sessionId) {
+    const flashingSessions = this._flashingSessions;
+    if (flashingSessions) {
+      flashingSessions.delete(sessionId);
+    }
+
+    const tab = document.querySelector(`.tab[data-session-id="${sessionId}"]`);
+    if (tab) {
+      tab.classList.remove('flashing');
+    }
+
+    const mobileOption = document.querySelector(`.mobile-tab-option[data-session-id="${sessionId}"]`);
+    if (mobileOption) {
+      mobileOption.classList.remove('flashing');
+    }
+
+    const mobileToggle = document.querySelector('.mobile-tabs-toggle');
+    if (mobileToggle && (!flashingSessions || flashingSessions.size === 0)) {
+      mobileToggle.classList.remove('flashing');
+    }
+
+    if (this._tabFlashTimers) {
+      const timer = this._tabFlashTimers.get(sessionId);
+      if (timer) {
+        clearTimeout(timer);
+        this._tabFlashTimers.delete(sessionId);
+      }
+    }
+  }
+
+  applyFlashStates() {
+    const flashingSessions = this._flashingSessions;
+    if (!flashingSessions || flashingSessions.size === 0) return;
+
+    for (const sessionId of flashingSessions) {
+      const tab = document.querySelector(`.tab[data-session-id="${sessionId}"]`);
+      if (tab) {
+        tab.classList.add('flashing');
+      }
+
+      const mobileOption = document.querySelector(`.mobile-tab-option[data-session-id="${sessionId}"]`);
+      if (mobileOption) {
+        mobileOption.classList.add('flashing');
+      }
+    }
+
+    const mobileToggle = document.querySelector('.mobile-tabs-toggle');
+    if (mobileToggle) {
+      mobileToggle.classList.add('flashing');
+    }
+  }
+
   switchTab(sessionId, panelId = null) {
     console.log('[SSHIFT] switchTab called for session:', sessionId, 'panel:', panelId);
+    
+    // Stop any active flash on this tab since user is viewing it
+    this.stopTabFlash(sessionId);
     
     // Determine which panel this session belongs to
     if (!panelId) {
@@ -6746,9 +6872,10 @@ class SSHIFTClient {
     
     // Update mobile tabs dropdown
     this.updateMobileTabsDropdown();
+    
+    // Apply any flash states that may have arrived before the tab DOM existed
+    this.applyFlashStates();
   }
-
-  // Handle tab closed by another client
   handleTabClosed(sessionId) {
     // Check if we have this session
     const session = this.sessions.get(sessionId) || this.sftpSessions.get(sessionId);
@@ -6808,8 +6935,16 @@ class SSHIFTClient {
   }
 
   // Sync tabs from server (called on connect when sticky is enabled)
-  async syncTabsFromServer(tabs) {
-    if (this.isRestoring) return;
+async syncTabsFromServer(tabs) {
+    // Wait for any in-progress restoration to complete before syncing
+    // This prevents the race condition where restoreTabs starts first,
+    // sets isRestoring=true, and then this function returns early, missing
+    // server tabs that aren't in localStorage
+    let waitCount = 0;
+    while (this.isRestoring && waitCount < 200) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      waitCount++;
+    }
     
     console.log('[SSHIFT] Syncing tabs from server:', tabs.length);
     this.isRestoring = true;
@@ -6845,6 +6980,9 @@ class SSHIFTClient {
 
     // Update mobile tabs dropdown after syncing
     this.updateMobileTabsDropdown();
+
+    // Apply any flash states that arrived before DOM elements existed
+    this.applyFlashStates();
 
     this.isRestoring = false;
   }

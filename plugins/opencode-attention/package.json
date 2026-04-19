@@ -1,0 +1,6 @@
+{
+  "name": "opencode-attention",
+  "version": "1.0.0",
+  "description": "Flashes SSH tabs when opencode is waiting for user input",
+  "type": "sshift-plugin"
+}

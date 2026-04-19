@@ -9,6 +9,16 @@
   "sshKeepaliveInterval": 15000,
   "sshKeepaliveCountMax": 500,
   "passwordHash": null,
+  "plugins": [
+    {
+      "name": "opencode-attention",
+      "enabled": true,
+      "config": {
+        "debounceMs": 300,
+        "flashDuration": 0
+      }
+    }
+  ],
   "bookmarks": [
     {
       "id": "example1",

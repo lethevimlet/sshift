@@ -1,0 +1,248 @@
+/**
+ * opencode-attention Plugin
+ *
+ * Detects when opencode (https://opencode.ai) is waiting for user input
+ * in an SSH terminal and flashes the tab to alert the user.
+ *
+ * Detection strategy:
+ *   - Detects opencode's TUI by looking for "OpenCode" in the terminal state
+ *   - Tracks opencode's processing state via spinner characters (⬝ ■ ▣)
+ *   - When opencode was working (spinner active) but goes idle for > idleThreshold ms,
+ *     flashes the tab to alert the user that opencode is waiting for input
+ *   - Also detects common prompt patterns like "> ", "❯ ", "(y/n)" etc.
+ *   - Stops flashing when spinner activity resumes (opencode is busy again)
+ *
+ * Configuration (in config.json under plugins[].config):
+ *   - patterns: string[]       - Additional regex patterns to detect attention
+ *   - debounceMs: number       - Milliseconds between full-state checks (default: 300)
+ *   - flashDuration: number    - Flash duration in ms, 0 = flash until focused (default: 0)
+ *   - excludePatterns: string[] - Regex patterns to exclude from detection
+ *   - checkInterval: number    - Milliseconds between periodic terminal state checks (default: 2000)
+ *   - idleThreshold: number    - Milliseconds without spinner before considered idle (default: 3000)
+ */
+
+class OpenCodeAttentionPlugin {
+  constructor(ctx, config = {}) {
+    this.ctx = ctx;
+    this.config = {
+      debounceMs: config.debounceMs || 300,
+      flashDuration: config.flashDuration || 0,
+      checkInterval: config.checkInterval || 2000,
+      idleThreshold: config.idleThreshold || 3000,
+      ...config,
+    };
+
+    this.patterns = this._buildPatterns(config.patterns || [], config.excludePatterns || []);
+
+    this._dataTimers = new Map();
+    this._checkTimers = new Map();
+    this._flashing = new Map();
+    this._sessionState = new Map();
+  }
+
+  _getSessionState(sessionId) {
+    if (!this._sessionState.has(sessionId)) {
+      this._sessionState.set(sessionId, {
+        isOpencode: false,
+        lastSpinnerTime: 0,
+        wasWorking: false,
+      });
+    }
+    return this._sessionState.get(sessionId);
+  }
+
+  _buildPatterns(extraPatterns, excludePatterns) {
+    const defaultPatterns = [
+      /\> $/,
+      /\> \x1b/,
+      /❯ $/,
+      /❯ \x1b/,
+      /waiting for input/i,
+      /press enter/i,
+      /press any key/i,
+      /confirm\s*\?/i,
+      /\(y\/n\)/i,
+      /\(yes\/no\)/i,
+      /\[Y\/n\]/i,
+      /\[y\/N\]/i,
+    ];
+
+    let patterns = [...defaultPatterns];
+
+    for (const p of extraPatterns) {
+      try { patterns.push(new RegExp(p)); } catch (e) {
+        console.error(`[opencode-attention] Invalid pattern "${p}":`, e.message);
+      }
+    }
+
+    for (const p of excludePatterns) {
+      try {
+        const regex = new RegExp(p);
+        patterns = patterns.filter(pat => pat.source !== regex.source);
+      } catch (e) {
+        console.error(`[opencode-attention] Invalid exclude pattern "${p}":`, e.message);
+      }
+    }
+
+    return patterns;
+  }
+
+  _matchesPattern(text) {
+    for (const pattern of this.patterns) {
+      if (pattern.test(text)) return true;
+    }
+    return false;
+  }
+
+  _stripAnsi(str) {
+    return str
+      .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+      .replace(/\x1b\][^\x07]*\x07/g, '')
+      .replace(/\x1b\[\?[0-9]+[hl]/g, '')
+      .replace(/\x1b[\(\)]B/g, '')
+      .replace(/\x1b[0-9;]*[a-zA-Z]/g, '')
+      .replace(/\x1b[^[\]()?P]/g, '')
+      .replace(/[\x00-\x08\x0b\x0c\x0d\x0e-\x1f\x7f]/g, '')
+      .trim();
+  }
+
+  _startFlash(sessionId) {
+    if (this._flashing.get(sessionId)) return;
+    this._flashing.set(sessionId, true);
+    this.ctx.flashTab(sessionId, { duration: this.config.flashDuration || 0 });
+  }
+
+  _stopFlash(sessionId) {
+    if (!this._flashing.get(sessionId)) return;
+    this._flashing.delete(sessionId);
+    this.ctx.stopFlashTab(sessionId);
+  }
+
+  _scheduleCheck(sessionId) {
+    if (this._dataTimers.has(sessionId)) return;
+
+    const timer = setTimeout(() => {
+      this._dataTimers.delete(sessionId);
+      this._checkAttention(sessionId);
+    }, this.config.debounceMs);
+
+    this._dataTimers.set(sessionId, timer);
+  }
+
+  _checkAttention(sessionId) {
+    const state = this.ctx.getTerminalState(sessionId);
+    if (!state || !state.state) return;
+
+    const lines = state.state.split('\n');
+    const recentLines = lines.slice(-20);
+
+    let isOpencode = false;
+    let matchedPrompt = false;
+
+    for (const line of recentLines) {
+      const stripped = this._stripAnsi(line);
+      if (!stripped) continue;
+
+      if (/OpenCode/i.test(stripped)) {
+        isOpencode = true;
+      }
+
+      if (this._matchesPattern(stripped) || this._matchesPattern(line)) {
+        matchedPrompt = true;
+        break;
+      }
+    }
+
+    const sessionState = this._getSessionState(sessionId);
+    sessionState.isOpencode = isOpencode;
+
+    if (matchedPrompt) {
+      this._startFlash(sessionId);
+    }
+
+    if (isOpencode && !matchedPrompt) {
+      const now = Date.now();
+      const timeSinceSpinner = now - sessionState.lastSpinnerTime;
+
+      if (sessionState.wasWorking && timeSinceSpinner > this.config.idleThreshold) {
+        this._startFlash(sessionId);
+        sessionState.wasWorking = false;
+      }
+    }
+  }
+
+  onData(sessionId, data) {
+    const stripped = this._stripAnsi(data);
+    const sessionState = this._getSessionState(sessionId);
+
+    const isSpinner = /[⬝■▣]/.test(stripped) || /[⬝■▣]/.test(data);
+
+    if (isSpinner) {
+      sessionState.lastSpinnerTime = Date.now();
+      sessionState.wasWorking = true;
+      if (this._flashing.get(sessionId)) {
+        this._stopFlash(sessionId);
+      }
+    }
+
+    if (/OpenCode/i.test(stripped) || /OpenCode/i.test(data)) {
+      sessionState.isOpencode = true;
+    }
+
+    if (this._matchesPattern(stripped) || this._matchesPattern(data)) {
+      this._startFlash(sessionId);
+    } else {
+      this._scheduleCheck(sessionId);
+    }
+  }
+
+  onTerminalLine(sessionId, strippedLine, rawLine) {
+    const sessionState = this._getSessionState(sessionId);
+
+    if (/OpenCode/i.test(strippedLine)) {
+      sessionState.isOpencode = true;
+    }
+
+    if (this._matchesPattern(strippedLine) || this._matchesPattern(rawLine)) {
+      this._startFlash(sessionId);
+    }
+  }
+
+  onSessionConnect(sessionId) {
+    this._sessionState.delete(sessionId);
+    this._flashing.delete(sessionId);
+
+    const existingTimer = this._checkTimers.get(sessionId);
+    if (existingTimer) clearInterval(existingTimer);
+
+    const timer = setInterval(() => {
+      if (!this.ctx.getActiveSessions().includes(sessionId)) {
+        clearInterval(timer);
+        this._checkTimers.delete(sessionId);
+        return;
+      }
+      this._checkAttention(sessionId);
+    }, this.config.checkInterval);
+
+    this._checkTimers.set(sessionId, timer);
+  }
+
+  onSessionDisconnect(sessionId) {
+    this._stopFlash(sessionId);
+    this._sessionState.delete(sessionId);
+
+    const checkTimer = this._checkTimers.get(sessionId);
+    if (checkTimer) {
+      clearInterval(checkTimer);
+      this._checkTimers.delete(sessionId);
+    }
+
+    const dataTimer = this._dataTimers.get(sessionId);
+    if (dataTimer) {
+      clearTimeout(dataTimer);
+      this._dataTimers.delete(sessionId);
+    }
+  }
+}
+
+module.exports = OpenCodeAttentionPlugin;
