@@ -409,3 +409,108 @@ config.json
 # Keep example config
 !config.json.example
 ```
+
+## Plugins
+
+SSHIFT supports a plugin system that can observe SSH session data and terminal output, and react to events like tab flashing. Plugins are configured in `config.json` under the `plugins` array.
+
+### Built-in Plugins
+
+#### OpenCode Attention (`opencode-attention`)
+
+Detects when [OpenCode](https://opencode.ai) is waiting for user input and flashes the browser tab. Tracks OpenCode's spinner characters (⬝ ■ ▣) and prompt patterns. When the spinner stops or a prompt is detected, the tab flashes until you focus it.
+
+**Configuration options:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `debounceMs` | number | `300` | Milliseconds between full-state checks |
+| `flashDuration` | number | `0` | Flash duration in ms. `0` = flash until focused |
+| `checkInterval` | number | `2000` | Milliseconds between periodic terminal state checks |
+| `idleThreshold` | number | `3000` | Milliseconds without spinner before considered idle |
+| `patterns` | string[] | — | Additional regex patterns to detect attention |
+| `excludePatterns` | string[] | — | Regex patterns to exclude from detection |
+
+**Example:**
+
+```json
+{
+  "name": "opencode-attention",
+  "enabled": true,
+  "config": {
+    "debounceMs": 300,
+    "flashDuration": 0,
+    "idleThreshold": 3000
+  }
+}
+```
+
+#### Claude Attention (`claude-attention`)
+
+Detects when [Claude Code](https://claude.ai) is waiting for user input and flashes the browser tab. Tracks Claude's spinner characters (braille spinners ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⠽⠛ and v2 spinners ·✢✳✶✻✽) and prompt patterns like "❯", "Do you want", "Allow", and "Esc to cancel". Only activates detection once a Claude session is confirmed. While Claude is actively working (spinner active), all flashing is suppressed to avoid false positives.
+
+**Configuration options:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `debounceMs` | number | `300` | Milliseconds between full-state checks |
+| `flashDuration` | number | `0` | Flash duration in ms. `0` = flash until focused |
+| `checkInterval` | number | `2000` | Milliseconds between periodic terminal state checks |
+| `idleThreshold` | number | `3000` | Milliseconds without spinner before considered idle |
+| `cooldownMs` | number | `1000` | Milliseconds to suppress re-flash after spinner stops a flash |
+| `patterns` | string[] | — | Additional regex patterns to detect attention |
+| `excludePatterns` | string[] | — | Regex patterns to exclude from detection |
+
+**Example:**
+
+```json
+{
+  "name": "claude-attention",
+  "enabled": true,
+  "config": {
+    "debounceMs": 300,
+    "flashDuration": 0,
+    "idleThreshold": 3000,
+    "cooldownMs": 1000
+  }
+}
+```
+
+### Full Plugin Configuration Example
+
+```json
+{
+  "plugins": [
+    {
+      "name": "opencode-attention",
+      "enabled": true,
+      "config": {
+        "debounceMs": 300,
+        "flashDuration": 0
+      }
+    },
+    {
+      "name": "claude-attention",
+      "enabled": true,
+      "config": {
+        "debounceMs": 300,
+        "flashDuration": 0,
+        "idleThreshold": 3000,
+        "cooldownMs": 1000
+      }
+    }
+  ]
+}
+```
+
+### Disabling a Plugin
+
+Set `"enabled": false` to disable a plugin without removing its configuration:
+
+```json
+{
+  "name": "opencode-attention",
+  "enabled": false,
+  "config": { }
+}
+```

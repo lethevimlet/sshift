@@ -3,14 +3,14 @@ layout: home
 title: Home
 ---
 
-# SSHIFT - Web-based SSH & SFTP Terminal Client
+# SSHIFT - Web-based SSH/SFTP Terminal Client for the AI Stack
 
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://lethevimlet.github.io/sshift/)
 [![npm version](https://img.shields.io/npm/v/@lethevimlet/sshift.svg)](https://www.npmjs.com/package/@lethevimlet/sshift)
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io/lethevimlet/sshift-blue.svg)](https://github.com/lethevimlet/sshift/pkgs/container/sshift)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A modern, responsive web-based SSH and SFTP terminal client built with Node.js, Express, and xterm.js. Features excellent TUI support, tabbed sessions, bookmarks, and mobile-friendly design.
+A modern, responsive web-based SSH and SFTP terminal client built with Node.js, Express, and xterm.js. Designed for the AI coding workflow — featuring tab flash notifications that alert you when AI tools like OpenCode or Claude are waiting for your input, so you never miss a prompt while multitasking. Also features excellent TUI support, tabbed sessions, bookmarks, and mobile-friendly design.
 
 ![SSHIFT Logo]({{ site.baseurl }}/media/logo.jpg)
 
@@ -30,6 +30,12 @@ A modern, responsive web-based SSH and SFTP terminal client built with Node.js, 
 - Proper terminal resizing
 - Clickable web links
 - Alternate buffer support (for TUI applications)
+
+### 🤖 AI Attention Alerts
+- **OpenCode** — Detects when OpenCode is waiting for input (spinner patterns ⬝ ■ ▣)
+- **Claude Code** — Detects when Claude is waiting for input (braille spinners, ·✢✳✶✻✽, prompt patterns like "❯", "Do you want", "Allow")
+- Tab **flash notifications** so you never miss a prompt while multitasking across tabs
+- Configurable debounce, idle threshold, and cooldown settings
 
 ### 📁 SFTP Browser
 - Browse remote directories with a file manager interface
@@ -95,6 +101,7 @@ For detailed installation options, see the [Installation guide]({{ site.baseurl 
 - **[Installation]({{ site.baseurl }}/installation.html)** - Installation methods and configuration
 - **[Docker]({{ site.baseurl }}/docker.html)** - Docker deployment and usage
 - **[Configuration]({{ site.baseurl }}/configuration.html)** - Configuration files and options
+- **[Plugins]({{ site.baseurl }}/configuration.html#plugins)** - AI attention alerts and plugin system
 - **[API Reference]({{ site.baseurl }}/api-reference.html)** - Socket.IO events and API
 - **[Testing]({{ site.baseurl }}/testing.html)** - Running and writing tests
 - **[Contributing]({{ site.baseurl }}/contributing.html)** - How to contribute

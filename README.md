@@ -1,11 +1,11 @@
-# SSHIFT - Web-based SSH & SFTP Terminal Client
+# SSHIFT - Web-based SSH/SFTP Terminal Client for the AI Stack
 
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://lethevimlet.github.io/sshift/)
 [![npm version](https://img.shields.io/npm/v/@lethevimlet/sshift.svg)](https://www.npmjs.com/package/@lethevimlet/sshift)
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io/lethevimlet/sshift-blue.svg)](https://github.com/lethevimlet/sshift/pkgs/container/sshift)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A modern, responsive web-based SSH and SFTP terminal client built with Node.js, Express, and xterm.js. Features excellent TUI support, tabbed sessions, bookmarks, and mobile-friendly design.
+A modern, responsive web-based SSH and SFTP terminal client built with Node.js, Express, and xterm.js. Designed for the AI coding workflow — featuring tab flash notifications that alert you when AI tools like OpenCode or Claude are waiting for your input, so you never miss a prompt while multitasking. Also features excellent TUI support, tabbed sessions, bookmarks, and mobile-friendly design.
 
 ![SSHIFT Logo](media/logo.jpg)
 
@@ -20,6 +20,7 @@ A modern, responsive web-based SSH and SFTP terminal client built with Node.js, 
 
 - 🔐 **SSH Terminal** - Full xterm.js emulation with TUI support (vim, nano, htop, tmux)
 - 📁 **SFTP Browser** - File manager interface with upload/download
+- 🤖 **AI Attention Alerts** - Tab flash notifications when AI tools (OpenCode, Claude) need your input
 - 🗂️ **Tabbed Interface** - Multiple concurrent sessions
 - 🔖 **Bookmarks** - Save connection details for quick access
 - 🔒 **Password Protection** - Optional password lock for app access
@@ -45,6 +46,7 @@ Full documentation is available at [GitHub Pages](https://lethevimlet.github.io/
 - **[Installation](docs/installation.md)** - Detailed installation options
 - **[Docker](docs/docker.md)** - Docker deployment and usage
 - **[Configuration](docs/configuration.md)** - Configuration files and options
+- **[Plugins](docs/configuration.md#plugins)** - AI attention alerts and plugin system
 - **[API Reference](docs/api-reference.md)** - Socket.IO events and API
 - **[Testing](docs/testing.md)** - Running and writing tests
 - **[Contributing](docs/contributing.md)** - How to contribute
@@ -139,6 +141,50 @@ Generate a cert for your LAN IP and configure sshift to use it:
 ```
 
 Then add the certificate to your device's trusted root store. See [Configuration > HTTPS on Local Network](docs/configuration.md) for full instructions including nginx reverse proxy and mDNS options.
+
+## 🤖 AI Attention Plugins
+
+SSHIFT includes built-in plugins that detect when AI coding tools are waiting for user input and flash the browser tab to get your attention — perfect for when you're multitasking across tabs.
+
+### OpenCode Attention
+
+Detects when [OpenCode](https://opencode.ai) is waiting for input by tracking its spinner characters (⬝ ■ ▣) and prompt patterns. When the spinner stops or a prompt appears, the tab flashes.
+
+### Claude Attention
+
+Detects when [Claude Code](https://claude.ai) is waiting for input by tracking its spinner characters (⠋⠙⠹ braille patterns, ·✢✳✶✻✽) and prompt patterns like "❯", "Do you want", "Allow", and "Esc to cancel".
+
+### Enabling Plugins
+
+Add plugins to your `config.json`:
+
+```json
+{
+  "plugins": [
+    {
+      "name": "opencode-attention",
+      "enabled": true,
+      "config": {
+        "debounceMs": 300,
+        "flashDuration": 0,
+        "idleThreshold": 3000
+      }
+    },
+    {
+      "name": "claude-attention",
+      "enabled": true,
+      "config": {
+        "debounceMs": 300,
+        "flashDuration": 0,
+        "idleThreshold": 3000,
+        "cooldownMs": 1000
+      }
+    }
+  ]
+}
+```
+
+See [Configuration > Plugins](docs/configuration.md#plugins) for full details.
 
 ## 🛠️ Technology Stack
 

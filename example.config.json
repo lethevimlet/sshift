@@ -17,6 +17,14 @@
         "debounceMs": 300,
         "flashDuration": 0
       }
+    },
+    {
+      "name": "claude-attention",
+      "enabled": true,
+      "config": {
+        "debounceMs": 300,
+        "flashDuration": 0
+      }
     }
   ],
   "bookmarks": [

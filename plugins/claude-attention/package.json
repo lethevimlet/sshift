@@ -1,0 +1,6 @@
+{
+  "name": "claude-attention",
+  "version": "1.0.0",
+  "description": "Flashes SSH tabs when Claude is waiting for user input",
+  "type": "sshift-plugin"
+}
