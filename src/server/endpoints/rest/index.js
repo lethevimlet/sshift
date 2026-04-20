@@ -6,6 +6,7 @@
 const { registerBookmarkEndpoints } = require('./bookmarks');
 const { registerConfigEndpoints } = require('./config');
 const { registerFolderEndpoints } = require('./folders');
+const { registerPluginEndpoints } = require('./plugins');
 const { registerSessionsEndpoints } = require('./sessions');
 const { registerSystemEndpoints } = require('./system');
 const { registerUtilsEndpoints } = require('./utils');
@@ -16,6 +17,7 @@ function registerAllRestEndpoints(app, io) {
   registerBookmarkEndpoints(app, io);
   registerConfigEndpoints(app, io);
   registerFolderEndpoints(app, io);
+  registerPluginEndpoints(app, io);
   registerSessionsEndpoints(app, io);
   registerSystemEndpoints(app, io);
   registerUtilsEndpoints(app, io);
@@ -25,6 +27,7 @@ module.exports = {
   registerBookmarkEndpoints,
   registerConfigEndpoints,
   registerFolderEndpoints,
+  registerPluginEndpoints,
   registerSessionsEndpoints,
   registerSystemEndpoints,
   registerUtilsEndpoints,

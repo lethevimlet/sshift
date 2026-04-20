@@ -41,6 +41,67 @@ class PluginManager {
     this.flashingSessions = new Map(); // sessionId -> options
   }
 
+  discoverPlugins() {
+    const builtinDir = path.join(__dirname, '..', '..', '..', 'plugins');
+    const discovered = [];
+
+    if (fs.existsSync(builtinDir)) {
+      const entries = fs.readdirSync(builtinDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const pluginDir = path.join(builtinDir, entry.name);
+        const indexFile = path.join(pluginDir, 'index.js');
+        const pkgFile = path.join(pluginDir, 'package.json');
+
+        if (!fs.existsSync(indexFile)) continue;
+
+        let description = '';
+        if (fs.existsSync(pkgFile)) {
+          try {
+            const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
+            description = pkg.description || '';
+          } catch (e) { /* ignore */ }
+        }
+
+        discovered.push({
+          name: entry.name,
+          description,
+        });
+      }
+    }
+
+    return discovered;
+  }
+
+  reload(config) {
+    this.config = config;
+
+    for (const hookFns of Object.values(this.hooks)) {
+      hookFns.length = 0;
+    }
+
+    for (const [name, pluginEntry] of this.plugins.entries()) {
+      const instance = pluginEntry.instance;
+      if (instance && typeof instance.onSessionDisconnect === 'function') {
+        for (const sessionId of this._lineBuffers.keys()) {
+          try { instance.onSessionDisconnect(sessionId); } catch (e) { /* ignore */ }
+        }
+      }
+    }
+
+    this.plugins.clear();
+    this._lineBuffers.clear();
+    this.flashingSessions.clear();
+
+    if (this.io) {
+      for (const [, socket] of this.io.sockets.sockets) {
+        this.syncFlashState(socket);
+      }
+    }
+
+    this._loadPlugins();
+  }
+
   init({ io, sshManager, tabManager, config }) {
     this.io = io;
     this.sshManager = sshManager;
@@ -59,6 +120,14 @@ class PluginManager {
       }
       this._loadPlugin(pluginConfig);
     }
+  }
+
+  getPluginDir(name) {
+    const localDir = path.join(__dirname, name);
+    const builtinDir = path.join(__dirname, '..', '..', '..', 'plugins', name);
+    if (fs.existsSync(path.join(localDir, 'index.js'))) return localDir;
+    if (fs.existsSync(path.join(builtinDir, 'index.js'))) return builtinDir;
+    return null;
   }
 
   _loadPlugin(pluginConfig) {

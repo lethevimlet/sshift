@@ -4259,6 +4259,9 @@ class SSHIFTClient {
     // Update password toggle button state
     this.updatePasswordToggleUI();
     
+    // Load plugins
+    this.loadPlugins();
+    
     this.openModal('settingsModal');
   }
 
@@ -4979,6 +4982,88 @@ class SSHIFTClient {
     }).catch(err => {
       console.error('[SSHIFT] Error saving config:', err);
     });
+  }
+
+  async loadPlugins() {
+    const pluginsList = document.getElementById('pluginsList');
+    if (!pluginsList) return;
+
+    pluginsList.innerHTML = '<div class="plugins-loading">Loading plugins...</div>';
+
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (this.authToken) headers['Authorization'] = `Bearer ${this.authToken}`;
+      const response = await fetch('/api/plugins', { headers });
+
+      if (!response.ok) {
+        pluginsList.innerHTML = '<div class="plugins-loading">Failed to load plugins</div>';
+        return;
+      }
+
+      const plugins = await response.json();
+
+      if (plugins.length === 0) {
+        pluginsList.innerHTML = '<div class="plugins-loading">No plugins available</div>';
+        return;
+      }
+
+      pluginsList.innerHTML = plugins.map(plugin => {
+        const name = this.escapeHtml(plugin.name);
+        const description = this.escapeHtml(plugin.description || '');
+        const isMissing = plugin.missing === true;
+        const missingClass = isMissing ? ' missing' : '';
+        const missingHtml = isMissing ? '<div class="plugin-card-missing"><i class="fas fa-exclamation-triangle"></i> Plugin directory not found</div>' : '';
+
+        return `
+          <div class="plugin-card${missingClass}" data-plugin="${name}">
+            <div class="plugin-card-info">
+              <div class="plugin-card-name">${name}</div>
+              ${description ? `<div class="plugin-card-description">${description}</div>` : ''}
+              ${missingHtml}
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" class="plugin-toggle" data-plugin="${name}" ${plugin.enabled ? 'checked' : ''} ${isMissing ? 'disabled' : ''}>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        `;
+      }).join('');
+
+      pluginsList.querySelectorAll('.plugin-toggle').forEach(toggle => {
+        toggle.addEventListener('change', (e) => {
+          const pluginName = e.target.dataset.plugin;
+          const enabled = e.target.checked;
+          this.togglePlugin(pluginName, enabled, e.target);
+        });
+      });
+    } catch (err) {
+      console.error('[SSHIFT] Error loading plugins:', err);
+      pluginsList.innerHTML = '<div class="plugins-loading">Failed to load plugins</div>';
+    }
+  }
+
+  async togglePlugin(name, enabled, toggleEl) {
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (this.authToken) headers['Authorization'] = `Bearer ${this.authToken}`;
+      const response = await fetch('/api/plugins', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ name, enabled })
+      });
+
+      if (!response.ok) {
+        toggleEl.checked = !enabled;
+        this.showToast('Failed to update plugin', 'error');
+        return;
+      }
+
+      this.showToast(`Plugin "${name}" ${enabled ? 'enabled' : 'disabled'}`, 'success');
+    } catch (err) {
+      console.error('[SSHIFT] Error toggling plugin:', err);
+      toggleEl.checked = !enabled;
+      this.showToast('Failed to update plugin', 'error');
+    }
   }
 
   saveTerminalColorSettings() {

@@ -140,9 +140,9 @@ function registerSystemEndpoints(app, io) {
       // Determine the install script based on platform
       let installScript;
       if (platform === 'win32') {
-        installScript = path.join(__dirname, '../../../../install.ps1');
+        installScript = path.join(__dirname, '../../../../sshift-install.ps1');
       } else {
-        installScript = path.join(__dirname, '../../../../install.sh');
+        installScript = path.join(__dirname, '../../../../sshift-install.sh');
       }
       
       // Check if install script exists

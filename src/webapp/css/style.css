@@ -3529,6 +3529,73 @@ body.dragging-tabs .tabs-container {
   transform: translateX(20px);
 }
 
+.setting-group-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+.setting-group-title i {
+  color: var(--accent-primary);
+}
+
+.plugins-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.plugins-loading {
+  color: var(--text-secondary);
+  font-size: 13px;
+  padding: 8px 0;
+}
+
+.plugin-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  gap: 12px;
+}
+
+.plugin-card.missing {
+  opacity: 0.55;
+}
+
+.plugin-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.plugin-card-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.plugin-card-description {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.plugin-card-missing {
+  font-size: 11px;
+  color: var(--accent-danger, #f85149);
+  margin-top: 2px;
+}
+
 /* Mobile Keys Bar */
 .mobile-keys-bar {
   display: none;
