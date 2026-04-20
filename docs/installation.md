@@ -3,8 +3,6 @@ layout: page
 title: Installation
 ---
 
-# Installation
-
 ## Prerequisites
 
 - **Node.js** >= 20.0.0 (installed automatically by the installer if not present)

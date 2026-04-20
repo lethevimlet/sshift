@@ -3,8 +3,6 @@ layout: page
 title: API Reference
 ---
 
-# API Reference
-
 ## Socket.IO Events
 
 ### Client → Server

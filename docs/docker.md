@@ -3,8 +3,6 @@ layout: page
 title: Docker
 ---
 
-# Docker
-
 Deploy SSHIFT using Docker containers for easy installation and isolation.
 
 ## Quick Start

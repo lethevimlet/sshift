@@ -3,8 +3,6 @@ layout: page
 title: Configuration
 ---
 
-# Configuration
-
 ## Configuration Files
 
 SSHIFT uses a **priority-based configuration system** with multiple config file locations.

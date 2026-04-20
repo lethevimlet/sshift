@@ -12,8 +12,12 @@ A modern, responsive web-based SSH and SFTP terminal client built with Node.js, 
 ## 📸 Screenshots
 
 <div align="center">
-  <img src="media/screenshot1.png" alt="SSH Terminal" width="45%">
-  <img src="media/screenshot2.png" alt="SFTP Browser" width="45%">
+  <img src="media/desktop_light.png" alt="SSHIFT Desktop (Light)" width="45%">
+  <img src="media/desktop_dark.png" alt="SSHIFT Desktop (Dark)" width="45%">
+</div>
+<br>
+<div align="center">
+  <img src="media/mobile.png" alt="SSHIFT Mobile" width="30%">
 </div>
 
 ## ✨ Features

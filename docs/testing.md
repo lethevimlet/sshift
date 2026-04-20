@@ -3,8 +3,6 @@ layout: page
 title: Testing
 ---
 
-# Testing
-
 ## Prerequisites
 
 ### Chrome/Chromium for Browser Tests

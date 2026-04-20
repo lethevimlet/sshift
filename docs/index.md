@@ -1,9 +1,7 @@
 ---
 layout: home
-title: Home
+title: SSHIFT - Web-based SSH/SFTP Terminal Client for the AI Stack
 ---
-
-# SSHIFT - Web-based SSH/SFTP Terminal Client for the AI Stack
 
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://lethevimlet.github.io/sshift/)
 [![npm version](https://img.shields.io/npm/v/@lethevimlet/sshift.svg)](https://www.npmjs.com/package/@lethevimlet/sshift)
@@ -17,8 +15,12 @@ A modern, responsive web-based SSH and SFTP terminal client built with Node.js, 
 ## 📸 Screenshots
 
 <div align="center">
-  <img src="{{ site.baseurl }}/media/screenshot1.png" alt="SSH Terminal" width="45%">
-  <img src="{{ site.baseurl }}/media/screenshot2.png" alt="SFTP Browser" width="45%">
+  <img src="{{ site.baseurl }}/media/desktop_light.png" alt="SSHIFT Desktop (Light)" width="45%">
+  <img src="{{ site.baseurl }}/media/desktop_dark.png" alt="SSHIFT Desktop (Dark)" width="45%">
+</div>
+<br>
+<div align="center">
+  <img src="{{ site.baseurl }}/media/mobile.png" alt="SSHIFT Mobile" width="30%">
 </div>
 
 ## ✨ Features
