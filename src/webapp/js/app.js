@@ -3434,39 +3434,64 @@ class SSHIFTClient {
         session.isController = data.controllerSocket === this.socket.id;
         session.controllerSocket = data.controllerSocket;
         
+        if (session.isController && !wasController) {
+          // We just became the controller — hide overlay immediately
+          // to avoid measuring stale dimensions, then resize after layout settles
+          const overlay = document.getElementById(`control-overlay-${data.sessionId}`);
+          if (overlay) overlay.style.display = 'none';
+        }
+        
         this.updateControlOverlay(data.sessionId);
         
         if (session.isController && !wasController) {
-          // We just became the controller — resize to our container
+          // Resize to our container after browser finishes layout
           if (session.terminal && session.fitAddon) {
-            session.isResyncing = true;
             if (session.resizeTimeout) {
               clearTimeout(session.resizeTimeout);
               session.resizeTimeout = null;
             }
-            this._fitTerminal(session);
-            session.isResyncing = false;
-            this.socket.emit('ssh-resize', {
-              sessionId: data.sessionId,
-              cols: session.terminal.cols,
-              rows: session.terminal.rows
-            });
-            console.log('[SSHIFT] Resized terminal after becoming controller:', session.terminal.cols, 'x', session.terminal.rows);
             
-            // Delayed refit to handle viewport transitions (e.g. mobile -> desktop)
-            setTimeout(() => {
-              if (session.terminal && session.fitAddon && session.isController) {
-                session.isResyncing = true;
-                this._fitTerminal(session);
-                session.isResyncing = false;
-                this.socket.emit('ssh-resize', {
-                  sessionId: data.sessionId,
-                  cols: session.terminal.cols,
-                  rows: session.terminal.rows
-                });
-                console.log('[SSHIFT] Delayed refit after becoming controller:', session.terminal.cols, 'x', session.terminal.rows);
-              }
-            }, 300);
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                if (!session.terminal || !session.fitAddon || !session.isController) return;
+                try {
+                  session.isResyncing = true;
+                  this._fitTerminal(session);
+                  session.isResyncing = false;
+                  
+                  if (session.terminal && session.connected) {
+                    this.socket.emit('ssh-resize', {
+                      sessionId: data.sessionId,
+                      cols: session.terminal.cols,
+                      rows: session.terminal.rows
+                    });
+                    console.log('[SSHIFT] Resized terminal after becoming controller:', session.terminal.cols, 'x', session.terminal.rows);
+                  }
+                  
+                  // Safety refit to handle viewport transitions
+                  setTimeout(() => {
+                    if (session.terminal && session.fitAddon && session.isController) {
+                      session.isResyncing = true;
+                      const prevCols = session.terminal.cols;
+                      const prevRows = session.terminal.rows;
+                      this._fitTerminal(session);
+                      session.isResyncing = false;
+                      if (session.terminal.cols !== prevCols || session.terminal.rows !== prevRows) {
+                        this.socket.emit('ssh-resize', {
+                          sessionId: data.sessionId,
+                          cols: session.terminal.cols,
+                          rows: session.terminal.rows
+                        });
+                        console.log('[SSHIFT] Corrected dimensions after becoming controller:', session.terminal.cols, 'x', session.terminal.rows);
+                      }
+                    }
+                  }, 300);
+                } catch (e) {
+                  console.warn('[SSHIFT] Error resizing terminal after becoming controller:', e.message);
+                  session.isResyncing = false;
+                }
+              });
+            });
           }
           this.showToast('You are now in control (previous controller left)', 'info');
         } else if (!session.isController) {
@@ -3494,57 +3519,65 @@ class SSHIFTClient {
       if (session) {
         session.isController = true;
         session.controllerSocket = this.socket.id;
+        
+        // Immediately hide the overlay so the terminal container can recalculate
+        // its dimensions before we fit. Skip the 50ms debounce in updateControlOverlay
+        // to avoid measuring stale dimensions.
+        const overlay = document.getElementById(`control-overlay-${data.sessionId}`);
+        if (overlay) overlay.style.display = 'none';
         this.updateControlOverlay(data.sessionId);
         
         // Resize the SSH terminal to match our local terminal dimensions
-        // This ensures the terminal displays correctly for the new controller
+        // Use double requestAnimationFrame to ensure the browser has finished
+        // layout after hiding the overlay (same pattern as tab switching).
         if (session.terminal && session.fitAddon) {
-          try {
-            // Set resyncing flag to prevent onResize from emitting duplicate resize event
-            // fit() triggers onResize, but we want to control when the resize is sent
-            session.isResyncing = true;
-            
-            // Clear any pending resize timeout to prevent duplicate resize events
-            if (session.resizeTimeout) {
-              clearTimeout(session.resizeTimeout);
-              session.resizeTimeout = null;
-            }
-            
-            // Fit the terminal to our container first
-            session.isResyncing = true;
-            this._fitTerminal(session);
-            
-            // Clear the resyncing flag before emitting resize
-            session.isResyncing = false;
-            
-            // Now emit the resize event to update the SSH terminal and other clients
-            this.socket.emit('ssh-resize', {
-              sessionId: data.sessionId,
-              cols: session.terminal.cols,
-              rows: session.terminal.rows
-            });
-            
-            console.log('[SSHIFT] Resized SSH terminal after taking control:', session.terminal.cols, 'x', session.terminal.rows);
-            
-            // Delayed refit to handle viewport transitions (e.g. mobile -> desktop)
-            // The container dimensions may not be final when fit first runs
-            setTimeout(() => {
-              if (session.terminal && session.fitAddon && session.isController) {
+          // Clear any pending resize timeout to prevent duplicate resize events
+          if (session.resizeTimeout) {
+            clearTimeout(session.resizeTimeout);
+            session.resizeTimeout = null;
+          }
+          
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              if (!session.terminal || !session.fitAddon || !session.isController) return;
+              try {
                 session.isResyncing = true;
                 this._fitTerminal(session);
                 session.isResyncing = false;
-                this.socket.emit('ssh-resize', {
-                  sessionId: data.sessionId,
-                  cols: session.terminal.cols,
-                  rows: session.terminal.rows
-                });
-                console.log('[SSHIFT] Delayed refit after take control:', session.terminal.cols, 'x', session.terminal.rows);
+                
+                if (session.terminal && session.connected) {
+                  this.socket.emit('ssh-resize', {
+                    sessionId: data.sessionId,
+                    cols: session.terminal.cols,
+                    rows: session.terminal.rows
+                  });
+                  console.log('[SSHIFT] Resized SSH terminal after taking control:', session.terminal.cols, 'x', session.terminal.rows);
+                }
+                
+                // Safety refit to handle viewport transitions (e.g. mobile -> desktop)
+                setTimeout(() => {
+                  if (session.terminal && session.fitAddon && session.isController) {
+                    session.isResyncing = true;
+                    const prevCols = session.terminal.cols;
+                    const prevRows = session.terminal.rows;
+                    this._fitTerminal(session);
+                    session.isResyncing = false;
+                    if (session.terminal.cols !== prevCols || session.terminal.rows !== prevRows) {
+                      this.socket.emit('ssh-resize', {
+                        sessionId: data.sessionId,
+                        cols: session.terminal.cols,
+                        rows: session.terminal.rows
+                      });
+                      console.log('[SSHIFT] Corrected dimensions after take control:', session.terminal.cols, 'x', session.terminal.rows);
+                    }
+                  }
+                }, 300);
+              } catch (e) {
+                console.warn('[SSHIFT] Error resizing terminal after taking control:', e.message);
+                session.isResyncing = false;
               }
-            }, 300);
-          } catch (e) {
-            console.warn('[SSHIFT] Error resizing terminal after taking control:', e.message);
-            session.isResyncing = false;
-          }
+            });
+          });
         }
         
         this.showToast('You are now in control', 'success');
