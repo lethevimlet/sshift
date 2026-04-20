@@ -93,13 +93,19 @@ class PluginManager {
     this._lineBuffers.clear();
     this.flashingSessions.clear();
 
+    this._loadPlugins();
+
     if (this.io) {
       for (const [, socket] of this.io.sockets.sockets) {
         this.syncFlashState(socket);
       }
     }
 
-    this._loadPlugins();
+    if (this.sshManager) {
+      for (const sessionId of this.sshManager.sessions.keys()) {
+        this.emit('onSessionConnect', sessionId, {});
+      }
+    }
   }
 
   init({ io, sshManager, tabManager, config }) {

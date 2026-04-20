@@ -6702,20 +6702,17 @@ class SSHIFTClient {
     const flashingSessions = this._flashingSessions || (this._flashingSessions = new Set());
     flashingSessions.add(sessionId);
 
-    const tab = document.querySelector(`.tab[data-session-id="${sessionId}"]`);
-    if (tab) {
+    document.querySelectorAll(`.tab[data-session-id="${sessionId}"]`).forEach(tab => {
       tab.classList.add('flashing');
-    }
+    });
 
-    const mobileOption = document.querySelector(`.mobile-tab-option[data-session-id="${sessionId}"]`);
-    if (mobileOption) {
+    document.querySelectorAll(`.mobile-tab-option[data-session-id="${sessionId}"]`).forEach(mobileOption => {
       mobileOption.classList.add('flashing');
-    }
+    });
 
-    const mobileToggle = document.querySelector('.mobile-tabs-toggle');
-    if (mobileToggle) {
-      mobileToggle.classList.add('flashing');
-    }
+    document.querySelectorAll('.mobile-tabs-toggle').forEach(toggle => {
+      toggle.classList.add('flashing');
+    });
 
     if (!this._tabFlashTimers) this._tabFlashTimers = new Map();
     if (options.duration) {
@@ -6739,20 +6736,19 @@ class SSHIFTClient {
       flashingSessions.delete(sessionId);
     }
 
-    const tab = document.querySelector(`.tab[data-session-id="${sessionId}"]`);
-    if (tab) {
+    document.querySelectorAll(`.tab[data-session-id="${sessionId}"]`).forEach(tab => {
       tab.classList.remove('flashing');
-    }
+    });
 
-    const mobileOption = document.querySelector(`.mobile-tab-option[data-session-id="${sessionId}"]`);
-    if (mobileOption) {
+    document.querySelectorAll(`.mobile-tab-option[data-session-id="${sessionId}"]`).forEach(mobileOption => {
       mobileOption.classList.remove('flashing');
-    }
+    });
 
-    const mobileToggle = document.querySelector('.mobile-tabs-toggle');
-    if (mobileToggle && (!flashingSessions || flashingSessions.size === 0)) {
-      mobileToggle.classList.remove('flashing');
-    }
+    document.querySelectorAll('.mobile-tabs-toggle').forEach(toggle => {
+      if (!flashingSessions || flashingSessions.size === 0) {
+        toggle.classList.remove('flashing');
+      }
+    });
 
     if (this._tabFlashTimers) {
       const timer = this._tabFlashTimers.get(sessionId);
@@ -6768,21 +6764,18 @@ class SSHIFTClient {
     if (!flashingSessions || flashingSessions.size === 0) return;
 
     for (const sessionId of flashingSessions) {
-      const tab = document.querySelector(`.tab[data-session-id="${sessionId}"]`);
-      if (tab) {
+      document.querySelectorAll(`.tab[data-session-id="${sessionId}"]`).forEach(tab => {
         tab.classList.add('flashing');
-      }
+      });
 
-      const mobileOption = document.querySelector(`.mobile-tab-option[data-session-id="${sessionId}"]`);
-      if (mobileOption) {
+      document.querySelectorAll(`.mobile-tab-option[data-session-id="${sessionId}"]`).forEach(mobileOption => {
         mobileOption.classList.add('flashing');
-      }
+      });
     }
 
-    const mobileToggle = document.querySelector('.mobile-tabs-toggle');
-    if (mobileToggle) {
-      mobileToggle.classList.add('flashing');
-    }
+    document.querySelectorAll('.mobile-tabs-toggle').forEach(toggle => {
+      toggle.classList.add('flashing');
+    });
   }
 
   switchTab(sessionId, panelId = null) {
