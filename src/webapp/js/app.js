@@ -3468,7 +3468,6 @@ class SSHIFTClient {
                     console.log('[SSHIFT] Resized terminal after becoming controller:', session.terminal.cols, 'x', session.terminal.rows);
                   }
                   
-                  // Safety refit to handle viewport transitions
                   setTimeout(() => {
                     if (session.terminal && session.fitAddon && session.isController) {
                       session.isResyncing = true;
@@ -3486,6 +3485,13 @@ class SSHIFTClient {
                       }
                     }
                   }, 300);
+
+                  setTimeout(() => {
+                    if (session.terminal && session.connected && session.isController) {
+                      console.log('[SSHIFT] Requesting screen sync after becoming controller to redraw at local dimensions');
+                      this.requestScreenSync(data.sessionId);
+                    }
+                  }, 500);
                 } catch (e) {
                   console.warn('[SSHIFT] Error resizing terminal after becoming controller:', e.message);
                   session.isResyncing = false;
@@ -3554,7 +3560,6 @@ class SSHIFTClient {
                   console.log('[SSHIFT] Resized SSH terminal after taking control:', session.terminal.cols, 'x', session.terminal.rows);
                 }
                 
-                // Safety refit to handle viewport transitions (e.g. mobile -> desktop)
                 setTimeout(() => {
                   if (session.terminal && session.fitAddon && session.isController) {
                     session.isResyncing = true;
@@ -3572,6 +3577,13 @@ class SSHIFTClient {
                     }
                   }
                 }, 300);
+
+                setTimeout(() => {
+                  if (session.terminal && session.connected && session.isController) {
+                    console.log('[SSHIFT] Requesting screen sync after taking control to redraw at local dimensions');
+                    this.requestScreenSync(data.sessionId);
+                  }
+                }, 500);
               } catch (e) {
                 console.warn('[SSHIFT] Error resizing terminal after taking control:', e.message);
                 session.isResyncing = false;
