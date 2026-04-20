@@ -9,12 +9,24 @@ SSHIFT uses a **priority-based configuration system** with multiple config file 
 
 ### Environment Variables (`.env` files)
 
-Environment variables are loaded from the following locations in **priority order** (highest to lowest):
+Environment variables are loaded from multiple locations. Since `dotenv` does not overwrite existing variables, **the first file to set a variable wins**:
 
-1. `.env/.env.local` - **User-specific, private config** (highest priority)
-2. `.env.local` - User-specific config in root (backward compatibility)
-3. `.env/.env` - Shared environment config
-4. `.env` - Default environment config (lowest priority)
+| Priority | Path | Notes |
+|----------|------|-------|
+| 1 | `~/.local/share/sshift/.env/.env.local` | Primary user install (local override) |
+| 2 | `~/.local/share/sshift/.env.local` | User install (local) |
+| 3 | `~/.local/share/bin/.env/.env.local` | Alternative install (local override) |
+| 4 | `~/.local/share/bin/.env.local` | Alternative install (local) |
+| 5 | `~/.local/share/sshift/.env/.env` | Primary user install (shared) |
+| 6 | `~/.local/share/sshift/.env` | User install (base) |
+| 7 | `~/.local/share/bin/.env/.env` | Alternative install (shared) |
+| 8 | `~/.local/share/bin/.env` | Alternative install (base) |
+| 9 | `<PACKAGE_DIR>/.env/.env.local` | Package directory (local override) |
+| 10 | `<PACKAGE_DIR>/.env.local` | Package directory (local) |
+| 11 | `<PACKAGE_DIR>/.env/.env` | Package directory (shared) |
+| 12 | `<PACKAGE_DIR>/.env` | Package directory (base) |
+
+The CLI entry point (`sshift`) additionally loads `.env` files from its own script directory before the server's env-loader runs.
 
 **Example `.env/.env.local`:**
 
@@ -34,10 +46,18 @@ TEST_PASS=testpassword
 
 ### Configuration File (`config.json`)
 
-The application configuration (bookmarks, settings) is loaded from:
+The application configuration (bookmarks, settings) is searched in the following locations. **The first match wins; remaining paths are ignored.**
 
-1. `.env/config.json` - **User-specific, private config** (highest priority)
-2. `config.json` - Default config in root (lowest priority)
+| Priority | Path | Notes |
+|----------|------|-------|
+| 1 | `~/.local/share/sshift/.env/config.json` | Primary user install location |
+| 2 | `~/.local/share/bin/.env/config.json` | Alternative install location |
+| 3 | `~/.local/share/sshift/config.json` | User install (no `.env` subdir) |
+| 4 | `~/.local/share/bin/config.json` | Alternative location (no `.env` subdir) |
+| 5 | `<PACKAGE_DIR>/.env/config.json` | NPM package directory |
+| 6 | `<PACKAGE_DIR>/config.json` | NPM package root (created by `ensureConfig()` if no config found) |
+
+If no config file exists at any path, `ensureConfig()` creates one at `<PACKAGE_DIR>/config.json`.
 
 **Example `.env/config.json`:**
 
@@ -370,11 +390,28 @@ Each row has:
 
 When the same setting is defined in multiple places, SSHIFT uses this priority (highest to lowest):
 
-1. **Environment variables** (e.g., `PORT`, `BIND`)
-2. **`.env/.env.local`** - User-specific private config
-3. **`.env/config.json`** - User-specific application config
-4. **`config.json`** - Default application config
-5. **Built-in defaults**
+### Port Priority
+
+1. **`--port` CLI argument** (highest priority; sets `PORT` env var)
+2. **`PORT` environment variable** (from `.env` files or shell)
+3. **`config.json` `devPort`** (when `NODE_ENV=development` or `--dev`)
+4. **`config.json` `port`** (production)
+5. **Built-in defaults** — 8022 (production), 3000 (development)
+
+### Bind Address Priority
+
+1. **`--bind` CLI argument** (highest priority; sets `BIND` env var)
+2. **`BIND` environment variable** (from `.env` files or shell)
+3. **`config.json` `bind`** setting
+4. **Built-in default** — `"0.0.0.0"`
+
+### .env File Priority (first setter wins)
+
+See the [Environment Variables](#environment-vars) table above. Since `dotenv` does not overwrite existing variables, the first `.env` file to set a variable takes precedence.
+
+### Config File Priority (first match wins)
+
+See the [Configuration File](#configuration-file-configjson) table above. The first `config.json` found in the search path is used.
 
 ## Security Considerations
 

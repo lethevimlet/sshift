@@ -113,12 +113,33 @@ npm start
 
 ## ⚙️ Configuration
 
-SSHIFT uses a priority-based configuration system:
+SSHIFT uses a priority-based configuration system. Config files are searched in order; the first match wins.
 
-1. Environment variables (`PORT`, `BIND`)
-2. `.env/.env.local` - User-specific private config
-3. `.env/config.json` - User-specific application config
-4. `config.json` - Default application config
+### Config File Search (first match wins)
+
+| Priority | Path | Notes |
+|----------|------|-------|
+| 1 | `~/.local/share/sshift/.env/config.json` | Primary user install location |
+| 2 | `~/.local/share/bin/.env/config.json` | Alternative install location |
+| 3 | `~/.local/share/sshift/config.json` | User install (no `.env` subdir) |
+| 4 | `~/.local/share/bin/config.json` | Alternative location (no `.env` subdir) |
+| 5 | `<PACKAGE_DIR>/.env/config.json` | NPM package directory |
+| 6 | `<PACKAGE_DIR>/config.json` | NPM package root (fallback) |
+
+### Port Priority
+
+1. `--port` CLI argument (highest priority)
+2. `PORT` environment variable
+3. `config.json` `devPort` (when `NODE_ENV=development` or `--dev`)
+4. `config.json` `port` (production)
+5. Default: 8022 (production), 3000 (development)
+
+### Bind Address Priority
+
+1. `--bind` CLI argument
+2. `BIND` environment variable
+3. `config.json` `bind` setting
+4. Default: `0.0.0.0`
 
 See [Configuration](docs/configuration.md) for details.
 

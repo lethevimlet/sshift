@@ -135,18 +135,23 @@ npm run dev
 
 ## Port Configuration
 
-SSHIFT uses a flexible port configuration system with the following priority:
+SSHIFT uses a flexible port configuration system with the following priority (highest to lowest):
 
-1. **PORT environment variable** (highest priority)
-2. **config.json** `port`/`devPort` settings
-3. **Default ports**: 8022 (production), 3000 (development)
+1. **`--port` CLI argument** (sets `PORT` env var; highest priority)
+2. **`PORT` environment variable** (from `.env` files or shell)
+3. **`config.json` `devPort`** (when `NODE_ENV=development` or `--dev`)
+4. **`config.json` `port`** (production)
+5. **Default ports**: 8022 (production), 3000 (development)
 
 ```bash
-# Run on custom port
+# Run on custom port (CLI argument)
+sshift --port 9000
+
+# Run on custom port (environment variable)
 PORT=9000 ./sshift
 
 # Run in development mode (uses devPort from config or 3000)
-NODE_ENV=development ./sshift
+sshift --dev
 
 # Or configure in config.json
 {
@@ -159,16 +164,20 @@ NODE_ENV=development ./sshift
 
 SSHIFT can bind to a specific network interface. By default, it binds to `0.0.0.0` (all interfaces).
 
-1. **BIND environment variable** (highest priority)
-2. **config.json** `bind` setting
-3. **Default**: `0.0.0.0` (all interfaces)
+1. **`--bind` CLI argument** (sets `BIND` env var; highest priority)
+2. **`BIND` environment variable** (from `.env` files or shell)
+3. **`config.json` `bind`** setting
+4. **Default**: `0.0.0.0` (all interfaces)
 
 ```bash
-# Bind to localhost only (no external access)
+# Bind to localhost only (CLI argument)
+sshift --bind 127.0.0.1
+
+# Bind to localhost only (environment variable)
 BIND=127.0.0.1 ./sshift
 
 # Bind to specific interface
-BIND=192.168.1.100 ./sshift
+sshift --bind 192.168.1.100
 
 # Or configure in config.json
 {
