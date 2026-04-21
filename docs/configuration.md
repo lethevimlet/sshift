@@ -13,18 +13,14 @@ Environment variables are loaded from multiple locations. Since `dotenv` does no
 
 | Priority | Path | Notes |
 |----------|------|-------|
-| 1 | `~/.local/share/sshift/.env/.env.local` | Primary user install (local override) |
-| 2 | `~/.local/share/sshift/.env.local` | User install (local) |
-| 3 | `~/.local/share/bin/.env/.env.local` | Alternative install (local override) |
-| 4 | `~/.local/share/bin/.env.local` | Alternative install (local) |
-| 5 | `~/.local/share/sshift/.env/.env` | Primary user install (shared) |
-| 6 | `~/.local/share/sshift/.env` | User install (base) |
-| 7 | `~/.local/share/bin/.env/.env` | Alternative install (shared) |
-| 8 | `~/.local/share/bin/.env` | Alternative install (base) |
-| 9 | `<PACKAGE_DIR>/.env/.env.local` | Package directory (local override) |
-| 10 | `<PACKAGE_DIR>/.env.local` | Package directory (local) |
-| 11 | `<PACKAGE_DIR>/.env/.env` | Package directory (shared) |
-| 12 | `<PACKAGE_DIR>/.env` | Package directory (base) |
+| 1 | `<PACKAGE_DIR>/.env/.env.local` | Package directory (local override) |
+| 2 | `<PACKAGE_DIR>/.env.local` | Package directory (local) |
+| 3 | `<PACKAGE_DIR>/.env/.env` | Package directory (shared) |
+| 4 | `<PACKAGE_DIR>/.env` | Package directory (base) |
+| 5 | `~/.local/share/sshift/.env/.env.local` | User install (local override) |
+| 6 | `~/.local/share/sshift/.env.local` | User install (local) |
+| 7 | `~/.local/share/sshift/.env/.env` | User install (shared) |
+| 8 | `~/.local/share/sshift/.env` | User install (base) |
 
 The CLI entry point (`sshift`) additionally loads `.env` files from its own script directory before the server's env-loader runs.
 
@@ -50,12 +46,10 @@ The application configuration (bookmarks, settings) is searched in the following
 
 | Priority | Path | Notes |
 |----------|------|-------|
-| 1 | `~/.local/share/sshift/.env/config.json` | Primary user install location |
-| 2 | `~/.local/share/bin/.env/config.json` | Alternative install location |
-| 3 | `~/.local/share/sshift/config.json` | User install (no `.env` subdir) |
-| 4 | `~/.local/share/bin/config.json` | Alternative location (no `.env` subdir) |
-| 5 | `<PACKAGE_DIR>/.env/config.json` | NPM package directory |
-| 6 | `<PACKAGE_DIR>/config.json` | NPM package root (created by `ensureConfig()` if no config found) |
+| 1 | `<PACKAGE_DIR>/.env/config.json` | NPM package directory |
+| 2 | `<PACKAGE_DIR>/config.json` | NPM package root (created by `ensureConfig()` if no config found) |
+| 3 | `~/.local/share/sshift/.env/config.json` | User install location |
+| 4 | `~/.local/share/sshift/config.json` | User install (no `.env` subdir) |
 
 If no config file exists at any path, `ensureConfig()` creates one at `<PACKAGE_DIR>/config.json`.
 

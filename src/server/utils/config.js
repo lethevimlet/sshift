@@ -11,23 +11,16 @@ const crypto = require('crypto');
 // Get user's home directory
 const HOME_DIR = os.homedir();
 
-// Default install directories for config (platform-specific)
-const DEFAULT_INSTALL_DIRS = [
-  // Linux/macOS
-  path.join(HOME_DIR, '.local', 'share', 'sshift'),
-  // Windows
-  path.join(HOME_DIR, '.local', 'share', 'sshift'),
-  // Alternative locations
-  path.join(HOME_DIR, '.local', 'share', 'bin'),
-];
+// User install directory for config
+const USER_INSTALL_DIR = path.join(HOME_DIR, '.local', 'share', 'sshift');
 
-// Config paths - prioritize user install directory, then fall back to package directory
+// Config paths - prioritize package directory, then user install directory
 const PACKAGE_DIR = path.join(__dirname, '..', '..', '..');
 const ENV_CONFIG_PATHS = [
-  ...DEFAULT_INSTALL_DIRS.map(dir => path.join(dir, '.env', 'config.json')),
-  ...DEFAULT_INSTALL_DIRS.map(dir => path.join(dir, 'config.json')),
   path.join(PACKAGE_DIR, '.env', 'config.json'),
   path.join(PACKAGE_DIR, 'config.json'),
+  path.join(USER_INSTALL_DIR, '.env', 'config.json'),
+  path.join(USER_INSTALL_DIR, 'config.json'),
 ];
 
 // Default config structure

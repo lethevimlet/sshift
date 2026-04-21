@@ -36,12 +36,10 @@ This project uses a `.agents` directory for all AI-generated documentation files
 
 | Priority | Path | Notes |
 |----------|------|-------|
-| 1 | `~/.local/share/sshift/.env/config.json` | Primary user install location |
-| 2 | `~/.local/share/bin/.env/config.json` | Alternative install location |
-| 3 | `~/.local/share/sshift/config.json` | User install (no `.env` subdir) |
-| 4 | `~/.local/share/bin/config.json` | Alternative location (no `.env` subdir) |
-| 5 | `<PACKAGE_DIR>/.env/config.json` | NPM package directory |
-| 6 | `<PACKAGE_DIR>/config.json` | NPM package root (created by `ensureConfig()` if no config found) |
+| 1 | `<PACKAGE_DIR>/.env/config.json` | NPM package directory |
+| 2 | `<PACKAGE_DIR>/config.json` | NPM package root (created by `ensureConfig()` if no config found) |
+| 3 | `~/.local/share/sshift/.env/config.json` | User install location |
+| 4 | `~/.local/share/sshift/config.json` | User install (no `.env` subdir) |
 
 If no config file exists at any path, `ensureConfig()` creates one at `<PACKAGE_DIR>/config.json`.
 
@@ -49,18 +47,14 @@ If no config file exists at any path, `ensureConfig()` creates one at `<PACKAGE_
 
 `.env` files are loaded from multiple locations. Since `dotenv` does not overwrite existing env vars, the first file to set a variable wins:
 
-1. `~/.local/share/sshift/.env/.env.local`
-2. `~/.local/share/sshift/.env.local`
-3. `~/.local/share/bin/.env/.env.local`
-4. `~/.local/share/bin/.env.local`
-5. `~/.local/share/sshift/.env/.env`
-6. `~/.local/share/sshift/.env`
-7. `~/.local/share/bin/.env/.env`
-8. `~/.local/share/bin/.env`
-9. `<PACKAGE_DIR>/.env/.env.local`
-10. `<PACKAGE_DIR>/.env.local`
-11. `<PACKAGE_DIR>/.env/.env`
-12. `<PACKAGE_DIR>/.env`
+1. `<PACKAGE_DIR>/.env/.env.local`
+2. `<PACKAGE_DIR>/.env.local`
+3. `<PACKAGE_DIR>/.env/.env`
+4. `<PACKAGE_DIR>/.env`
+5. `~/.local/share/sshift/.env/.env.local`
+6. `~/.local/share/sshift/.env.local`
+7. `~/.local/share/sshift/.env/.env`
+8. `~/.local/share/sshift/.env`
 
 The CLI entry point (`sshift`) additionally loads `.env` files from its own script directory before the server's env-loader runs.
 

@@ -93,7 +93,7 @@ The installer will:
 - Install sshift globally via npm
 - Start sshift after installation
 - Configure autostart (optional, systemd on Linux, launchd on macOS, Task Scheduler on Windows)
-- Create config at `~/.local/share/sshift/.env/config.json`
+- Create config at `<PACKAGE_DIR>/.env/config.json`
 - Print summary with HTTPS access links
 
 For detailed installation options, see the [Installation guide]({{ site.baseurl }}/installation.html).

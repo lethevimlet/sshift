@@ -119,12 +119,10 @@ SSHIFT uses a priority-based configuration system. Config files are searched in 
 
 | Priority | Path | Notes |
 |----------|------|-------|
-| 1 | `~/.local/share/sshift/.env/config.json` | Primary user install location |
-| 2 | `~/.local/share/bin/.env/config.json` | Alternative install location |
-| 3 | `~/.local/share/sshift/config.json` | User install (no `.env` subdir) |
-| 4 | `~/.local/share/bin/config.json` | Alternative location (no `.env` subdir) |
-| 5 | `<PACKAGE_DIR>/.env/config.json` | NPM package directory |
-| 6 | `<PACKAGE_DIR>/config.json` | NPM package root (fallback) |
+| 1 | `<PACKAGE_DIR>/.env/config.json` | NPM package directory |
+| 2 | `<PACKAGE_DIR>/config.json` | NPM package root (fallback) |
+| 3 | `~/.local/share/sshift/.env/config.json` | User install location |
+| 4 | `~/.local/share/sshift/config.json` | User install (no `.env` subdir) |
 
 ### Port Priority
 

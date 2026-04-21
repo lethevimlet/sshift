@@ -15,29 +15,18 @@ function loadEnvFiles() {
   // Get user's home directory
   const HOME_DIR = os.homedir();
   
-  // Default install directories for config (platform-specific)
-  const DEFAULT_INSTALL_DIRS = [
-    // Linux/macOS
-    path.join(HOME_DIR, '.local', 'share', 'sshift'),
-    // Windows
-    path.join(HOME_DIR, '.local', 'share', 'sshift'),
-    // Alternative locations
-    path.join(HOME_DIR, '.local', 'share', 'bin'),
-  ];
-  
-  // Package directory (for development)
+  const USER_INSTALL_DIR = path.join(HOME_DIR, '.local', 'share', 'sshift');
   const PACKAGE_DIR = path.join(__dirname, '..', '..', '..');
   
-  // Build env paths - prioritize user install directory, then package directory
   const envPaths = [
-    ...DEFAULT_INSTALL_DIRS.map(dir => path.join(dir, '.env', '.env.local')),
-    ...DEFAULT_INSTALL_DIRS.map(dir => path.join(dir, '.env.local')),
-    ...DEFAULT_INSTALL_DIRS.map(dir => path.join(dir, '.env', '.env')),
-    ...DEFAULT_INSTALL_DIRS.map(dir => path.join(dir, '.env')),
     path.join(PACKAGE_DIR, '.env', '.env.local'),
     path.join(PACKAGE_DIR, '.env.local'),
     path.join(PACKAGE_DIR, '.env', '.env'),
-    path.join(PACKAGE_DIR, '.env')
+    path.join(PACKAGE_DIR, '.env'),
+    path.join(USER_INSTALL_DIR, '.env', '.env.local'),
+    path.join(USER_INSTALL_DIR, '.env.local'),
+    path.join(USER_INSTALL_DIR, '.env', '.env'),
+    path.join(USER_INSTALL_DIR, '.env')
   ];
 
   envPaths.forEach(envPath => {
