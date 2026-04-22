@@ -1,3 +1,5 @@
+![SSHIFT Logo]({{ site.baseurl }}/media/logo.jpg)
+
 ---
 layout: home
 title: SSHIFT - Web-based SSH/SFTP Terminal Client for the AI Stack
@@ -9,8 +11,6 @@ title: SSHIFT - Web-based SSH/SFTP Terminal Client for the AI Stack
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A modern, responsive web-based SSH and SFTP terminal client built with Node.js, Express, and xterm.js. Designed for the AI coding workflow — featuring tab flash notifications that alert you when AI tools like OpenCode or Claude are waiting for your input, so you never miss a prompt while multitasking. Also features excellent TUI support, tabbed sessions, bookmarks, and mobile-friendly design.
-
-![SSHIFT Logo]({{ site.baseurl }}/media/logo.jpg)
 
 ## 📸 Screenshots
 
