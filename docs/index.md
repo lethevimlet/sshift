@@ -1,9 +1,7 @@
 ![SSHIFT Logo]({{ site.baseurl }}/media/logo.jpg)
 
----
-layout: home
-title: SSHIFT - Web-based SSH/SFTP Terminal Client for the AI Stack
----
+# SSHIFT - Web-based SSH/SFTP Terminal Client for the AI Stack
+
 
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://lethevimlet.github.io/sshift/)
 [![npm version](https://img.shields.io/npm/v/@lethevimlet/sshift.svg)](https://www.npmjs.com/package/@lethevimlet/sshift)
