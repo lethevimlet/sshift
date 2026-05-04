@@ -304,6 +304,9 @@
                   <span class="mobile-tabs-label" id="mobileTabsLabel">No Active Tabs</span>
                   <i class="fas fa-chevron-down dropdown-arrow"></i>
                 </button>
+                <button class="mobile-force-resize-btn" id="mobileForceResizeBtn" title="Force Resize">
+                  <i class="fas fa-expand-arrows-alt"></i>
+                </button>
                 <div class="mobile-tabs-menu" id="mobileTabsMenu">
                   <!-- Mobile tab options will be added here dynamically -->
                 </div>
@@ -818,6 +821,42 @@
           </div>
         </div>
         
+        <!-- WebGL Renderer Setting -->
+        <div class="setting-group">
+          <div class="setting-item">
+            <label class="setting-label">
+              <i class="fas fa-microchip"></i> WebGL Renderer
+            </label>
+            <div class="setting-description">
+              Use GPU-accelerated WebGL rendering for the terminal. Improves performance and reduces CPU usage, especially on large terminals. Disable if you experience rendering issues or graphics driver problems.
+            </div>
+            <div class="setting-control">
+              <label class="toggle-switch">
+                <input type="checkbox" id="webglRendererToggle" checked>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Image Protocol Setting -->
+        <div class="setting-group">
+          <div class="setting-item">
+            <label class="setting-label">
+              <i class="fas fa-image"></i> Image Protocol
+            </label>
+            <div class="setting-description">
+              Enable Sixel, iTerm2, and Kitty image protocol support in the terminal. Required for programs like notcurses-demo that render graphics inline. Disabling may slightly improve performance for text-only workloads.
+            </div>
+            <div class="setting-control">
+              <label class="toggle-switch">
+                <input type="checkbox" id="imageAddonToggle" checked>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+        
         <!-- Password Protection -->
         <div class="setting-group">
           <div class="setting-item">
@@ -980,6 +1019,8 @@
   <script src="/libs/xterm/xterm-addon-web-links.js"></script>
   <script src="/libs/xterm/xterm-addon-search.js"></script>
   <script src="/libs/xterm/xterm-addon-serialize.js"></script>
+  <script src="/libs/xterm/xterm-addon-webgl.js"></script>
+  <script src="/libs/xterm/xterm-addon-image.js"></script>
   
   <!-- Mobile terminal support -->
   <script src="/js/mobile-terminal.js"></script>
@@ -1085,11 +1126,49 @@
         }
       }
       
+      // Normalize WebglAddon
+      if (typeof window.WebglAddon === 'object' && window.WebglAddon !== null) {
+        if (window.WebglAddon.WebglAddon) {
+          console.log('[SSHIFT] WebglAddon is object with .WebglAddon property, extracting...');
+          window.WebglAddon = window.WebglAddon.WebglAddon;
+        } else if (window.WebglAddon.default) {
+          window.WebglAddon = window.WebglAddon.default;
+        }
+      } else if (typeof window.WebglAddon === 'undefined') {
+        if (typeof WebglAddon !== 'undefined') {
+          if (typeof WebglAddon === 'object' && WebglAddon !== null) {
+            window.WebglAddon = WebglAddon.WebglAddon || WebglAddon.default || WebglAddon;
+          } else if (typeof WebglAddon === 'function') {
+            window.WebglAddon = WebglAddon;
+          }
+        }
+      }
+      
+      // Normalize ImageAddon
+      if (typeof window.ImageAddon === 'object' && window.ImageAddon !== null) {
+        if (window.ImageAddon.ImageAddon) {
+          console.log('[SSHIFT] ImageAddon is object with .ImageAddon property, extracting...');
+          window.ImageAddon = window.ImageAddon.ImageAddon;
+        } else if (window.ImageAddon.default) {
+          window.ImageAddon = window.ImageAddon.default;
+        }
+      } else if (typeof window.ImageAddon === 'undefined') {
+        if (typeof ImageAddon !== 'undefined') {
+          if (typeof ImageAddon === 'object' && ImageAddon !== null) {
+            window.ImageAddon = ImageAddon.ImageAddon || ImageAddon.default || ImageAddon;
+          } else if (typeof ImageAddon === 'function') {
+            window.ImageAddon = ImageAddon;
+          }
+        }
+      }
+      
       console.log('[SSHIFT] After normalization:');
       console.log('[SSHIFT]   Terminal:', typeof window.Terminal);
       console.log('[SSHIFT]   FitAddon:', typeof window.FitAddon);
       console.log('[SSHIFT]   WebLinksAddon:', typeof window.WebLinksAddon);
       console.log('[SSHIFT]   SearchAddon:', typeof window.SearchAddon);
+      console.log('[SSHIFT]   WebglAddon:', typeof window.WebglAddon);
+      console.log('[SSHIFT]   ImageAddon:', typeof window.ImageAddon);
       
       // Verify all required libraries are loaded
       if (typeof window.Terminal !== 'function') {

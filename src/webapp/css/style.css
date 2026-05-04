@@ -465,6 +465,30 @@ body {
   display: none;
   flex: 1;
   position: relative;
+  gap: 4px;
+}
+
+.mobile-force-resize-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 4px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.mobile-force-resize-btn:hover {
+  background: var(--bg-hover);
+  color: var(--accent-primary);
+  border-color: var(--border-light);
 }
 
 .mobile-tabs-toggle {
@@ -3172,6 +3196,14 @@ body.dragging-tabs .tabs-container {
   .mobile-tabs-dropdown {
     display: flex;
     margin-left: 4px;
+  }
+
+  .mobile-force-resize-btn {
+    display: flex;
+    min-width: 28px;
+    min-height: 28px;
+    padding: 4px 6px;
+    font-size: 12px;
   }
 
   .mobile-tabs-toggle {
