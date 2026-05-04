@@ -7,8 +7,8 @@ class SSHManager {
   constructor() {
     this.sessions = new Map();
     // Data batching configuration
-    this.batchInterval = 16; // ~60fps - batch data for this many ms before sending
-    this.batchMaxSize = 64 * 1024; // 64KB max batch size - send immediately if exceeded
+    this.batchInterval = 4; // ~240fps - low latency for responsive rendering
+    this.batchMaxSize = 128 * 1024; // 128KB max batch size - send immediately if exceeded
     // Socket.io instance (set via setIO method)
     this.io = null;
   }
@@ -32,7 +32,9 @@ class SSHManager {
       const terminal = new Terminal({
         cols: cols,
         rows: rows,
-        allowProposedApi: true
+        scrollback: 0,
+        allowProposedApi: true,
+        logLevel: 'off'
       });
       
       // Create serialize addon for terminal state
@@ -146,7 +148,7 @@ class SSHManager {
           stream.on('data', (data) => {
             const dataStr = data.toString('utf8');
             
-            // Write to headless terminal to maintain state (immediate)
+            // Write to headless terminal for state sync (join/resume)
             session.terminal.write(dataStr);
             
             // Buffer data for batched broadcast
@@ -156,7 +158,7 @@ class SSHManager {
           stream.stderr.on('data', (data) => {
             const dataStr = data.toString('utf8');
             
-            // Write to headless terminal (immediate)
+            // Write to headless terminal for state sync
             session.terminal.write(dataStr);
             
             // Buffer data for batched broadcast

@@ -46,6 +46,8 @@ class SSHIFTClient {
     
     // Mobile keys bar
     this.mobileKeysBarEnabled = true; // Default to enabled
+    this.webglRenderer = true; // Default to enabled
+    this.imageAddonEnabled = true; // Default to enabled
     this.ctrlPressed = false; // Track Ctrl key state
     this.altPressed = false; // Track Alt key state
     this.currentKeyboardHeight = 0; // Track actual keyboard height for positioning
@@ -90,6 +92,8 @@ class SSHIFTClient {
     const localKeepaliveInterval = localStorage.getItem('sshKeepaliveInterval');
     const localKeepaliveCountMax = localStorage.getItem('sshKeepaliveCountMax');
     const localMobileKeysBar = localStorage.getItem('mobileKeysBarEnabled');
+    const localWebglRenderer = localStorage.getItem('webglRenderer');
+    const localImageAddonEnabled = localStorage.getItem('imageAddonEnabled');
     
     // If we have localStorage values, use them
     if (localSticky !== null) {
@@ -98,11 +102,15 @@ class SSHIFTClient {
       this.sshKeepaliveInterval = localKeepaliveInterval !== null ? parseInt(localKeepaliveInterval) : 10000;
       this.sshKeepaliveCountMax = localKeepaliveCountMax !== null ? parseInt(localKeepaliveCountMax) : 1000;
       this.mobileKeysBarEnabled = localMobileKeysBar !== null ? JSON.parse(localMobileKeysBar) : true;
+      this.webglRenderer = localWebglRenderer !== null ? JSON.parse(localWebglRenderer) : true;
+      this.imageAddonEnabled = localImageAddonEnabled !== null ? JSON.parse(localImageAddonEnabled) : true;
       console.log('[SSHIFT] Loaded from localStorage - Sticky:', this.sticky ? 'enabled' : 'disabled',
                   'Take Control Default:', this.takeControlDefault ? 'enabled' : 'disabled',
                   'Keepalive Interval:', this.sshKeepaliveInterval,
                   'Keepalive Count Max:', this.sshKeepaliveCountMax,
-                  'Mobile Keys Bar:', this.mobileKeysBarEnabled ? 'enabled' : 'disabled');
+                  'Mobile Keys Bar:', this.mobileKeysBarEnabled ? 'enabled' : 'disabled',
+                  'WebGL Renderer:', this.webglRenderer ? 'enabled' : 'disabled',
+                  'Image Addon:', this.imageAddonEnabled ? 'enabled' : 'disabled');
       return;
     }
     
@@ -119,12 +127,16 @@ class SSHIFTClient {
       this.sshKeepaliveCountMax = config.sshKeepaliveCountMax || 1000;
       // Load mobile keys bar setting
       this.mobileKeysBarEnabled = config.mobileKeysBarEnabled !== undefined ? config.mobileKeysBarEnabled : true;
+      this.webglRenderer = config.webglRenderer !== undefined ? config.webglRenderer : true;
+      this.imageAddonEnabled = config.imageAddonEnabled !== undefined ? config.imageAddonEnabled : true;
       this.passwordEnabled = config.passwordEnabled || false;
       console.log('[SSHIFT] Loaded from server - Sticky:', this.sticky ? 'enabled' : 'disabled',
                   'Take Control Default:', this.takeControlDefault ? 'enabled' : 'disabled',
                   'Keepalive Interval:', this.sshKeepaliveInterval,
                   'Keepalive Count Max:', this.sshKeepaliveCountMax,
-                  'Mobile Keys Bar:', this.mobileKeysBarEnabled ? 'enabled' : 'disabled');
+                  'Mobile Keys Bar:', this.mobileKeysBarEnabled ? 'enabled' : 'disabled',
+                  'WebGL Renderer:', this.webglRenderer ? 'enabled' : 'disabled',
+                  'Image Addon:', this.imageAddonEnabled ? 'enabled' : 'disabled');
     } catch (err) {
       console.error('[SSHIFT] Failed to load config:', err);
       this.sticky = true; // Default to true
@@ -132,6 +144,8 @@ class SSHIFTClient {
       this.sshKeepaliveInterval = 10000;
       this.sshKeepaliveCountMax = 1000;
       this.mobileKeysBarEnabled = true; // Default to true
+      this.webglRenderer = true; // Default to true
+      this.imageAddonEnabled = true; // Default to true
     }
   }
 
@@ -396,6 +410,16 @@ class SSHIFTClient {
     const mobileKeysBarToggle = document.getElementById('mobileKeysBarToggle');
     if (mobileKeysBarToggle) {
       mobileKeysBarToggle.checked = this.mobileKeysBarEnabled;
+    }
+    
+    const webglRendererToggle = document.getElementById('webglRendererToggle');
+    if (webglRendererToggle) {
+      webglRendererToggle.checked = this.webglRenderer;
+    }
+    
+    const imageAddonToggle = document.getElementById('imageAddonToggle');
+    if (imageAddonToggle) {
+      imageAddonToggle.checked = this.imageAddonEnabled;
     }
   }
 
@@ -877,6 +901,23 @@ class SSHIFTClient {
 
     console.log('[SSHIFT] Terminal fitted, cols:', terminal.cols, 'rows:', terminal.rows);
     return true;
+  }
+
+  forceResizeTerminal(sessionId) {
+    if (!sessionId) return;
+    const session = this.sessions.get(sessionId) || this.sftpSessions.get(sessionId);
+    if (!session || !session.terminal || !session.fitAddon) return;
+
+    const wrapper = document.getElementById(`terminal-wrapper-${sessionId}`);
+    const container = document.getElementById(`terminal-${sessionId}`);
+    if (!wrapper || !container) return;
+
+    if (!wrapper.classList.contains('active')) {
+      this.switchTab(sessionId);
+      setTimeout(() => this._fitTerminal(session), 50);
+    } else {
+      this._fitTerminal(session);
+    }
   }
 
   // Set font size for a specific session
@@ -1879,6 +1920,13 @@ class SSHIFTClient {
     `;
     mobileDropdown.appendChild(mobileToggle);
     
+    const forceResizeBtn = document.createElement('button');
+    forceResizeBtn.className = 'mobile-force-resize-btn';
+    forceResizeBtn.id = isSingle ? 'mobileForceResizeBtn' : `${panelId}-mobileForceResizeBtn`;
+    forceResizeBtn.title = 'Force Resize';
+    forceResizeBtn.innerHTML = '<i class="fas fa-expand-arrows-alt"></i>';
+    mobileDropdown.appendChild(forceResizeBtn);
+    
     const mobileMenu = document.createElement('div');
     mobileMenu.className = 'mobile-tabs-menu';
     mobileMenu.id = isSingle ? 'mobileTabsMenu' : `${panelId}-mobileTabsMenu`;
@@ -2016,6 +2064,17 @@ class SSHIFTClient {
     if (mobileToggle && mobileMenu) {
       mobileToggle.addEventListener('click', () => {
         mobileMenu.classList.toggle('show');
+      });
+    }
+
+    // Force resize button
+    const forceResizeBtn = document.getElementById(isSingle ? 'mobileForceResizeBtn' : `${panelId}-mobileForceResizeBtn`);
+    if (forceResizeBtn) {
+      forceResizeBtn.addEventListener('click', () => {
+        const activeSessionId = this.activeSessionsByPanel.get(panelId) || this.activeSessionId;
+        if (activeSessionId) {
+          this.forceResizeTerminal(activeSessionId);
+        }
       });
     }
   }
@@ -4256,6 +4315,18 @@ class SSHIFTClient {
       mobileKeysBarToggle.checked = this.mobileKeysBarEnabled;
     }
     
+    // Load current WebGL renderer setting
+    const webglRendererToggle = document.getElementById('webglRendererToggle');
+    if (webglRendererToggle) {
+      webglRendererToggle.checked = this.webglRenderer;
+    }
+    
+    // Load current image addon setting
+    const imageAddonToggle = document.getElementById('imageAddonToggle');
+    if (imageAddonToggle) {
+      imageAddonToggle.checked = this.imageAddonEnabled;
+    }
+    
     // Update password toggle button state
     this.updatePasswordToggleUI();
     
@@ -4308,6 +4379,18 @@ class SSHIFTClient {
           mobileKeysBarToggle.checked = this.mobileKeysBarEnabled;
         }
         
+        // Revert WebGL renderer setting
+        const webglRendererToggle = document.getElementById('webglRendererToggle');
+        if (webglRendererToggle) {
+          webglRendererToggle.checked = this.webglRenderer;
+        }
+        
+        // Revert image addon setting
+        const imageAddonToggle = document.getElementById('imageAddonToggle');
+        if (imageAddonToggle) {
+          imageAddonToggle.checked = this.imageAddonEnabled;
+        }
+        
         this.closeModal('settingsModal');
       });
     }
@@ -4347,13 +4430,26 @@ class SSHIFTClient {
           this.updateMobileKeysBar();
         }
         
+        // Save WebGL renderer setting
+        if (webglRendererToggle) {
+          this.webglRenderer = webglRendererToggle.checked;
+        }
+        
+        // Save image addon setting
+        const imageAddonToggle = document.getElementById('imageAddonToggle');
+        if (imageAddonToggle) {
+          this.imageAddonEnabled = imageAddonToggle.checked;
+        }
+        
         // Save all settings to config
         this.saveStickyConfig();
         console.log('[SSHIFT] Settings saved - sticky:', this.sticky, 
                     'takeControlDefault:', this.takeControlDefault,
                     'keepaliveInterval:', this.sshKeepaliveInterval,
                     'keepaliveCountMax:', this.sshKeepaliveCountMax,
-                    'mobileKeysBarEnabled:', this.mobileKeysBarEnabled);
+                    'mobileKeysBarEnabled:', this.mobileKeysBarEnabled,
+                    'webglRenderer:', this.webglRenderer,
+                    'imageAddonEnabled:', this.imageAddonEnabled);
         
         // Show toast notification
         this.showToast('Settings saved successfully', 'success');
@@ -4385,6 +4481,16 @@ class SSHIFTClient {
           
           if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
             keepaliveCountMaxInput.value = this.sshKeepaliveCountMax;
+          }
+          
+          const webglRendererToggle = document.getElementById('webglRendererToggle');
+          if (webglRendererToggle) {
+            webglRendererToggle.checked = this.webglRenderer;
+          }
+          
+          const imageAddonToggle = document.getElementById('imageAddonToggle');
+          if (imageAddonToggle) {
+            imageAddonToggle.checked = this.imageAddonEnabled;
           }
           
           this.closeModal('settingsModal');
@@ -4686,6 +4792,15 @@ class SSHIFTClient {
       mobileTabsMenu.classList.toggle('show');
     });
 
+    // Force resize button (static dropdown)
+    const forceResizeBtn = document.getElementById('mobileForceResizeBtn');
+    if (forceResizeBtn) {
+      forceResizeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.forceResizeTerminal(this.activeSessionId);
+      });
+    }
+
     // Close dropdown when clicking outside
     document.addEventListener('click', (e) => {
       if (mobileTabsMenu.classList.contains('show') && !e.target.closest('.mobile-tabs-dropdown')) {
@@ -4961,6 +5076,8 @@ class SSHIFTClient {
     localStorage.setItem('sshKeepaliveInterval', this.sshKeepaliveInterval || 10000);
     localStorage.setItem('sshKeepaliveCountMax', this.sshKeepaliveCountMax || 1000);
     localStorage.setItem('mobileKeysBarEnabled', JSON.stringify(this.mobileKeysBarEnabled));
+    localStorage.setItem('webglRenderer', JSON.stringify(this.webglRenderer));
+    localStorage.setItem('imageAddonEnabled', JSON.stringify(this.imageAddonEnabled));
     
     // Save to server config
     const headers = { 'Content-Type': 'application/json' };
@@ -4973,7 +5090,9 @@ class SSHIFTClient {
         takeControlDefault: this.takeControlDefault,
         sshKeepaliveInterval: this.sshKeepaliveInterval || 10000,
         sshKeepaliveCountMax: this.sshKeepaliveCountMax || 1000,
-        mobileKeysBarEnabled: this.mobileKeysBarEnabled
+        mobileKeysBarEnabled: this.mobileKeysBarEnabled,
+        webglRenderer: this.webglRenderer,
+        imageAddonEnabled: this.imageAddonEnabled
       })
     }).then(response => {
       if (!response.ok) {
@@ -5444,7 +5563,9 @@ class SSHIFTClient {
       isController: false, // Default to observer - will be set to true for session creator or when taking control
       syncing: false, // Flag to prevent data writes during screen sync
       fontSize: this.terminalFontSize, // Initialize with default font size
-      mobileHandler: null // Mobile terminal handler for touch interactions
+      mobileHandler: null, // Mobile terminal handler for touch interactions
+      writeBuffer: '', // Buffer for batching terminal writes
+      writeRAF: null // requestAnimationFrame ID for write flush
     });
 
     // Switch to the new tab FIRST to make the container visible
@@ -5812,13 +5933,16 @@ class SSHIFTClient {
         fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', 'Courier New', monospace",
         fontSize: this.terminalFontSize,
         lineHeight: 1.0,
-        cursorBlink: true,
+        cursorBlink: false,
         cursorStyle: 'block',
-        scrollback: 10000,
+        scrollback: 5000,
         allowProposedApi: true,
         convertEol: true,
-        allowTransparency: true,
-        disableStdin: false
+        allowTransparency: false,
+        disableStdin: false,
+        logLevel: 'warn',
+        fastScrollModifier: 'alt',
+        fastScrollSensitivity: 5
       });
 
       // Set wrapper background color
@@ -5872,6 +5996,44 @@ class SSHIFTClient {
       container.innerHTML = '';
       
       terminal.open(container);
+      
+      // Load WebGL renderer addon if enabled and available
+      if (this.webglRenderer && typeof window.WebglAddon === 'function') {
+        try {
+          const webglAddon = new window.WebglAddon();
+          webglAddon.onContextLoss(() => {
+            console.warn('[SSHIFT] WebGL context lost, disposing addon');
+            webglAddon.dispose();
+          });
+          terminal.loadAddon(webglAddon);
+          console.log('[SSHIFT] WebglAddon loaded');
+        } catch (e) {
+          console.warn('[SSHIFT] Failed to load WebglAddon, falling back to canvas renderer:', e.message);
+        }
+      } else if (this.webglRenderer) {
+        console.warn('[SSHIFT] WebglAddon not available (window.WebglAddon type:', typeof window.WebglAddon, '), using canvas renderer');
+      } else {
+        console.log('[SSHIFT] WebGL renderer disabled in settings, using canvas renderer');
+      }
+      
+      // Load image addon if enabled and available (Sixel/iTerm2/Kitty image protocols)
+      if (this.imageAddonEnabled && typeof window.ImageAddon === 'function') {
+        try {
+          const imageAddon = new window.ImageAddon();
+          terminal.loadAddon(imageAddon);
+          console.log('[SSHIFT] ImageAddon loaded');
+        } catch (e) {
+          console.warn('[SSHIFT] Failed to load ImageAddon:', e.message);
+        }
+      } else if (this.imageAddonEnabled) {
+        console.warn('[SSHIFT] ImageAddon not available (window.ImageAddon type:', typeof window.ImageAddon, ')');
+      } else {
+        console.log('[SSHIFT] Image addon disabled in settings');
+      }
+      
+      // Enable cursor blink after addons are loaded to avoid
+      // repaint interference during initial render
+      terminal.options.cursorBlink = true;
       
       console.log('[SSHIFT] Terminal opened, fitting...');
       
@@ -6189,6 +6351,16 @@ class SSHIFTClient {
       session.terminal = terminal;
       session.fitAddon = fitAddon;
 
+      // Flush any data that was buffered before the terminal was ready
+      if (session.writeBuffer) {
+        terminal.write(session.writeBuffer);
+        session.writeBuffer = '';
+        if (session.writeRAF) {
+          cancelAnimationFrame(session.writeRAF);
+          session.writeRAF = null;
+        }
+      }
+
       // Initialize mobile terminal handler for touch interactions
       if (this.isMobile && typeof window.MobileTerminalHandler === 'function') {
         try {
@@ -6306,20 +6478,27 @@ class SSHIFTClient {
     const session = this.sessions.get(data.sessionId);
     if (session && session.terminal) {
       // Skip data if we're currently syncing the terminal state
-      // This prevents duplicate data from being written during sync
       if (session.syncing) {
-        console.log('[SSHIFT] Skipping data during sync, size:', data.data?.length || 0);
         return;
       }
       
       try {
-        session.terminal.write(data.data);
+        // Buffer data and flush once per animation frame to prevent
+        // render queue backup during high-throughput output (e.g. video)
+        session.writeBuffer += data.data;
+        
+        if (!session.writeRAF) {
+          session.writeRAF = requestAnimationFrame(() => {
+            if (session.terminal && session.writeBuffer) {
+              session.terminal.write(session.writeBuffer);
+              session.writeBuffer = '';
+            }
+            session.writeRAF = null;
+          });
+        }
         
         // Auto-scroll to bottom on mobile when new data arrives
-        // Rate-limited to prevent performance issues with multiple clients
         if (this.isMobile) {
-          // Use requestAnimationFrame to ensure scroll happens after render
-          // and cancel any pending scroll to prevent scroll storms
           if (session.scrollRAF) {
             cancelAnimationFrame(session.scrollRAF);
           }
@@ -6911,6 +7090,11 @@ class SSHIFTClient {
       if (session.resizeTimeout) {
         clearTimeout(session.resizeTimeout);
         session.resizeTimeout = null;
+      }
+      // Clean up write buffer RAF
+      if (session.writeRAF) {
+        cancelAnimationFrame(session.writeRAF);
+        session.writeRAF = null;
       }
       // Clean up mobile handler
       if (session.mobileHandler) {
@@ -7668,6 +7852,27 @@ async syncTabsFromServer(tabs) {
     });
   }
 
+  _clampMenuToViewport(menu, margin = 5) {
+    const rect = menu.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let left = rect.left;
+    let top = rect.top;
+
+    if (rect.right > vw) {
+      left = vw - rect.width - margin;
+    }
+    if (rect.bottom > vh) {
+      top = vh - rect.height - margin;
+    }
+    if (left < margin) left = margin;
+    if (top < margin) top = margin;
+
+    menu.style.transform = '';
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+  }
+
   showBookmarkContextMenu(bookmark, event, fromMenuButton = false) {
     // Remove any existing context menu
     const existingMenu = document.querySelector('.bookmark-context-menu');
@@ -7784,6 +7989,7 @@ async syncTabsFromServer(tabs) {
     });
 
     document.body.appendChild(menu);
+    this._clampMenuToViewport(menu);
 
     // Close menu when clicking outside
     const closeMenu = (e) => {
@@ -7860,6 +8066,7 @@ async syncTabsFromServer(tabs) {
     });
 
     document.body.appendChild(menu);
+    this._clampMenuToViewport(menu);
 
     // Close menu when clicking outside
     const closeMenu = (e) => {
@@ -7963,6 +8170,7 @@ async syncTabsFromServer(tabs) {
     });
 
     document.body.appendChild(menu);
+    this._clampMenuToViewport(menu);
 
     // Close menu when clicking outside
     const closeMenu = (e) => {
@@ -8142,6 +8350,7 @@ async syncTabsFromServer(tabs) {
     });
 
     document.body.appendChild(menu);
+    this._clampMenuToViewport(menu);
 
     // Close menu when clicking outside
     const closeMenu = (e) => {
@@ -8276,6 +8485,10 @@ async syncTabsFromServer(tabs) {
         <i class="fas fa-edit"></i>
         <span>Rename Tab</span>
       </div>
+      <div class="tab-context-menu-item" data-action="force-resize">
+        <i class="fas fa-expand-arrows-alt"></i>
+        <span>Force Resize</span>
+      </div>
     `;
 
     // Position the menu at cursor
@@ -8290,6 +8503,8 @@ async syncTabsFromServer(tabs) {
         
         if (action === 'rename') {
           this.startTabRename(sessionId);
+        } else if (action === 'force-resize') {
+          this.forceResizeTerminal(sessionId);
         }
         
         menu.remove();
@@ -8297,6 +8512,7 @@ async syncTabsFromServer(tabs) {
     });
 
     document.body.appendChild(menu);
+    this._clampMenuToViewport(menu);
 
     // Close menu when clicking outside
     const closeMenu = (e) => {
