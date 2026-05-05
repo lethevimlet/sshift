@@ -233,6 +233,14 @@ async function initializeServer() {
   app.use('/libs', express.static(path.join(webappPath, 'libs')));
   app.use('/tests', express.static(path.join(webappPath, 'tests')));
 
+  // Service Worker script - must be served from root with proper headers
+  app.get('/sw.js', (req, res) => {
+    res.setHeader('Content-Type', 'application/javascript');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Service-Worker-Allowed', '/');
+    res.sendFile(path.join(webappPath, 'sw.js'));
+  });
+
   // Main route
   app.get('/', (req, res) => {
     res.sendFile(path.join(webappPath, 'index.html'));

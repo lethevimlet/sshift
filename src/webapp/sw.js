@@ -1,18 +1,25 @@
-const CACHE_NAME = 'sshift-v1';
+const CACHE_NAME = 'sshift-v2';
 
 const PRECACHE_URLS = [
-  '/',
   '/index.html',
   '/css/style.css',
   '/libs/xterm/xterm.css',
   '/libs/font-awesome/css/all.min.css',
   '/libs/lucide/lucide.min.js',
   '/manifest.json'
-};
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS))
+    caches.open(CACHE_NAME).then((cache) => {
+      return Promise.allSettled(
+        PRECACHE_URLS.map((url) =>
+          cache.add(url).catch((e) => {
+            console.warn('[SW] Failed to precache:', url, e.message);
+          })
+        )
+      );
+    })
   );
   self.skipWaiting();
 });

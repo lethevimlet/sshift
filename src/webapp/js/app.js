@@ -2265,6 +2265,9 @@ class SSHIFTClient {
     // Initialize mobile keys bar
     this.initMobileKeysBar();
     
+    // Initialize security info dialog
+    this.initSecurityInfoDialog();
+    
     // Initialize version check and update functionality
     this.initVersionCheck();
     
@@ -4497,6 +4500,93 @@ class SSHIFTClient {
         }
       });
     }
+  }
+
+  initSecurityInfoDialog() {
+    const showBtn = document.getElementById('showSecurityInfoBtn');
+    if (showBtn) {
+      showBtn.addEventListener('click', () => {
+        this.closeModal('settingsModal');
+        this.openSecurityInfoDialog();
+      });
+    }
+
+    const closeBtn = document.getElementById('closeSecurityInfoModal');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        this.closeModal('securityInfoModal');
+      });
+    }
+
+    const closeBtn2 = document.getElementById('closeSecurityInfoBtn');
+    if (closeBtn2) {
+      closeBtn2.addEventListener('click', () => {
+        const dontShow = document.getElementById('dontShowSecurityInfo');
+        if (dontShow && dontShow.checked) {
+          localStorage.setItem('dontShowSecurityInfo', 'true');
+        } else {
+          localStorage.removeItem('dontShowSecurityInfo');
+        }
+        this.closeModal('securityInfoModal');
+      });
+    }
+
+    const downloadCertBtn = document.getElementById('downloadCertBtn');
+    if (downloadCertBtn) {
+      downloadCertBtn.addEventListener('click', () => {
+        window.open('/api/cert', '_blank');
+      });
+    }
+
+    const modal = document.getElementById('securityInfoModal');
+    if (modal) {
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+          this.closeModal('securityInfoModal');
+        }
+      });
+    }
+
+    const dontShowCheckbox = document.getElementById('dontShowSecurityInfo');
+    if (dontShowCheckbox) {
+      const stored = localStorage.getItem('dontShowSecurityInfo');
+      dontShowCheckbox.checked = stored === 'true';
+    }
+
+    // Auto-show on startup if not dismissed
+    const dontShow = localStorage.getItem('dontShowSecurityInfo');
+    if (dontShow !== 'true') {
+      setTimeout(() => this.openSecurityInfoDialog(), 1000);
+    }
+  }
+
+  openSecurityInfoDialog() {
+    const swStatusText = document.getElementById('swStatusText');
+    // Re-check actual SW state from navigator API
+    let swStatus = window._swStatus;
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      swStatus = 'active';
+      window._swStatus = 'active';
+    }
+
+    if (swStatusText) {
+      if (swStatus === 'active') {
+        swStatusText.innerHTML = '<i class="fas fa-check-circle" style="color: var(--accent-success, #4caf50);"></i> Service Worker is <strong>active</strong>. Offline caching is available.';
+      } else if (swStatus === 'failed') {
+        swStatusText.innerHTML = '<i class="fas fa-exclamation-triangle" style="color: var(--accent-danger, #f44336);"></i> Service Worker <strong>failed to register</strong>: ' + (window._swError || 'Unknown error') + '. This is usually caused by an untrusted HTTPS certificate. Download and install the certificate below to fix this, then reload the page.';
+      } else if (swStatus === 'redundant') {
+        swStatusText.innerHTML = '<i class="fas fa-exclamation-triangle" style="color: var(--accent-danger, #f44336);"></i> Service Worker became <strong>redundant</strong>. ' + (window._swError || 'The HTTPS certificate may not be trusted.') + ' Download and install the certificate below, then reload the page.';
+      } else if (swStatus === 'unsupported') {
+        swStatusText.innerHTML = '<i class="fas fa-info-circle" style="color: var(--accent-warning, #ff9800);"></i> Service Workers are <strong>not supported</strong> in this browser.';
+      } else {
+        // Still loading, retry
+        swStatusText.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking...';
+        setTimeout(() => this.openSecurityInfoDialog(), 500);
+        return;
+      }
+    }
+
+    this.openModal('securityInfoModal');
   }
 
   // Sessions Modal
