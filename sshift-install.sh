@@ -191,9 +191,9 @@ is_running() {
 }
 
 stop_app() {
-    if command_exists systemctl && systemctl --user is-active "$SERVICE_NAME" >/dev/null 2>&1; then
+    if command_exists systemctl && systemctl is-active "$SERVICE_NAME" >/dev/null 2>&1; then
         info "Stopping sshift via systemd..."
-        systemctl --user stop "$SERVICE_NAME"
+        sudo systemctl stop "$SERVICE_NAME"
         sleep 2
         return
     fi
@@ -491,7 +491,7 @@ add_to_path() {
 }
 
 setup_autostart() {
-    info "Setting up autostart..."
+    info "Setting up autostart (on boot)..."
 
     local env_dir="$INSTALL_DIR/.env"
     mkdir -p "$env_dir"
@@ -500,7 +500,7 @@ setup_autostart() {
     local node_path=$(which node 2>/dev/null || echo "node")
 
     if [ "$(uname)" = "Darwin" ]; then
-        local plist_path="$HOME/Library/LaunchAgents/com.sshift.plist"
+        local plist_path="/Library/LaunchDaemons/com.sshift.plist"
 
         # Resolve symlinks to get the real sshift script path
         local real_sshift_path="$sshift_path"
@@ -537,13 +537,19 @@ setup_autostart() {
             fi
         done
 
-        # Unload existing plist if present
+        # Unload existing plist if present (check both old and new locations)
+        local old_plist_path="$HOME/Library/LaunchAgents/com.sshift.plist"
+        if [ -f "$old_plist_path" ]; then
+            launchctl bootout gui/$(id -u) "$old_plist_path" 2>/dev/null || \
+            launchctl unload "$old_plist_path" 2>/dev/null || true
+            rm -f "$old_plist_path"
+        fi
         if [ -f "$plist_path" ]; then
-            launchctl bootout gui/$(id -u) "$plist_path" 2>/dev/null || \
-            launchctl unload "$plist_path" 2>/dev/null || true
+            sudo launchctl bootout system "$plist_path" 2>/dev/null || \
+            sudo launchctl unload "$plist_path" 2>/dev/null || true
         fi
 
-        cat > "$plist_path" << EOF
+        cat << EOF | sudo tee "$plist_path" > /dev/null
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -564,6 +570,8 @@ setup_autostart() {
         <key>HOME</key>
         <string>$HOME</string>
     </dict>
+    <key>UserName</key>
+    <string>$(whoami)</string>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
@@ -576,19 +584,13 @@ setup_autostart() {
 </plist>
 EOF
 
-        launchctl bootstrap gui/$(id -u) "$plist_path" 2>/dev/null || \
-        launchctl load "$plist_path" 2>/dev/null || true
+        sudo launchctl bootstrap system "$plist_path" 2>/dev/null || \
+        sudo launchctl load "$plist_path" 2>/dev/null || true
         success "Autostart configured via launchd"
-        info "Config directory: $env_dir"
-        info "To start now: launchctl start com.sshift"
-        info "To stop: launchctl bootout gui/$(id -u) $plist_path"
     else
-        local service_dir="$HOME/.config/systemd/user"
-        local service_path="$service_dir/$SERVICE_NAME.service"
+        local service_path="/etc/systemd/system/$SERVICE_NAME.service"
 
-        mkdir -p "$service_dir"
-
-        cat > "$service_path" << EOF
+        cat << EOF | sudo tee "$service_path" > /dev/null
 [Unit]
 Description=sshift - Web-based SSH Terminal
 After=network.target
@@ -597,66 +599,95 @@ After=network.target
 Type=simple
 ExecStart=$sshift_path
 WorkingDirectory=$INSTALL_DIR
+User=$USER
+Environment=HOME=$HOME
 Restart=on-failure
 RestartSec=10
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target
 EOF
 
-        systemctl --user daemon-reload
-        systemctl --user enable "$SERVICE_NAME"
+        sudo systemctl daemon-reload
+        sudo systemctl enable "$SERVICE_NAME"
 
         success "Autostart configured via systemd"
-        info "Config directory: $env_dir"
-        info "To start now: systemctl --user start $SERVICE_NAME"
     fi
 }
 
 remove_autostart() {
     if [ "$(uname)" = "Darwin" ]; then
-        local plist_path="$HOME/Library/LaunchAgents/com.sshift.plist"
-        if [ -f "$plist_path" ]; then
-            launchctl bootout gui/$(id -u) "$plist_path" 2>/dev/null || \
-            launchctl unload "$plist_path" 2>/dev/null || true
-            rm -f "$plist_path"
+        local new_plist_path="/Library/LaunchDaemons/com.sshift.plist"
+        local old_plist_path="$HOME/Library/LaunchAgents/com.sshift.plist"
+        if [ -f "$new_plist_path" ]; then
+            sudo launchctl bootout system "$new_plist_path" 2>/dev/null || \
+            sudo launchctl unload "$new_plist_path" 2>/dev/null || true
+            sudo rm -f "$new_plist_path"
+        fi
+        if [ -f "$old_plist_path" ]; then
+            launchctl bootout gui/$(id -u) "$old_plist_path" 2>/dev/null || \
+            launchctl unload "$old_plist_path" 2>/dev/null || true
+            rm -f "$old_plist_path"
         fi
     else
-        systemctl --user stop "$SERVICE_NAME" 2>/dev/null || true
-        systemctl --user disable "$SERVICE_NAME" 2>/dev/null || true
-        rm -f "$HOME/.config/systemd/user/$SERVICE_NAME.service"
-        systemctl --user daemon-reload 2>/dev/null || true
+        # Remove system-level service
+        if [ -f "/etc/systemd/system/$SERVICE_NAME.service" ]; then
+            sudo systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+            sudo systemctl disable "$SERVICE_NAME" 2>/dev/null || true
+            sudo rm -f "/etc/systemd/system/$SERVICE_NAME.service"
+            sudo systemctl daemon-reload 2>/dev/null || true
+        fi
+        # Also remove old user-level service if it exists
+        if [ -f "$HOME/.config/systemd/user/$SERVICE_NAME.service" ]; then
+            systemctl --user stop "$SERVICE_NAME" 2>/dev/null || true
+            systemctl --user disable "$SERVICE_NAME" 2>/dev/null || true
+            rm -f "$HOME/.config/systemd/user/$SERVICE_NAME.service"
+            systemctl --user daemon-reload 2>/dev/null || true
+        fi
     fi
 }
 
 print_summary() {
     local port=$(get_effective_port)
     local lan_ip=$(get_lan_ip)
-    local version=$(get_installed_version)
-    local config_path="$INSTALL_DIR/.env/config.json"
-    local sshift_path=$(which sshift 2>/dev/null || echo "sshift")
+
+    local url1="https://localhost:$port"
+    local url2="https://$lan_ip:$port"
+    local data_dir="$INSTALL_DIR"
+
+    local autostart_note=""
+    if [ "$(uname)" = "Darwin" ]; then
+        autostart_note=" (launchd)"
+    else
+        autostart_note=" (systemd)"
+    fi
+
+    local content=(
+        " sshift installed${autostart_note}"
+        ""
+        " Path: ${data_dir}"
+        ""
+        " URLs:"
+        "   ${url1}"
+        "   ${url2}"
+    )
+
+    local max_w=0
+    for line in "${content[@]}"; do
+        local w=${#line}
+        (( w > max_w )) && max_w=$w
+    done
+    (( max_w += 2 ))
+
+    local border
+    border=$(printf '%*s' "$max_w" '' | tr ' ' -)
 
     echo ""
-    echo -e "${BOLD}=========================================="
-    echo -e "  sshift installed successfully!"
-    echo -e "==========================================${NC}"
-    echo ""
-    echo -e "  ${CYAN}Version:${NC}       $version"
-    echo -e "  ${CYAN}Installed:${NC}     $sshift_path"
-    echo -e "  ${CYAN}Config:${NC}        $config_path"
-    echo -e "  ${CYAN}Data dir:${NC}      $INSTALL_DIR"
-    echo ""
-    echo -e "  ${BOLD}${GREEN}Access sshift at:${NC}"
-    echo -e "  ${BOLD}    https://localhost:$port${NC}"
-    echo -e "  ${BOLD}    https://$lan_ip:$port${NC}"
-    echo ""
-    echo -e "  ${CYAN}Commands:${NC}"
-    echo "    sshift              Start server"
-    echo "    sshift --stop       Stop server"
-    echo "    sshift --restart    Restart server"
-    echo "    sshift --status     Check status"
-    echo ""
-    echo -e "  ${YELLOW}You may need to restart your terminal for PATH changes to take effect${NC}"
+    echo -e "  ${GREEN}+${border}+${NC}"
+    for line in "${content[@]}"; do
+        printf "  ${GREEN}|${NC}%-${max_w}s${GREEN}|${NC}\n" "$line"
+    done
+    echo -e "  ${GREEN}+${border}+${NC}"
     echo ""
 }
 
@@ -859,16 +890,22 @@ main() {
     fi
 
     local autostart_configured=false
-    prompt_user "Start sshift automatically on login? [y/N] " "n"
+    prompt_user "Start sshift automatically on boot? [y/N] " "n"
     if [[ $PROMPT_RESPONSE =~ ^[Yy]$ ]]; then
         setup_autostart
         autostart_configured=true
     fi
 
     # Start sshift if not already running
-    # Skip if autostart was configured — launchd/systemd already started it
-    if ! $autostart_configured && ! is_running; then
-        start_app
+    # macOS launchd bootstrap starts the service, but Linux systemd enable does not
+    if [ "$(uname)" = "Darwin" ]; then
+        if ! $autostart_configured && ! is_running; then
+            start_app
+        fi
+    else
+        if ! is_running; then
+            start_app
+        fi
     fi
 
     print_summary

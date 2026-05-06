@@ -625,7 +625,7 @@ function Add-ToPath {
 
 # Setup autostart via Task Scheduler
 function Enable-Autostart {
-    Write-Info "Setting up autostart via Task Scheduler..."
+    Write-Info "Setting up autostart (on boot) via Task Scheduler..."
     
     # Find node executable
     $nodeExe = (Get-Command -Name "node" -ErrorAction SilentlyContinue).Source
@@ -689,8 +689,8 @@ WshShell.Run """$nodeExe"" ""$sshiftScript""", 0, False
     $wscriptExe = Join-Path $env:SystemRoot "System32\wscript.exe"
     $action = New-ScheduledTaskAction -Execute $wscriptExe -Argument "//B `"$vbsPath`"" -WorkingDirectory $installDir
     
-    # Create task trigger (at logon)
-    $trigger = New-ScheduledTaskTrigger -AtLogon
+    # Create task trigger (at startup)
+    $trigger = New-ScheduledTaskTrigger -AtStartup
     
     # Create task settings
     $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
@@ -699,9 +699,6 @@ WshShell.Run """$nodeExe"" ""$sshiftScript""", 0, False
     Register-ScheduledTask -TaskName $ServiceName -Action $action -Trigger $trigger -Settings $settings -RunLevel Highest -Force
     
     Write-Success "Autostart configured via Task Scheduler"
-    Write-Info "Config directory: $envDir"
-    Write-Info "Launcher script: $vbsPath"
-    Write-Info "To start now: Start-ScheduledTask -TaskName $ServiceName"
 }
 
 # Remove autostart
@@ -760,31 +757,38 @@ function Get-EffectivePort {
 function Show-Summary {
     $effectivePort = Get-EffectivePort
     $lanIP = Get-LANIP
-    $version = Get-InstalledVersion
-    $sshiftPath = (Get-Command -Name "sshift" -ErrorAction SilentlyContinue).Source
-    $configPath = Join-Path $installDir ".env\config.json"
-    
+
+    $url1 = "https://localhost:$effectivePort"
+    $url2 = "https://${lanIP}:$effectivePort"
+    $dataDir = $installDir
+
+    $content = @(
+        " sshift installed (Task Scheduler)",
+        "",
+        " Path: $dataDir",
+        "",
+        " URLs:",
+        "   $url1",
+        "   $url2"
+    )
+
+    $maxW = 0
+    foreach ($line in $content) {
+        if ($line.Length -gt $maxW) { $maxW = $line.Length }
+    }
+    $maxW += 2
+
+    $border = [string]::new('-', $maxW)
+
     Write-Host ""
-    Write-Host "==========================================" -ForegroundColor White
-    Write-Host "  sshift installed successfully!" -ForegroundColor Green
-    Write-Host "==========================================" -ForegroundColor White
-    Write-Host ""
-    Write-Host "  Version:       $version" -ForegroundColor Cyan
-    Write-Host "  Installed:     $sshiftPath" -ForegroundColor Cyan
-    Write-Host "  Config:        $configPath" -ForegroundColor Cyan
-    Write-Host "  Data dir:      $installDir" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "  Access sshift at:" -ForegroundColor Green
-    Write-Host "    https://localhost:$effectivePort" -ForegroundColor White
-    Write-Host "    https://${lanIP}:$effectivePort" -ForegroundColor White
-    Write-Host ""
-    Write-Host "  Commands:" -ForegroundColor Cyan
-    Write-Host "    sshift              Start server"
-    Write-Host "    sshift --stop       Stop server"
-    Write-Host "    sshift --restart    Restart server"
-    Write-Host "    sshift --status     Check status"
-    Write-Host ""
-    Write-Host "  You may need to restart your terminal for PATH changes to take effect" -ForegroundColor Yellow
+    Write-Host "  +$border+" -ForegroundColor Green
+    foreach ($line in $content) {
+        $padded = $line.PadRight($maxW)
+        Write-Host "  |" -ForegroundColor Green -NoNewline
+        Write-Host "$padded" -NoNewline
+        Write-Host "|" -ForegroundColor Green
+    }
+    Write-Host "  +$border+" -ForegroundColor Green
     Write-Host ""
 }
 
@@ -1049,7 +1053,7 @@ function Main {
     }
     
     # Ask about autostart
-    $enableAutostart = Read-Host "Start sshift automatically on login? [y/N]"
+    $enableAutostart = Read-Host "Start sshift automatically on boot? [y/N]"
     if ($enableAutostart -match "^[Yy]$") {
         Enable-Autostart
     }
