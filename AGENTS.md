@@ -70,17 +70,17 @@ The project includes installation scripts for easy setup:
 - Installs Node.js 20+ and npm if not present
 - Installs sshift globally via npm (`npm install -g @lethevimlet/sshift`)
 - Creates config at `~/.local/share/sshift/.env/config.json` (also writes to npm package dir for compatibility)
-- Configures autostart (systemd on Linux, launchd on macOS)
-- Auto-starts sshift after installation
-- Prints summary with install path and clickable HTTPS links (localhost + LAN IP)
+- Configures autostart on boot (systemd on Linux, launchd on macOS)
+- Starts sshift after installation
+- Prints summary box with install path and URLs
 - Supports arguments: `--install-dir DIR`, `--port PORT`, `--start`, `--stop`, `--restart`, `--status`, `--update`, `--uninstall`
 
 ### sshift-install.ps1 (Windows)
 - Installs Node.js 20+ if not present
 - Installs sshift via npm
 - Creates config at `~/.local/share/sshift/.env/config.json` (also writes to npm package dir for compatibility)
-- Auto-starts sshift after installation
-- Prints summary with install path and clickable HTTPS links (localhost + LAN IP)
+- Configures autostart on boot via Task Scheduler
+- Prints summary box with install path and URLs
 - Supports arguments: `-installDir DIR`, `-port PORT`, `-start`, `-stop`, `-restart`, `-status`, `-update`, `-uninstall`, `-help`
 
 ### sshift (Executable)
