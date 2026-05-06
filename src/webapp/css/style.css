@@ -2352,21 +2352,25 @@ body.dragging-tabs .tabs-container {
   opacity: 1 !important;
   pointer-events: auto !important;
   transition: none !important;
+  background-color: var(--terminal-scrollbar-track, #151b23) !important;
 }
 
 .terminal-container .xterm-scrollable-element > .scrollbar.invisible {
   opacity: 1 !important;
   pointer-events: auto !important;
   transition: none !important;
+  background-color: var(--terminal-scrollbar-track, #151b23) !important;
 }
 
 .terminal-container .xterm-scrollable-element > .scrollbar.invisible.fade {
   opacity: 1 !important;
   transition: none !important;
+  background-color: var(--terminal-scrollbar-track, #151b23) !important;
 }
 
 .terminal-container .xterm-scrollable-element > .scrollbar > .slider {
   border-radius: 3px;
+  background-color: var(--terminal-scrollbar-thumb, #3d444d) !important;
 }
 
 .terminal-container .xterm-scrollable-element > .shadow {
@@ -3964,16 +3968,19 @@ body.dragging-tabs .tabs-container {
     opacity: 1 !important;
     pointer-events: auto !important;
     transition: none !important;
+    background-color: var(--terminal-scrollbar-track, #151b23) !important;
   }
   
   .terminal-container .xterm-scrollable-element > .scrollbar.invisible {
     opacity: 1 !important;
     pointer-events: auto !important;
     transition: none !important;
+    background-color: var(--terminal-scrollbar-track, #151b23) !important;
   }
   
   .terminal-container .xterm-scrollable-element > .scrollbar > .slider {
     min-height: 30px !important;
+    background-color: var(--terminal-scrollbar-thumb, #3d444d) !important;
   }
   
   .terminal-container .xterm-screen {

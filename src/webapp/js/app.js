@@ -1008,6 +1008,37 @@ class SSHIFTClient {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   }
 
+  getScrollbarColors(bgColor) {
+    const hex = (bgColor || '#0d1117').replace('#', '');
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+
+    let trackR, trackG, trackB;
+    let thumbR, thumbG, thumbB;
+    if (luminance > 128) {
+      trackR = Math.max(0, r - 8);
+      trackG = Math.max(0, g - 8);
+      trackB = Math.max(0, b - 8);
+      thumbR = Math.max(0, r - 80);
+      thumbG = Math.max(0, g - 80);
+      thumbB = Math.max(0, b - 80);
+    } else {
+      trackR = Math.min(255, r + 8);
+      trackG = Math.min(255, g + 8);
+      trackB = Math.min(255, b + 8);
+      thumbR = Math.min(255, r + 60);
+      thumbG = Math.min(255, g + 60);
+      thumbB = Math.min(255, b + 60);
+    }
+
+    const track = `rgb(${trackR}, ${trackG}, ${trackB})`;
+    const thumb = `rgb(${thumbR}, ${thumbG}, ${thumbB})`;
+
+    return { track, thumb };
+  }
+
   getTerminalTheme(theme) {
     const isDark = theme === 'dark';
     
@@ -1115,6 +1146,13 @@ class SSHIFTClient {
     }, 250);
   }
 
+  applyScrollbarColors(wrapper, bgColor) {
+    if (!wrapper) return;
+    const colors = this.getScrollbarColors(bgColor);
+    wrapper.style.setProperty('--terminal-scrollbar-track', colors.track);
+    wrapper.style.setProperty('--terminal-scrollbar-thumb', colors.thumb);
+  }
+
   updateTerminalThemes(theme) {
     console.log('[SSHIFT] updateTerminalThemes called with theme:', theme);
     console.log('[SSHIFT] terminalColorOverride:', this.terminalColorOverride);
@@ -1132,8 +1170,10 @@ class SSHIFTClient {
         const wrapper = document.getElementById(`terminal-wrapper-${session.id}`);
         if (wrapper && this.terminalColorOverride) {
           wrapper.style.backgroundColor = newTheme.background;
+          this.applyScrollbarColors(wrapper, newTheme.background);
         } else if (wrapper) {
           wrapper.style.backgroundColor = '#0d1117';
+          this.applyScrollbarColors(wrapper, '#0d1117');
         }
       }
     });
@@ -1150,8 +1190,10 @@ class SSHIFTClient {
         const wrapper = document.getElementById(`terminal-wrapper-${session.id}`);
         if (wrapper && this.terminalColorOverride) {
           wrapper.style.backgroundColor = newTheme.background;
+          this.applyScrollbarColors(wrapper, newTheme.background);
         } else if (wrapper) {
           wrapper.style.backgroundColor = '#0d1117';
+          this.applyScrollbarColors(wrapper, '#0d1117');
         }
       }
     });
@@ -6086,8 +6128,10 @@ const wheelHandler = (e) => {
       if (wrapper) {
         if (this.terminalColorOverride) {
           wrapper.style.backgroundColor = this.terminalBgColor;
+          this.applyScrollbarColors(wrapper, this.terminalBgColor);
         } else {
           wrapper.style.backgroundColor = '#0d1117';
+          this.applyScrollbarColors(wrapper, '#0d1117');
         }
       }
 
