@@ -93,6 +93,7 @@ The project includes installation scripts for easy setup:
 - **Default port**: 8022 (production)
 - **Development port**: 3000 (when `NODE_ENV=development`)
 - **Default protocol**: HTTPS (self-signed certificates, configurable via `enableHttps`)
+- **HTTP redirect**: When HTTPS is enabled, plain HTTP requests on the same port are redirected to HTTPS via a dual-protocol listener (configurable via `httpRedirect`, default enabled)
 - **Port Priority**:
   1. `--port` CLI argument (sets `PORT` env var, highest priority)
   2. `PORT` environment variable (from `.env` files or shell)

@@ -29,6 +29,7 @@ const defaultConfig = {
   devPort: 3000,
   bind: '0.0.0.0',
   enableHttps: true,
+  httpRedirect: true,
   sticky: true,
   sshKeepaliveInterval: 15000,
   sshKeepaliveCountMax: 500,
@@ -239,6 +240,16 @@ function getEnableHttps() {
 }
 
 /**
+ * Get HTTP redirect setting from config
+ * Only meaningful when HTTPS is enabled - redirects HTTP requests to HTTPS
+ * @returns {boolean} Enable HTTP redirect setting
+ */
+function getHttpRedirect() {
+  const config = loadConfig();
+  return config.httpRedirect !== false; // Default to true
+}
+
+/**
  * Get custom certificate path from config
  * @returns {string|null} Path to custom certificate file, or null
  */
@@ -316,6 +327,7 @@ module.exports = {
   getImageAddonEnabled,
   getLayouts,
   getEnableHttps,
+  getHttpRedirect,
   getCertPath,
   getKeyPath,
   getDataDir,

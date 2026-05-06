@@ -16,9 +16,10 @@ const fs = require('fs');
 const path = require('path');
 const socketIO = require('socket.io');
 const selfsigned = require('selfsigned');
+const httpolyglot = require('httpolyglot');
 
 // Import utilities
-const { ensureConfig, loadConfig, getPort, getBindAddress, getEnableHttps, getCertPath, getKeyPath, getDataDir, isPasswordSet } = require('./utils/config');
+const { ensureConfig, loadConfig, getPort, getBindAddress, getEnableHttps, getHttpRedirect, getCertPath, getKeyPath, getDataDir, isPasswordSet } = require('./utils/config');
 
 // Import services
 const { sshManager, sftpManager } = require('./services');
@@ -151,9 +152,11 @@ const app = express();
 
 // Determine if HTTPS should be enabled
 const enableHttps = getEnableHttps();
+const enableHttpRedirect = enableHttps && getHttpRedirect();
 let server;
-let io; // Declare io at module level for exports
+let io;
 let sslCredentials = null;
+let actuallyHttps = false;
 
 // Async initialization function
 async function initializeServer() {
@@ -162,11 +165,30 @@ async function initializeServer() {
   if (enableHttps) {
     try {
       sslCredentials = await getSSLCredentials();
-      server = https.createServer({
-        key: sslCredentials.key,
-        cert: sslCredentials.cert
-      }, app);
-      console.log('[HTTPS] HTTPS server created with self-signed certificate');
+
+      if (enableHttpRedirect) {
+        server = httpolyglot.createServer({
+          key: sslCredentials.key,
+          cert: sslCredentials.cert
+        }, app);
+        server.on('request', (req, res) => {
+          if (!req.socket.encrypted) {
+            const host = req.headers.host ? req.headers.host.split(':')[0] : 'localhost';
+            const port = getPort();
+            res.writeHead(301, { Location: `https://${host}:${port}${req.url}` });
+            res.end();
+          }
+        });
+        actuallyHttps = true;
+        console.log('[HTTPS] HTTPS server created with HTTP redirect enabled (dual-protocol)');
+      } else {
+        server = https.createServer({
+          key: sslCredentials.key,
+          cert: sslCredentials.cert
+        }, app);
+        actuallyHttps = true;
+        console.log('[HTTPS] HTTPS server created with self-signed certificate');
+      }
     } catch (err) {
       console.error('[HTTPS] Failed to create HTTPS server, falling back to HTTP:', err.message);
       server = http.createServer(app);
@@ -310,13 +332,13 @@ async function initializeServer() {
 
   server.listen(PORT, BIND, () => {
     const address = BIND === '0.0.0.0' || BIND === '::' ? 'localhost' : BIND;
-    const protocol = enableHttps ? 'https' : 'http';
+    const protocol = actuallyHttps ? 'https' : 'http';
     console.log(`Web SSH/SFTP Client running at ${protocol}://${address}:${PORT}`);
     // OSC 8 hyperlink: ESC ] 8 ; ; URL BEL text ESC ] 8 ; ; BEL
     const ESC = '\x1b';
     console.log(`${ESC}]8;;${protocol}://${address}:${PORT}${ESC}\\Open in browser${ESC}]8;;${ESC}\\`);
     
-    if (enableHttps) {
+if (actuallyHttps) {
       console.log('[HTTPS] Note: Using self-signed certificate. Your browser may show a security warning.');
       console.log('[HTTPS] For mobile devices, you may need to accept the certificate warning to use native text selection.');
     }

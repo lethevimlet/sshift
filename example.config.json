@@ -3,6 +3,7 @@
   "devPort": 3000,
   "bind": "0.0.0.0",
   "enableHttps": true,
+  "httpRedirect": true,
   "certPath": null,
   "keyPath": null,
   "sticky": true,
