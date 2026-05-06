@@ -68,6 +68,10 @@ class MobileTerminalHandler {
       isKeyboardVisible: false
     };
     
+    // Set to true before intentionally blurring the textarea (e.g., collapseKeyboard)
+    // so the blur handler knows not to auto-refocus
+    this._intentionalBlur = false;
+    
     // Bound methods (for event listener management)
     this._boundHandleTouchStart = this._handleTouchStart.bind(this);
     this._boundHandleTouchMove = this._handleTouchMove.bind(this);
@@ -490,6 +494,7 @@ class MobileTerminalHandler {
     this.hiddenTextarea.addEventListener('focus', (e) => {
       if (this.touchState.isSelecting || this.selection.active) {
         e.preventDefault();
+        this._intentionalBlur = true;
         this.hiddenTextarea.blur();
         // Also collapse any active keyboard
         this._collapseKeyboard();
@@ -1239,6 +1244,7 @@ class MobileTerminalHandler {
    */
   _collapseKeyboard() {
     if (this.hiddenTextarea) {
+      this._intentionalBlur = true;
       this.hiddenTextarea.blur();
       // Restore readonly to prevent keyboard on any accidental focus
       this.hiddenTextarea.setAttribute('readonly', 'true');

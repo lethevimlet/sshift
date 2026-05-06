@@ -2052,6 +2052,17 @@ class SSHIFTClient {
     // Special keys button
     const specialKeysBtn = document.getElementById(isSingle ? 'specialKeysBtn' : `${panelId}-specialKeysBtn`);
     if (specialKeysBtn) {
+      specialKeysBtn.setAttribute('tabindex', '-1');
+      specialKeysBtn.addEventListener('focus', () => {
+        specialKeysBtn.blur();
+        if (this.isMobile) this.focusTerminal();
+      });
+      specialKeysBtn.addEventListener('touchstart', (e) => {
+        if (this.isMobile) e.preventDefault();
+      }, { passive: false });
+      specialKeysBtn.addEventListener('mousedown', (e) => {
+        if (this.isMobile) e.preventDefault();
+      });
       specialKeysBtn.addEventListener('click', () => this.handleSpecialKeys(panelId));
     }
     
@@ -2980,37 +2991,75 @@ const wheelHandler = (e) => {
     // Get all key buttons
     const keys = mobileKeysBar.querySelectorAll('.mobile-key');
     
+    // Make all mobile key buttons unfocusable - they must never steal focus
+    // from the terminal's hidden textarea (which would close the virtual keyboard)
+    keys.forEach(key => key.setAttribute('tabindex', '-1'));
+    
     keys.forEach(key => {
       const keyName = key.dataset.key;
       if (!keyName) return;
       
-      // Handle modifier keys (Ctrl, Alt) - toggle behavior
-      if (key.classList.contains('mobile-key-modifier')) {
-        key.addEventListener('click', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          
+      // If a button ever receives focus, immediately redirect it back
+      // to the terminal. On mobile this prevents the virtual keyboard
+      // from collapsing when a key bar button is tapped.
+      key.addEventListener('focus', () => {
+        key.blur();
+        this.focusTerminal();
+      });
+      
+      let touchHandled = false;
+      
+      key.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        touchHandled = true;
+      }, { passive: false });
+      
+      key.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        if (key.classList.contains('mobile-key-modifier')) {
           if (keyName === 'ctrl') {
             this.ctrlPressed = !this.ctrlPressed;
             key.classList.toggle('active', this.ctrlPressed);
-            console.log('[SSHIFT] Ctrl', this.ctrlPressed ? 'pressed' : 'released');
           } else if (keyName === 'alt') {
             this.altPressed = !this.altPressed;
             key.classList.toggle('active', this.altPressed);
-            console.log('[SSHIFT] Alt', this.altPressed ? 'pressed' : 'released');
           }
-          
-          // Focus terminal after pressing modifier
-          this.focusTerminal();
-        });
-      } else {
-        // Regular keys - send on click/tap
-        key.addEventListener('click', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
+        } else {
           this.sendMobileKey(keyName);
-        });
-      }
+        }
+      }, { passive: false });
+      
+      key.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+      });
+      
+      key.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (touchHandled) { touchHandled = false; return; }
+        
+        if (key.classList.contains('mobile-key-modifier')) {
+          if (keyName === 'ctrl') {
+            this.ctrlPressed = !this.ctrlPressed;
+            key.classList.toggle('active', this.ctrlPressed);
+          } else if (keyName === 'alt') {
+            this.altPressed = !this.altPressed;
+            key.classList.toggle('active', this.altPressed);
+          }
+          this.focusTerminal();
+        } else {
+          this.sendMobileKey(keyName);
+        }
+      });
+    });
+    
+    // Safety net: if focus somehow lands inside the keys bar, redirect
+    // it back to the terminal immediately
+    mobileKeysBar.addEventListener('focusin', (e) => {
+      if (e.target) e.target.blur();
+      this.focusTerminal();
     });
     
     // Initial visibility update
@@ -4205,21 +4254,77 @@ const wheelHandler = (e) => {
     });
 
     // Special keys modal
-    document.getElementById('specialKeysBtn').addEventListener('click', () => {
-      // Use the handler to check for active session
+    const specialKeysBtnEl = document.getElementById('specialKeysBtn');
+    specialKeysBtnEl.setAttribute('tabindex', '-1');
+    specialKeysBtnEl.addEventListener('focus', () => {
+      specialKeysBtnEl.blur();
+      if (this.isMobile) this.focusTerminal();
+    });
+    specialKeysBtnEl.addEventListener('touchstart', (e) => {
+      if (this.isMobile) e.preventDefault();
+    }, { passive: false });
+    specialKeysBtnEl.addEventListener('mousedown', (e) => {
+      if (this.isMobile) e.preventDefault();
+    });
+    specialKeysBtnEl.addEventListener('click', () => {
       this.handleSpecialKeys('panel-0');
     });
 
-    document.getElementById('closeSpecialKeysModal').addEventListener('click', () => {
+    const closeSpecialKeysBtn = document.getElementById('closeSpecialKeysModal');
+    closeSpecialKeysBtn.setAttribute('tabindex', '-1');
+    closeSpecialKeysBtn.addEventListener('focus', () => {
+      closeSpecialKeysBtn.blur();
+      if (this.isMobile) this.focusTerminal();
+    });
+    closeSpecialKeysBtn.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+    }, { passive: false });
+    closeSpecialKeysBtn.addEventListener('touchend', (e) => {
+      e.preventDefault();
       this.closeModal('specialKeysModal');
+      this.focusTerminal();
+    }, { passive: false });
+    closeSpecialKeysBtn.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+    });
+    closeSpecialKeysBtn.addEventListener('click', () => {
+      this.closeModal('specialKeysModal');
+      this.focusTerminal();
     });
 
     // Special key buttons
+    const specialKeysModal = document.getElementById('specialKeysModal');
     document.querySelectorAll('.key-btn').forEach(btn => {
+      btn.setAttribute('tabindex', '-1');
+      btn.addEventListener('focus', () => {
+        btn.blur();
+        if (this.isMobile) this.focusTerminal();
+      });
+      let btnTouchHandled = false;
+      btn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        btnTouchHandled = true;
+      }, { passive: false });
+      btn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        this.sendSpecialKey(btn.dataset.key);
+      }, { passive: false });
+      btn.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+      });
       btn.addEventListener('click', () => {
+        if (btnTouchHandled) { btnTouchHandled = false; return; }
         this.sendSpecialKey(btn.dataset.key);
       });
     });
+    
+    // Safety net: refocus terminal if focus lands inside special keys modal
+    if (specialKeysModal) {
+      specialKeysModal.addEventListener('focusin', (e) => {
+        if (e.target) e.target.blur();
+        if (this.isMobile) this.focusTerminal();
+      });
+    }
 
     // Font size buttons
     document.getElementById('increaseFontBtn').addEventListener('click', () => {
@@ -4277,11 +4382,18 @@ const wheelHandler = (e) => {
 
     // Click outside modal to close
     document.querySelectorAll('.modal').forEach(modal => {
+      modal.addEventListener('mousedown', (e) => {
+        if (e.target === modal && this.isMobile) e.preventDefault();
+      });
+      modal.addEventListener('touchstart', (e) => {
+        if (e.target === modal) e.preventDefault();
+      }, { passive: false });
       modal.addEventListener('click', (e) => {
         if (e.target === modal) {
           e.preventDefault();
           e.stopImmediatePropagation();
           this.closeModal(modal.id);
+          if (this.isMobile) this.focusTerminal();
         }
       });
     });
@@ -7541,6 +7653,7 @@ async syncTabsFromServer(tabs) {
     }
 
     this.closeModal('specialKeysModal');
+    this.focusTerminal();
   }
 
   // Bookmarks
