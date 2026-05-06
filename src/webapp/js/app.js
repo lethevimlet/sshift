@@ -1153,6 +1153,17 @@ class SSHIFTClient {
     wrapper.style.setProperty('--terminal-scrollbar-thumb', colors.thumb);
   }
 
+  updateViewportBackground(session) {
+    if (!session || !session.terminal || !session.terminal.element) return;
+    const bgColor = this.terminalColorOverride
+      ? (this.terminalBgColor || '#0d1117')
+      : '#0d1117';
+    const viewport = session.terminal.element.querySelector('.xterm-viewport');
+    if (viewport) {
+      viewport.style.backgroundColor = bgColor;
+    }
+  }
+
   updateTerminalThemes(theme) {
     console.log('[SSHIFT] updateTerminalThemes called with theme:', theme);
     console.log('[SSHIFT] terminalColorOverride:', this.terminalColorOverride);
@@ -1175,6 +1186,8 @@ class SSHIFTClient {
           wrapper.style.backgroundColor = '#0d1117';
           this.applyScrollbarColors(wrapper, '#0d1117');
         }
+
+        this.updateViewportBackground(session);
       }
     });
     
@@ -1195,6 +1208,8 @@ class SSHIFTClient {
           wrapper.style.backgroundColor = '#0d1117';
           this.applyScrollbarColors(wrapper, '#0d1117');
         }
+
+        this.updateViewportBackground(session);
       }
     });
   }
@@ -5522,6 +5537,15 @@ const wheelHandler = (e) => {
       if (session.terminal) {
         const theme = this.getTerminalTheme();
         session.terminal.options.theme = theme;
+        const wrapper = document.getElementById(`terminal-wrapper-${sessionId}`);
+        if (wrapper) {
+          const bgColor = this.terminalColorOverride
+            ? (this.terminalBgColor || '#0d1117')
+            : '#0d1117';
+          wrapper.style.backgroundColor = bgColor;
+          this.applyScrollbarColors(wrapper, bgColor);
+        }
+        this.updateViewportBackground(session);
       }
     });
   }
@@ -6643,6 +6667,8 @@ const wheelHandler = (e) => {
 
       session.terminal = terminal;
       session.fitAddon = fitAddon;
+
+      this.updateViewportBackground(session);
 
       // Flush any data that was buffered before the terminal was ready
       if (session.writeBuffer) {

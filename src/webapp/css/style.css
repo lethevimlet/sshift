@@ -2330,6 +2330,7 @@ body.dragging-tabs .tabs-container {
 
 .terminal-container .xterm-viewport {
   height: 100% !important;
+  background-color: #0d1117;
 }
 
 .terminal-container .xterm-screen {
