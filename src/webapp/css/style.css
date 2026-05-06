@@ -2347,22 +2347,40 @@ body.dragging-tabs .tabs-container {
   opacity: 0;
 }
 
-/* Fix for xterm viewport rendering issues */
+/* xterm v6 custom scrollbar: always visible */
+.terminal-container .xterm-scrollable-element > .scrollbar {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  transition: none !important;
+}
+
+.terminal-container .xterm-scrollable-element > .scrollbar.invisible {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  transition: none !important;
+}
+
+.terminal-container .xterm-scrollable-element > .scrollbar.invisible.fade {
+  opacity: 1 !important;
+  transition: none !important;
+}
+
+.terminal-container .xterm-scrollable-element > .scrollbar > .slider {
+  border-radius: 3px;
+}
+
+.terminal-container .xterm-scrollable-element > .shadow {
+  display: none !important;
+}
+
+/* Hide native viewport scrollbar (xterm v6 uses custom scrollbar) */
 .terminal-container .xterm-viewport::-webkit-scrollbar {
-  width: 10px;
+  width: 0;
+  height: 0;
 }
 
-.terminal-container .xterm-viewport::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.terminal-container .xterm-viewport::-webkit-scrollbar-thumb {
-  background: var(--border-color);
-  border-radius: 5px;
-}
-
-.terminal-container .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
+.terminal-container .xterm-viewport {
+  scrollbar-width: none;
 }
 
 /* Ensure terminal screen is properly positioned */
@@ -3927,38 +3945,35 @@ body.dragging-tabs .tabs-container {
   }
   
   .terminal-container .xterm-viewport {
-    overflow-y: auto !important;
+    overflow-y: hidden !important;
     overflow-x: hidden !important;
     overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
-    touch-action: pan-y;
-    /* Fill available space */
+    touch-action: none;
     flex: 1;
     min-height: 0;
-    /* Override the height: 100% !important from general styles */
     height: auto !important;
-    /* Firefox scrollbar */
-    scrollbar-width: thin;
-    scrollbar-color: var(--bg-hover) var(--bg-primary);
+    scrollbar-width: none;
   }
   
-  /* Ensure scrollbars are visible on mobile */
   .terminal-container .xterm-viewport::-webkit-scrollbar {
-    width: 8px !important;
-    height: 8px !important;
+    width: 0;
+    height: 0;
   }
   
-  .terminal-container .xterm-viewport::-webkit-scrollbar-track {
-    background: var(--bg-primary) !important;
+  .terminal-container .xterm-scrollable-element > .scrollbar {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    transition: none !important;
   }
   
-  .terminal-container .xterm-viewport::-webkit-scrollbar-thumb {
-    background: var(--bg-hover) !important;
-    border-radius: 4px !important;
+  .terminal-container .xterm-scrollable-element > .scrollbar.invisible {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    transition: none !important;
   }
   
-  .terminal-container .xterm-viewport::-webkit-scrollbar-thumb:hover {
-    background: var(--border-light) !important;
+  .terminal-container .xterm-scrollable-element > .scrollbar > .slider {
+    min-height: 30px !important;
   }
   
   .terminal-container .xterm-screen {
@@ -4349,7 +4364,6 @@ body.dragging-tabs .tabs-container {
   /* Enable native touch selection on mobile for terminal */
   .terminal-container .xterm,
   .terminal-container .xterm-screen,
-  .terminal-container .xterm-viewport,
   .terminal-container .xterm-rows,
   .terminal-container .xterm-helpers {
     -webkit-touch-callout: default !important;
@@ -4358,6 +4372,10 @@ body.dragging-tabs .tabs-container {
     -ms-user-select: text !important;
     user-select: text !important;
     touch-action: manipulation !important;
+  }
+  
+  .terminal-container .xterm-viewport {
+    touch-action: none !important;
   }
   
   /* Allow text selection in terminal on mobile */

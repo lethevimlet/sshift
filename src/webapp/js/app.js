@@ -2329,76 +2329,73 @@ class SSHIFTClient {
     
     console.log('[SSHIFT] Setting up mobile scroll behavior for session:', sessionId);
     
-    // Initialize scroll position tracking for this session
     session.lastScrollTop = 0;
     session.lastTouchY = 0;
     session.isScrolling = false;
-    session.isAtBottom = true; // Start at bottom
+    session.isAtBottom = true;
+    session.touchAccumulator = 0;
     
-    // Initialize pinch-to-zoom state
     session.initialPinchDistance = 0;
     session.lastPinchDistance = 0;
     session.isPinching = false;
     
-    // Use xterm.js onScroll event to track scroll position
     terminal.onScroll(() => {
-      console.log('[SSHIFT] xterm onScroll event fired');
       this.handleMobileScroll(sessionId);
       this.checkIfAtBottom(sessionId);
     });
     
-    // Also handle touch events on the terminal element for touch scrolling and pinch-to-zoom
     const terminalElement = terminal.element;
     if (terminalElement) {
       console.log('[SSHIFT] Terminal element found, setting up touch handlers');
       
-      // Try both the viewport and the main terminal element
+      const scrollableElement = terminalElement.querySelector('.xterm-scrollable-element') || terminalElement;
       const viewportElement = terminalElement.querySelector('.xterm-viewport');
-      const xtermScreen = terminalElement.querySelector('.xterm-screen');
       
-      const setupTouchHandlers = (element, elementName) => {
+      const setupTouchScrollHandlers = (element, elementName) => {
         if (!element) {
           console.log(`[SSHIFT] ${elementName} not found`);
           return;
         }
         
-        console.log(`[SSHIFT] Setting up touch handlers on ${elementName}`);
+        console.log(`[SSHIFT] Setting up touch scroll handlers on ${elementName}`);
         
-        // Touch start - record initial position for both scroll and pinch
         element.addEventListener('touchstart', (e) => {
           if (e.touches.length === 1) {
             session.lastTouchY = e.touches[0].clientY;
             session.isScrolling = true;
-            console.log(`[SSHIFT] ${elementName} touchstart, Y:`, session.lastTouchY);
+            session.touchAccumulator = 0;
           } else if (e.touches.length === 2) {
-            // Pinch gesture started
             session.isPinching = true;
             session.isScrolling = false;
             session.initialPinchDistance = this.getPinchDistance(e.touches[0], e.touches[1]);
             session.lastPinchDistance = session.initialPinchDistance;
-            console.log(`[SSHIFT] ${elementName} pinch start, distance:`, session.initialPinchDistance);
           }
         }, { passive: true });
         
-        // Touch move - track scrolling and pinch
         element.addEventListener('touchmove', (e) => {
-          // Handle single-finger scroll
           if (e.touches.length === 1 && session.isScrolling) {
+            e.preventDefault();
+            
             const currentTouchY = e.touches[0].clientY;
             const touchDiff = session.lastTouchY - currentTouchY;
-            
-            // Update last touch position
             session.lastTouchY = currentTouchY;
+            session.touchAccumulator += touchDiff;
             
-            console.log(`[SSHIFT] ${elementName} touchmove, diff:`, touchDiff);
-          }
-          // Handle two-finger pinch
-          else if (e.touches.length === 2 && session.isPinching) {
+            const lineHeight = terminal._core?._renderService?.dimensions?.css?.cell?.height || 20;
+            const lineH = Math.max(lineHeight, 14);
+            
+            const linesToScroll = Math.trunc(Math.abs(session.touchAccumulator) / lineH);
+            if (linesToScroll > 0) {
+              const direction = session.touchAccumulator > 0 ? 1 : -1;
+              terminal.scrollLines(direction * linesToScroll);
+              session.touchAccumulator -= direction * linesToScroll * lineH;
+            }
+          } else if (e.touches.length === 2 && session.isPinching) {
+            e.preventDefault();
+            
             const currentDistance = this.getPinchDistance(e.touches[0], e.touches[1]);
             const distanceDiff = currentDistance - session.lastPinchDistance;
             
-            // Calculate font size change based on pinch scale
-            // Scale factor: 1 pixel distance change = 0.1 font size change
             const fontSizeChange = distanceDiff * 0.1;
             
             if (Math.abs(fontSizeChange) >= 0.5) {
@@ -2406,52 +2403,43 @@ class SSHIFTClient {
               
               if (newFontSize !== this.terminalFontSize) {
                 this.setTerminalFontSize(newFontSize);
-                console.log(`[SSHIFT] ${elementName} pinch zoom, font size:`, newFontSize);
               }
             }
             
             session.lastPinchDistance = currentDistance;
           }
-        }, { passive: true });
+        }, { passive: false });
         
-        // Touch end - check if at bottom for auto-scroll and reset pinch state
         element.addEventListener('touchend', (e) => {
-          // Reset pinch state when all fingers are lifted
           if (e.touches.length === 0) {
             if (session.isPinching) {
-              console.log(`[SSHIFT] ${elementName} pinch end, final font size:`, this.terminalFontSize);
               session.isPinching = false;
             }
             session.isScrolling = false;
             session.initialPinchDistance = 0;
             session.lastPinchDistance = 0;
+            session.touchAccumulator = 0;
             
-            // Check scroll position after touch ends
             setTimeout(() => {
               this.checkIfAtBottom(sessionId);
             }, 100);
           } else if (e.touches.length === 1) {
-            // Transitioned from pinch to single finger
             session.isPinching = false;
             session.initialPinchDistance = 0;
             session.lastPinchDistance = 0;
             session.lastTouchY = e.touches[0].clientY;
             session.isScrolling = true;
+            session.touchAccumulator = 0;
           }
         }, { passive: true });
       };
       
-      // Set up on both viewport and screen
-      setupTouchHandlers(viewportElement, 'viewport');
-      setupTouchHandlers(xtermScreen, 'screen');
+      setupTouchScrollHandlers(scrollableElement, 'scrollable');
+      if (viewportElement && viewportElement !== scrollableElement) {
+        setupTouchScrollHandlers(viewportElement, 'viewport');
+      }
       
-      // Also set up on the main terminal element as fallback
-      setupTouchHandlers(terminalElement, 'terminal');
-      
-      // Note: On mobile, we use xterm.js's native touch selection which provides
-      // the native Android/iOS selection handles and copy/paste menu.
-      // No custom long-press context menu is needed on mobile.
-      console.log('[SSHIFT] Mobile touch selection enabled - using native selection UI');
+      console.log('[SSHIFT] Mobile touch scroll enabled with terminal.scrollLines()');
       
     } else {
       console.warn('[SSHIFT] Terminal element not found for touch handlers');
@@ -2463,6 +2451,58 @@ class SSHIFTClient {
     const dx = touch1.clientX - touch2.clientX;
     const dy = touch1.clientY - touch2.clientY;
     return Math.sqrt(dx * dx + dy * dy);
+  }
+  
+  // Setup wheel scroll handler for desktop
+  // xterm v6's ScrollableElement handles wheel events on the viewport,
+  // but .xterm-screen (z-index: 1) sits above the viewport and intercepts
+  // wheel events before they reach the scroll handler.
+  // This method adds a wheel listener on the terminal element itself.
+  setupWheelScroll(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session || !session.terminal) return;
+    
+    const terminal = session.terminal;
+    const terminalElement = terminal.element;
+    if (!terminalElement) return;
+    
+const wheelHandler = (e) => {
+      if (e.deltaY === 0) return;
+      
+      // If the event target is inside the custom scrollbar,
+      // let xterm's ScrollableElement handle it to avoid double-scroll
+      const target = e.target;
+      if (target && target.closest && target.closest('.xterm-scrollable-element')) {
+        return;
+      }
+      
+      e.preventDefault();
+      
+      let lines = 1;
+      if (e.deltaMode === 1) {
+        lines = Math.abs(e.deltaY);
+      } else if (e.deltaMode === 0) {
+        const lineHeight = terminal._core?._renderService?.dimensions?.css?.cell?.height || 20;
+        lines = Math.max(1, Math.round(Math.abs(e.deltaY) / Math.max(lineHeight, 14)));
+      } else {
+        lines = Math.abs(e.deltaY) * terminal.rows;
+      }
+      
+      const fastScrollModifier = terminal.options.fastScrollModifier;
+      if (fastScrollModifier === 'alt' && e.altKey ||
+          fastScrollModifier === 'ctrl' && e.ctrlKey ||
+          fastScrollModifier === 'shift' && e.shiftKey) {
+        lines *= (terminal.options.fastScrollSensitivity || 5);
+      }
+      
+      terminal.scrollLines((e.deltaY > 0 ? 1 : -1) * lines);
+    };
+    
+    terminalElement.addEventListener('wheel', wheelHandler, { passive: false });
+    
+    // Store handler for cleanup
+    session.wheelHandler = wheelHandler;
+    session.wheelElement = terminalElement;
   }
   
   // Check if terminal is scrolled to bottom
@@ -3407,10 +3447,15 @@ class SSHIFTClient {
         // Write the serialized terminal state
         // This includes all escape sequences to reconstruct the screen
         session.terminal.write(state, () => {
-          console.log('[SSHIFT] Terminal state synchronized');
+          console.log('[SSHIFT] Terminal state synchronized, partial:', data.partial);
           
           // Clear syncing flag after sync is complete
           session.syncing = false;
+          
+          // If full scrollback was restored, scroll to bottom to show latest output
+          if (!data.partial) {
+            session.terminal.scrollToBottom();
+          }
           
           // Resize terminal to match the session's dimensions if provided
           // Note: We do NOT call fit() here because:
@@ -6032,7 +6077,9 @@ class SSHIFTClient {
         disableStdin: false,
         logLevel: 'warn',
         fastScrollModifier: 'alt',
-        fastScrollSensitivity: 5
+        fastScrollSensitivity: 5,
+        smoothScrollDuration: 80,
+        overviewRuler: { width: 14 }
       });
 
       // Set wrapper background color
@@ -6499,6 +6546,7 @@ class SSHIFTClient {
       // Use requestAnimationFrame to ensure terminal.element is available
       requestAnimationFrame(() => {
         this.setupMobileScrollBehavior(sessionId);
+        this.setupWheelScroll(sessionId);
       });
 
       console.log('[SSHIFT] Terminal initialized for session:', sessionId);
@@ -7191,6 +7239,12 @@ class SSHIFTClient {
         session.mobileHandler.destroy();
         session.mobileHandler = null;
       }
+      // Clean up wheel handler
+      if (session.wheelHandler && session.wheelElement) {
+        session.wheelElement.removeEventListener('wheel', session.wheelHandler);
+        session.wheelHandler = null;
+        session.wheelElement = null;
+      }
       if (session.terminal) {
         session.terminal.dispose();
       }
@@ -7288,6 +7342,9 @@ class SSHIFTClient {
     
     // Clean up the session locally (don't emit tab-close again)
     if (session.type === 'ssh') {
+      if (session.wheelHandler && session.wheelElement) {
+        session.wheelElement.removeEventListener('wheel', session.wheelHandler);
+      }
       if (session.terminal) {
         session.terminal.dispose();
       }

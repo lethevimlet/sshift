@@ -84,11 +84,15 @@ function registerSSHHandlers(socket, io) {
     console.log('[SSH] ssh-request-sync event received for session:', data.sessionId);
     const state = sshManager.getTerminalState(data.sessionId);
     if (state) {
+      // Base64 encode to avoid Socket.IO binary detection issues
+      const base64State = Buffer.from(state.state, 'utf-8').toString('base64');
       socket.emit('ssh-screen-sync', {
         sessionId: data.sessionId,
-        state: state.state,
+        state: base64State,
         cols: state.cols,
-        rows: state.rows
+        rows: state.rows,
+        encoded: true,
+        partial: false
       });
     } else {
       socket.emit('ssh-error', { message: 'Session not found', sessionId: data.sessionId });

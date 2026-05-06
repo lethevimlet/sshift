@@ -29,10 +29,11 @@ class SSHManager {
       const rows = options.rows || 24;
       
       // Create a headless terminal to maintain state
+      // Use scrollback 5000 to preserve full history for screen sync on reload
       const terminal = new Terminal({
         cols: cols,
         rows: rows,
-        scrollback: 0,
+        scrollback: 5000,
         allowProposedApi: true,
         logLevel: 'off'
       });
@@ -282,40 +283,54 @@ class SSHManager {
     
     // Send current terminal state to the joining socket BEFORE joining the room
     // This ensures the client gets the full state before receiving any new data
-    // This provides the complete screen state for TUIs
     if (session.terminal && session.serializeAddon) {
       try {
-        // Serialize only the current viewport to avoid large payloads
-        // 'all' mode can cause stack overflow with large scrollback buffers
-        let serializedState = session.serializeAddon.serialize({
-          mode: 'normal' // Only current viewport, not full scrollback
-        });
+        // Try to serialize full scrollback buffer first (includes all history)
+        let serializedState = session.serializeAddon.serialize({ mode: 'all' });
         
-        // Ensure it's a string (not a complex object)
+        // Validate it's a string
         if (typeof serializedState !== 'string') {
           serializedState = String(serializedState);
         }
         
-        // Validate the serialized state is not too large
-        // Use a conservative limit to avoid Socket.IO stack overflow
-        const maxSize = 50 * 1024; // 50KB max (reduced to be safe)
-        if (serializedState.length > maxSize) {
-          console.warn(`[SSH] Terminal state too large (${serializedState.length} bytes), skipping sync`);
+        // If full state is too large, fall back to viewport-only
+        const fullMaxSize = 256 * 1024; // 256KB for full scrollback
+        const viewportMaxSize = 50 * 1024; // 50KB fallback for viewport only
+        
+        if (serializedState.length > fullMaxSize) {
+          console.warn(`[SSH] Full terminal state too large (${serializedState.length} bytes), falling back to viewport-only`);
+          serializedState = session.serializeAddon.serialize({ mode: 'normal' });
+          if (typeof serializedState !== 'string') {
+            serializedState = String(serializedState);
+          }
+          
+          if (serializedState.length > viewportMaxSize) {
+            console.warn(`[SSH] Viewport state also too large (${serializedState.length} bytes), skipping sync`);
+          } else {
+            // Send viewport-only state
+            const base64State = Buffer.from(serializedState, 'utf-8').toString('base64');
+            socket.emit('ssh-screen-sync', {
+              sessionId: sessionId,
+              state: base64State,
+              cols: session.cols,
+              rows: session.rows,
+              encoded: true,
+              partial: true
+            });
+            hasTerminalState = true;
+          }
         } else {
-          console.log(`[SSH] Sending serialized terminal state to socket ${socket.id}, size: ${serializedState.length}`);
-          
-          // Use base64 encoding to avoid Socket.IO's binary detection
-          // which can cause stack overflow with large strings
+          // Send full state including scrollback
           const base64State = Buffer.from(serializedState, 'utf-8').toString('base64');
+          console.log(`[SSH] Sending full serialized terminal state to socket ${socket.id}, size: ${serializedState.length}, base64: ${base64State.length}`);
           
-          // Send the serialized state to the joining client
-          // Use a plain object with primitive values only
           socket.emit('ssh-screen-sync', {
             sessionId: sessionId,
             state: base64State,
             cols: session.cols,
             rows: session.rows,
-            encoded: true // Flag to indicate base64 encoding
+            encoded: true,
+            partial: false
           });
           
           hasTerminalState = true;
@@ -481,14 +496,18 @@ class SSHManager {
     }
     
     try {
-      // Use 'normal' mode to avoid stack overflow with large scrollback buffers
-      const serializedState = session.serializeAddon.serialize({ mode: 'normal' });
+      // Serialize full scrollback buffer to preserve history on reload
+      let serializedState = session.serializeAddon.serialize({ mode: 'all' });
       
-      // Validate size
+      // Validate size - allow up to 1MB for manual sync requests
       const maxSize = 1024 * 1024; // 1MB max
       if (serializedState.length > maxSize) {
-        console.warn(`[SSH] Terminal state too large (${serializedState.length} bytes), returning null`);
-        return null;
+        console.warn(`[SSH] Terminal state too large (${serializedState.length} bytes), falling back to viewport-only`);
+        serializedState = session.serializeAddon.serialize({ mode: 'normal' });
+        if (serializedState.length > maxSize) {
+          console.warn(`[SSH] Viewport state also too large (${serializedState.length} bytes), returning null`);
+          return null;
+        }
       }
       
       return {
