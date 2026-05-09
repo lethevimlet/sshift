@@ -179,6 +179,17 @@ get_effective_port() {
 }
 
 is_running() {
+    if command_exists systemctl && [ -f "/etc/systemd/system/$SERVICE_NAME.service" ] && systemctl is-active "$SERVICE_NAME" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    if [ "$(uname)" = "Darwin" ] && [ -f "/Library/LaunchDaemons/com.sshift.plist" ]; then
+        local pid=$(sudo launchctl list 2>/dev/null | awk '$3 == "com.sshift" && $1 != "-" {print $1}')
+        if [ -n "$pid" ] && ps -p "$pid" >/dev/null 2>&1; then
+            return 0
+        fi
+    fi
+
     if [ -f "$PID_FILE" ]; then
         local pid=$(cat "$PID_FILE")
         if ps -p "$pid" >/dev/null 2>&1; then
@@ -224,8 +235,24 @@ stop_app() {
 start_app() {
     info "Starting sshift..."
 
+    if command_exists systemctl && [ -f "/etc/systemd/system/$SERVICE_NAME.service" ]; then
+        if systemctl is-active "$SERVICE_NAME" >/dev/null 2>&1; then
+            success "sshift is already running (via systemd)"
+            return
+        fi
+        info "Starting sshift via systemd..."
+        if sudo systemctl start "$SERVICE_NAME"; then
+            sleep 2
+            if systemctl is-active "$SERVICE_NAME" >/dev/null 2>&1; then
+                success "sshift started via systemd"
+                return
+            fi
+        fi
+        warn "systemd start failed, falling back to direct start..."
+    fi
+
     if is_running; then
-        local pid=$(cat "$PID_FILE")
+        local pid=$(cat "$PID_FILE" 2>/dev/null)
         warn "sshift is already running (PID: $pid)"
         return
     fi
@@ -590,6 +617,43 @@ EOF
     else
         local service_path="/etc/systemd/system/$SERVICE_NAME.service"
 
+        local real_sshift_path="$sshift_path"
+        while [ -L "$real_sshift_path" ]; do
+            local target=$(readlink "$real_sshift_path" 2>/dev/null)
+            if [ -z "$target" ]; then break; fi
+            case "$target" in
+                /*) real_sshift_path="$target" ;;
+                *) real_sshift_path="$(dirname "$real_sshift_path")/$target" ;;
+            esac
+        done
+
+        local real_node_path="$node_path"
+        while [ -L "$real_node_path" ]; do
+            local target=$(readlink "$real_node_path" 2>/dev/null)
+            if [ -z "$target" ]; then break; fi
+            case "$target" in
+                /*) real_node_path="$target" ;;
+                *) real_node_path="$(dirname "$real_node_path")/$target" ;;
+            esac
+        done
+
+        local path_dirs=""
+        local bin_dirs=("/usr/local/bin" "/usr/bin" "/bin" "/usr/sbin" "/sbin" "$HOME/.local/bin" "$(dirname "$real_node_path")")
+        for d in "${bin_dirs[@]}"; do
+            if [ -d "$d" ]; then
+                if [ -n "$path_dirs" ]; then
+                    path_dirs="$path_dirs:$d"
+                else
+                    path_dirs="$d"
+                fi
+            fi
+        done
+
+        if [ -f "$PID_FILE" ]; then
+            info "Stopping existing sshift instance so systemd can manage it..."
+            stop_app
+        fi
+
         cat << EOF | sudo tee "$service_path" > /dev/null
 [Unit]
 Description=sshift - Web-based SSH Terminal
@@ -597,10 +661,11 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=$sshift_path
+ExecStart=$real_node_path $real_sshift_path
 WorkingDirectory=$INSTALL_DIR
 User=$USER
 Environment=HOME=$HOME
+Environment=PATH=$path_dirs
 Restart=on-failure
 RestartSec=10
 
@@ -610,6 +675,7 @@ EOF
 
         sudo systemctl daemon-reload
         sudo systemctl enable "$SERVICE_NAME"
+        sudo systemctl start "$SERVICE_NAME"
 
         success "Autostart configured via systemd"
     fi
@@ -812,8 +878,21 @@ main() {
                 ;;
             --status)
                 if is_running; then
-                    local pid=$(cat "$PID_FILE")
-                    success "sshift is running (PID: $pid)"
+                    if command_exists systemctl && [ -f "/etc/systemd/system/$SERVICE_NAME.service" ] && systemctl is-active "$SERVICE_NAME" >/dev/null 2>&1; then
+                        success "sshift is running (systemd)"
+                    elif [ "$(uname)" = "Darwin" ] && [ -f "/Library/LaunchDaemons/com.sshift.plist" ]; then
+                        local pid=$(sudo launchctl list 2>/dev/null | awk '$3 == "com.sshift" && $1 != "-" {print $1}')
+                        if [ -n "$pid" ]; then
+                            success "sshift is running (launchd, PID: $pid)"
+                        else
+                            success "sshift is running (launchd)"
+                        fi
+                    elif [ -f "$PID_FILE" ]; then
+                        local pid=$(cat "$PID_FILE")
+                        success "sshift is running (PID: $pid)"
+                    else
+                        success "sshift is running"
+                    fi
                     exit 0
                 else
                     info "sshift is not running"
@@ -870,8 +949,14 @@ main() {
             fi
         else
             if is_running; then
-                local pid=$(cat "$PID_FILE")
-                info "sshift is already running (PID: $pid)"
+                if command_exists systemctl && [ -f "/etc/systemd/system/$SERVICE_NAME.service" ] && systemctl is-active "$SERVICE_NAME" >/dev/null 2>&1; then
+                    info "sshift is already running (systemd)"
+                elif [ -f "$PID_FILE" ]; then
+                    local pid=$(cat "$PID_FILE")
+                    info "sshift is already running (PID: $pid)"
+                else
+                    info "sshift is already running"
+                fi
             fi
         fi
     else
@@ -896,16 +981,8 @@ main() {
         autostart_configured=true
     fi
 
-    # Start sshift if not already running
-    # macOS launchd bootstrap starts the service, but Linux systemd enable does not
-    if [ "$(uname)" = "Darwin" ]; then
-        if ! $autostart_configured && ! is_running; then
-            start_app
-        fi
-    else
-        if ! is_running; then
-            start_app
-        fi
+    if ! is_running; then
+        start_app
     fi
 
     print_summary
