@@ -170,6 +170,7 @@ function Compare-Versions {
 
 # Check if sshift is running
 function Test-IsRunning {
+    # Check PID file (direct start instances)
     if (Test-Path $PidFile) {
         try {
             $pid = Get-Content $PidFile -ErrorAction SilentlyContinue
@@ -183,6 +184,20 @@ function Test-IsRunning {
         # Clean up stale PID file
         Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
     }
+
+    # Check for running sshift node processes (handles autostart / Task Scheduler which uses no PID file)
+    $nodeProcesses = Get-Process -Name "node" -ErrorAction SilentlyContinue
+    foreach ($nodeProc in $nodeProcesses) {
+        try {
+            $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId = $($nodeProc.Id)" -ErrorAction SilentlyContinue).CommandLine
+            if ($cmdLine -and $cmdLine -match "sshift") {
+                return $true
+            }
+        } catch {
+            # Ignore errors accessing process info
+        }
+    }
+
     return $false
 }
 
