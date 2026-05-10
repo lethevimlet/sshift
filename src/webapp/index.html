@@ -1001,6 +1001,16 @@
       </div>
       <div class="modal-body">
         <div class="setting-group">
+          <div class="setting-item" style="flex-direction: column; align-items: stretch;">
+            <label class="setting-label"><i class="fas fa-info-circle"></i> Instructions</label>
+            <div class="setting-description" style="font-size: 12px; line-height: 1.5;">
+              <strong>Chrome/Edge (Desktop):</strong> Open <a href="chrome://settings/certificates" style="color: var(--accent-primary); word-break: break-all;">chrome://settings/certificates</a> (or <a href="edge://settings/certificates" style="color: var(--accent-primary);">edge://settings/certificates</a>) in the address bar, then import the downloaded .crt file to "Trusted Root Certification Authorities".<br><br>
+              <strong>Chrome (Android):</strong> Settings > Security > Install from SD card > Select the downloaded file.<br><br>
+              <strong>Firefox:</strong> Open <a href="about:preferences#privacy" style="color: var(--accent-primary);">about:preferences#privacy</a> > View Certificates > Import > Trust for identifying websites.<br><br>
+              <strong>macOS/iOS:</strong> Double-click the .crt file > Add to Keychain > Set trust to "Always Trust". On iOS: Settings > General > VPN & Device Management > Install profile, then Settings > General > About > Certificate Trust Settings > Enable full trust.
+            </div>
+          </div>
+
           <div id="swStatusContainer" class="setting-item" style="flex-direction: column; align-items: stretch;">
             <label class="setting-label"><i class="fas fa-hard-drive"></i> Service Worker</label>
             <div class="setting-description" id="swStatusText">
@@ -1016,16 +1026,6 @@
             <button class="btn btn-secondary" id="downloadCertBtn" style="margin-top: 8px;">
               <i class="fas fa-download"></i> Download Certificate
             </button>
-          </div>
-
-          <div class="setting-item" style="flex-direction: column; align-items: stretch;">
-            <label class="setting-label"><i class="fas fa-info-circle"></i> Instructions</label>
-            <div class="setting-description" style="font-size: 12px; line-height: 1.5;">
-              <strong>Chrome/Edge (Desktop):</strong> Open <a href="chrome://settings/certificates" style="color: var(--accent-primary); word-break: break-all;">chrome://settings/certificates</a> (or <a href="edge://settings/certificates" style="color: var(--accent-primary);">edge://settings/certificates</a>) in the address bar, then import the downloaded .crt file to "Trusted Root Certification Authorities".<br><br>
-              <strong>Chrome (Android):</strong> Settings > Security > Install from SD card > Select the downloaded file.<br><br>
-              <strong>Firefox:</strong> Open <a href="about:preferences#privacy" style="color: var(--accent-primary);">about:preferences#privacy</a> > View Certificates > Import > Trust for identifying websites.<br><br>
-              <strong>macOS/iOS:</strong> Double-click the .crt file > Add to Keychain > Set trust to "Always Trust". On iOS: Settings > General > VPN & Device Management > Install profile, then Settings > General > About > Certificate Trust Settings > Enable full trust.
-            </div>
           </div>
         </div>
 

@@ -5,12 +5,14 @@
  * in an SSH terminal and flashes the tab to alert the user.
  *
  * Detection strategy:
- *   - Detects opencode's TUI by looking for "OpenCode" in the terminal state
+ *   - Detects opencode's TUI by looking for "OpenCode" in the terminal state (sticky: once detected, stays true)
  *   - Tracks opencode's processing state via spinner characters (⬝ ■ ▣)
- *   - When opencode was working (spinner active) but goes idle for > idleThreshold ms,
- *     flashes the tab to alert the user that opencode is waiting for input
- *   - Also detects common prompt patterns like "> ", "❯ ", "(y/n)" etc.
- *   - Stops flashing when spinner activity resumes (opencode is busy again)
+ *   - While opencode is working (spinner seen within idleThreshold), ALL flashing is suppressed
+ *   - When opencode goes idle (no spinner for > idleThreshold ms after working), flashes the tab
+ *   - Schedules an immediate attention check when spinner stops (no delay waiting for timer)
+ *   - Detects opencode-specific prompt patterns ("❯", "> ", "(y/n)", etc.)
+ *   - Prompt detection only activates in confirmed OpenCode sessions (isOpencode gate)
+ *   - Suppresses re-flash for a cooldown period after spinner stops a flash
  *
  * Configuration (in config.json under plugins[].config):
  *   - patterns: string[]       - Additional regex patterns to detect attention
@@ -19,6 +21,7 @@
  *   - excludePatterns: string[] - Regex patterns to exclude from detection
  *   - checkInterval: number    - Milliseconds between periodic terminal state checks (default: 2000)
  *   - idleThreshold: number    - Milliseconds without spinner before considered idle (default: 3000)
+ *   - cooldownMs: number       - Milliseconds to suppress re-flash after spinner stops a flash (default: 1000)
  */
 
 class OpenCodeAttentionPlugin {
@@ -29,6 +32,7 @@ class OpenCodeAttentionPlugin {
       flashDuration: config.flashDuration || 0,
       checkInterval: config.checkInterval || 2000,
       idleThreshold: config.idleThreshold || 3000,
+      cooldownMs: config.cooldownMs || 1000,
       ...config,
     };
 
@@ -46,17 +50,23 @@ class OpenCodeAttentionPlugin {
         isOpencode: false,
         lastSpinnerTime: 0,
         wasWorking: false,
+        cooldownUntil: 0,
+        idleCheckScheduled: false,
       });
     }
     return this._sessionState.get(sessionId);
+  }
+
+  _isWorking(sessionId) {
+    const s = this._getSessionState(sessionId);
+    return s.wasWorking && (Date.now() - s.lastSpinnerTime) < this.config.idleThreshold;
   }
 
   _buildPatterns(extraPatterns, excludePatterns) {
     const defaultPatterns = [
       /\> $/,
       /\> \x1b/,
-      /❯ $/,
-      /❯ \x1b/,
+      /❯ /,
       /waiting for input/i,
       /press enter/i,
       /press any key/i,
@@ -107,6 +117,9 @@ class OpenCodeAttentionPlugin {
   }
 
   _startFlash(sessionId) {
+    const sessionState = this._getSessionState(sessionId);
+    if (Date.now() < sessionState.cooldownUntil) return;
+    if (this._isWorking(sessionId)) return;
     if (this._flashing.get(sessionId)) return;
     this._flashing.set(sessionId, true);
     this.ctx.flashTab(sessionId, { duration: this.config.flashDuration || 0 });
@@ -129,12 +142,33 @@ class OpenCodeAttentionPlugin {
     this._dataTimers.set(sessionId, timer);
   }
 
+  _scheduleIdleCheck(sessionId) {
+    const sessionState = this._getSessionState(sessionId);
+    if (sessionState.idleCheckScheduled) return;
+    sessionState.idleCheckScheduled = true;
+
+    const delay = this.config.idleThreshold + 200;
+
+    setTimeout(() => {
+      sessionState.idleCheckScheduled = false;
+      if (!sessionState.wasWorking) return;
+      if (this._isWorking(sessionId)) return;
+      this._checkAttention(sessionId);
+    }, delay);
+  }
+
+  _isSpinnerChar(text) {
+    return /[⬝■▣]/.test(text);
+  }
+
   _checkAttention(sessionId) {
+    if (this._isWorking(sessionId)) return;
+
     const state = this.ctx.getTerminalState(sessionId);
     if (!state || !state.state) return;
 
     const lines = state.state.split('\n');
-    const recentLines = lines.slice(-20);
+    const recentLines = lines.slice(-30);
 
     let isOpencode = false;
     let matchedPrompt = false;
@@ -149,25 +183,27 @@ class OpenCodeAttentionPlugin {
 
       if (this._matchesPattern(stripped) || this._matchesPattern(line)) {
         matchedPrompt = true;
-        break;
       }
     }
 
     const sessionState = this._getSessionState(sessionId);
-    sessionState.isOpencode = isOpencode;
+    if (isOpencode) {
+      sessionState.isOpencode = true;
+    }
+
+    if (!sessionState.isOpencode) return;
 
     if (matchedPrompt) {
       this._startFlash(sessionId);
+      return;
     }
 
-    if (isOpencode && !matchedPrompt) {
-      const now = Date.now();
-      const timeSinceSpinner = now - sessionState.lastSpinnerTime;
+    const now = Date.now();
+    const timeSinceSpinner = now - sessionState.lastSpinnerTime;
 
-      if (sessionState.wasWorking && timeSinceSpinner > this.config.idleThreshold) {
-        this._startFlash(sessionId);
-        sessionState.wasWorking = false;
-      }
+    if (sessionState.wasWorking && timeSinceSpinner > this.config.idleThreshold) {
+      this._startFlash(sessionId);
+      sessionState.wasWorking = false;
     }
   }
 
@@ -175,19 +211,25 @@ class OpenCodeAttentionPlugin {
     const stripped = this._stripAnsi(data);
     const sessionState = this._getSessionState(sessionId);
 
-    const isSpinner = /[⬝■▣]/.test(stripped) || /[⬝■▣]/.test(data);
+    if (/OpenCode/i.test(stripped) || /OpenCode/i.test(data)) {
+      sessionState.isOpencode = true;
+    }
+
+    const isSpinner = this._isSpinnerChar(stripped) || this._isSpinnerChar(data);
 
     if (isSpinner) {
       sessionState.lastSpinnerTime = Date.now();
       sessionState.wasWorking = true;
+      this._scheduleIdleCheck(sessionId);
       if (this._flashing.get(sessionId)) {
         this._stopFlash(sessionId);
+        sessionState.cooldownUntil = Date.now() + this.config.cooldownMs;
       }
+      return;
     }
 
-    if (/OpenCode/i.test(stripped) || /OpenCode/i.test(data)) {
-      sessionState.isOpencode = true;
-    }
+    if (!sessionState.isOpencode) return;
+    if (this._isWorking(sessionId)) return;
 
     if (this._matchesPattern(stripped) || this._matchesPattern(data)) {
       this._startFlash(sessionId);
@@ -202,6 +244,9 @@ class OpenCodeAttentionPlugin {
     if (/OpenCode/i.test(strippedLine)) {
       sessionState.isOpencode = true;
     }
+
+    if (!sessionState.isOpencode) return;
+    if (this._isWorking(sessionId)) return;
 
     if (this._matchesPattern(strippedLine) || this._matchesPattern(rawLine)) {
       this._startFlash(sessionId);

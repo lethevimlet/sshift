@@ -47,9 +47,7 @@ Thumbs.db
 *.pid
 server.log
 
-# Installation scripts (not needed for npm package)
-sshift-install.sh
-sshift-install.ps1
+
 
 # Documentation and agent files
 .agents/
