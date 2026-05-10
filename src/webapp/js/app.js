@@ -4767,11 +4767,15 @@ const wheelHandler = (e) => {
       dontShowCheckbox.checked = stored === 'true';
     }
 
-    // Auto-show on startup if not dismissed
+    // Auto-show on startup if not dismissed and cert not already installed
     const dontShow = localStorage.getItem('dontShowSecurityInfo');
-    if (dontShow !== 'true') {
-      setTimeout(() => this.openSecurityInfoDialog(), 1000);
-    }
+    if (dontShow === 'true') return;
+
+    const isLocalhost = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+    const swActive = navigator.serviceWorker && navigator.serviceWorker.controller;
+    if (isLocalhost || swActive) return;
+
+    setTimeout(() => this.openSecurityInfoDialog(), 1000);
   }
 
   openSecurityInfoDialog() {

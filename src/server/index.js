@@ -232,7 +232,7 @@ async function initializeServer() {
 
   // Auth middleware - block API endpoints when password is set
   const { isValidAuthToken } = require('./endpoints/rest/auth');
-  const AUTH_WHITELIST = ['/auth/status', '/auth/login'];
+  const AUTH_WHITELIST = ['/auth/status', '/auth/login', '/cert', '/security-info'];
 
   app.use('/api', (req, res, next) => {
     if (AUTH_WHITELIST.some(p => req.path === p)) return next();
