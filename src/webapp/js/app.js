@@ -3540,8 +3540,11 @@ const wheelHandler = (e) => {
         let state = data.state;
         if (data.encoded) {
           try {
-            // Decode base64 to utf-8 string
-            state = atob(data.state);
+            // Decode base64 to UTF-8 string (atob produces Latin-1 binary;
+            // we must re-decode as UTF-8 to preserve multi-byte characters)
+            const binaryString = atob(data.state);
+            const bytes = Uint8Array.from(binaryString, c => c.charCodeAt(0));
+            state = new TextDecoder().decode(bytes);
             console.log('[SSHIFT] Decoded base64 state, size:', state.length);
           } catch (e) {
             console.error('[SSHIFT] Error decoding base64 state:', e);
