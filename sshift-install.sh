@@ -368,18 +368,24 @@ install_nodejs() {
 install_sshift() {
     info "Installing sshift via npm..."
 
+    local install_rc=0
     if [ "$(id -u)" -eq 0 ]; then
-        npm install -g @lethevimlet/sshift
+        npm install -g @lethevimlet/sshift || install_rc=$?
     elif [ -w /usr/lib/node_modules ] 2>/dev/null || [ -w /usr/local/lib/node_modules ] 2>/dev/null; then
-        npm install -g @lethevimlet/sshift
+        npm install -g @lethevimlet/sshift || install_rc=$?
+    elif [ -n "$SSHIFT_NO_SUDO" ] && [ "$SSHIFT_NO_SUDO" = "1" ]; then
+        warn "Cannot install without sudo (running in non-interactive mode)."
+        warn "Run 'sshift-install.sh' from a terminal to install."
+        install_rc=1
     else
-        sudo npm install -g @lethevimlet/sshift
+        sudo npm install -g @lethevimlet/sshift || install_rc=$?
     fi
 
-    if [ $? -eq 0 ]; then
+    if [ $install_rc -eq 0 ]; then
         success "sshift installed successfully"
     else
         error "Failed to install sshift"
+        return 1
     fi
 }
 
@@ -390,18 +396,24 @@ update_sshift() {
         stop_app
     fi
 
+    local update_rc=0
     if [ "$(id -u)" -eq 0 ]; then
-        npm update -g @lethevimlet/sshift
+        npm update -g @lethevimlet/sshift || update_rc=$?
     elif [ -w /usr/lib/node_modules ] 2>/dev/null || [ -w /usr/local/lib/node_modules ] 2>/dev/null; then
-        npm update -g @lethevimlet/sshift
+        npm update -g @lethevimlet/sshift || update_rc=$?
+    elif [ -n "$SSHIFT_NO_SUDO" ] && [ "$SSHIFT_NO_SUDO" = "1" ]; then
+        warn "Cannot update without sudo (running in non-interactive mode)."
+        warn "Run 'sshift-install.sh --update' from a terminal to update."
+        update_rc=1
     else
-        sudo npm update -g @lethevimlet/sshift
+        sudo npm update -g @lethevimlet/sshift || update_rc=$?
     fi
 
-    if [ $? -eq 0 ]; then
+    if [ $update_rc -eq 0 ]; then
         success "sshift updated successfully"
     else
         error "Failed to update sshift"
+        return 1
     fi
 }
 
@@ -907,6 +919,24 @@ main() {
 
                 info "Updating sshift..."
                 update_sshift
+                update_result=$?
+
+                # Restart the app if .restart-after-update marker exists (triggered from UI)
+                # Always check markers regardless of update result to ensure cleanup
+                if [ -f "$INSTALL_DIR/.restart-after-update" ]; then
+                    rm -f "$INSTALL_DIR/.restart-after-update"
+                    rm -f "$INSTALL_DIR/.updating"
+                    if [ $update_result -eq 0 ]; then
+                        info "Restarting sshift..."
+                        start_app
+                    else
+                        warn "Update failed, restarting with previous version..."
+                        start_app
+                    fi
+                elif [ -f "$INSTALL_DIR/.updating" ]; then
+                    rm -f "$INSTALL_DIR/.updating"
+                fi
+
                 print_summary
                 exit 0
                 ;;

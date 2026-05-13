@@ -494,6 +494,7 @@ function Install-Sshift {
     
     if ($LASTEXITCODE -eq 0) {
         Write-Success "sshift installed successfully"
+        $script:installSucceeded = $true
     } else {
         Write-Host ""
         Write-Host "[ERROR] Failed to install sshift" -ForegroundColor Red
@@ -504,9 +505,7 @@ function Install-Sshift {
         Write-Host "  3. Try: npm cache clean --force" -ForegroundColor Cyan
         Write-Host "  4. Check npm logs for details" -ForegroundColor Cyan
         Write-Host ""
-        Write-Host "Press any key to exit..."
-        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-        exit 1
+        $script:installSucceeded = $false
     }
 }
 
@@ -515,6 +514,7 @@ function Update-Sshift {
     Write-Info "Updating sshift..."
     
     # Stop running instance before updating
+    $script:updateSucceeded = $false
     $wasRunning = $false
     if (Test-IsRunning) {
         $wasRunning = $true
@@ -533,6 +533,7 @@ function Update-Sshift {
     
     if ($LASTEXITCODE -eq 0) {
         Write-Success "sshift updated successfully"
+        $script:updateSucceeded = $true
     } else {
         Write-Host ""
         Write-Host "[ERROR] Failed to update sshift" -ForegroundColor Red
@@ -544,9 +545,7 @@ function Update-Sshift {
         Write-Host "  4. Check npm logs for details" -ForegroundColor Cyan
         Write-Host "  5. If sshift was running, stop it first: ./sshift-install.ps1 -stop" -ForegroundColor Cyan
         Write-Host ""
-        Write-Host "Press any key to exit..."
-        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-        exit 1
+        $script:updateSucceeded = $false
     }
 }
 
@@ -1024,6 +1023,23 @@ function Main {
         Write-Host ""
         
         Update-Sshift
+        
+        # Restart the app if .restart-after-update marker exists (triggered from UI)
+        # Always check markers regardless of update result to ensure cleanup
+        $restartMarker = Join-Path $installDir ".restart-after-update"
+        $updateMarker = Join-Path $installDir ".updating"
+        if (Test-Path $restartMarker) {
+            Remove-Item -Force $restartMarker -ErrorAction SilentlyContinue
+            Remove-Item -Force $updateMarker -ErrorAction SilentlyContinue
+            if ($script:updateSucceeded) {
+                Write-Info "Restarting sshift..."
+            } else {
+                Write-Warning "Update failed, restarting with previous version..."
+            }
+            Start-App
+        } elseif (Test-Path $updateMarker) {
+            Remove-Item -Force $updateMarker -ErrorAction SilentlyContinue
+        }
         
         Show-Summary
         
