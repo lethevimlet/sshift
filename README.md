@@ -143,27 +143,46 @@ See [Configuration](docs/configuration.md) for details.
 
 ## 🔒 HTTPS on Local Network (PWA / "Not Secure" Warnings)
 
-When accessing sshift from a LAN IP (e.g., `https://192.168.1.50:8022`), browsers show "Not Secure" warnings because the self-signed certificate is untrusted. This also blocks PWA installation.
+When accessing sshift from a LAN IP (e.g., `https://192.168.1.50:8022`), browsers show "Not Secure" warnings because the self-signed certificate is not trusted. This also blocks PWA installation, which requires a trusted secure context.
 
-### Quick Fix: Chrome Flag
+### Recommended: Trust the Auto-Generated Certificate
 
-1. Go to `chrome://flags/#unsafely-treat-insecure-origin-as-secure`
-2. Enter your LAN URL: `https://192.168.1.50:8022`
-3. Set to **Enabled** → **Relaunch**
+sshift automatically generates a self-signed TLS certificate on first run. The simplest fix is to add this certificate to your device's trusted root store:
 
-### Permanent: Custom Trusted Certificate
+1. **Download the certificate** — visit `https://<your-sshift-host>:8022/api/cert` in your browser, or find it at `~/.local/share/sshift/ssl-cert.pem` on the server
+2. **Add it to your device's trusted root store:**
+   - **Windows:** Double-click the file → Install Certificate → Local Machine → Trusted Root Certification Authorities
+   - **macOS:** Double-click the file → Add to Keychain → Set "Always Trust" in Keychain Access
+   - **Linux:** Copy to `/usr/local/share/ca-certificates/` and run `sudo update-ca-certificates`
+   - **Android:** Settings → Security → Install from storage
+   - **iOS:** Send via AirDrop/email → Open → Install profile → Settings → General → About → Certificate Trust Settings → Enable full trust
 
-Generate a cert for your LAN IP and configure sshift to use it:
+After trusting the certificate, the "Not Secure" warning will disappear and PWA installation will work.
+
+### Using Your Own Certificate
+
+You can provide your own TLS certificate via `config.json`:
 
 ```json
 {
   "enableHttps": true,
-  "certPath": "/path/to/sshift-lan-cert.pem",
-  "keyPath": "/path/to/sshift-lan-key.pem"
+  "certPath": "/path/to/your/certificate.pem",
+  "keyPath": "/path/to/your/private-key.pem"
 }
 ```
 
-Then add the certificate to your device's trusted root store. See [Configuration > HTTPS on Local Network](docs/configuration.md) for full instructions including nginx reverse proxy and mDNS options.
+Both `certPath` and `keyPath` must be set together. See [Configuration > HTTPS on Local Network](docs/configuration.md) for full instructions including nginx reverse proxy and mDNS options.
+
+### HTTP → HTTPS Redirect
+
+By default, sshift automatically redirects any plain HTTP requests to HTTPS on the same port — so visiting `http://192.168.1.50:8022` seamlessly upgrades to `https://`. This is controlled by the `httpRedirect` setting (enabled by default). To disable it:
+
+```json
+{
+  "enableHttps": true,
+  "httpRedirect": false
+}
+```
 
 ## 🤖 AI Attention Plugins
 

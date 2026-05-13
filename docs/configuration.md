@@ -98,6 +98,7 @@ If no config file exists at any path, `ensureConfig()` creates one at `<PACKAGE_
 - **`devPort`** (number): Development server port (default: `3000`)
 - **`bind`** (string): Bind address (default: `"0.0.0.0"`)
 - **`enableHttps`** (boolean): Enable HTTPS with self-signed certificates (default: `true`)
+- **`httpRedirect`** (boolean): When HTTPS is enabled, redirect plain HTTP requests on the same port to HTTPS (default: `true`)
 - **`certPath`** (string|null): Absolute path to a custom TLS certificate file (PEM format). Both `certPath` and `keyPath` must be set together (default: `null`)
 - **`keyPath`** (string|null): Absolute path to a custom TLS private key file (PEM format). Both `certPath` and `keyPath` must be set together (default: `null`)
 - **`sticky`** (boolean): Enable sticky sessions (default: `true`)
@@ -127,11 +128,26 @@ When HTTPS is enabled, sshift automatically generates a self-signed certificate 
 - Your machine's hostname
 - All local IP addresses
 
-> **Note:** Your browser will show a security warning for self-signed certificates. This is normal for development/local use. Click "Advanced" → "Proceed to localhost (unsafe)" to continue.
+The certificate is stored at `~/.local/share/sshift/ssl-cert.pem` and reused on subsequent starts. You can also download it at any time from `https://<your-sshift-host>:8022/api/cert`.
+
+> **Note:** Your browser will show a security warning for self-signed certificates until you add the certificate to your device's trusted root store (see below). To proceed past the warning, click "Advanced" → "Proceed to localhost (unsafe)".
+
+#### HTTP → HTTPS Redirect
+
+When HTTPS is enabled, sshift listens on a single port and automatically redirects any plain HTTP requests to HTTPS. This means you can access sshift via `http://` and you'll be seamlessly upgraded to `https://`. This behavior is enabled by default via the `httpRedirect` setting.
+
+To disable the redirect (serving only HTTPS, rejecting HTTP):
+
+```json
+{
+  "enableHttps": true,
+  "httpRedirect": false
+}
+```
 
 #### Custom Certificate Paths
 
-You can specify your own trusted certificates in `config.json` using `certPath` and `keyPath`:
+You can specify your own TLS certificate in `config.json` using `certPath` and `keyPath`:
 
 ```json
 {
@@ -147,31 +163,31 @@ Both `certPath` and `keyPath` must be set together; if only one is provided, ssh
 
 When accessing sshift from a device on your local network (e.g., `https://192.168.1.50:8022`), browsers will display a "Not Secure" warning because the self-signed certificate is not trusted. This also prevents Progressive Web App (PWA) installation, which requires a trusted secure context.
 
-There are several ways to resolve this:
+#### Option 1: Trust the Auto-Generated Certificate (Recommended)
 
-#### Option 1: Chrome "Insecure Origins Treated as Secure" Flag (Quick)
+The simplest approach is to add sshift's auto-generated certificate to your device's trusted root store. This requires no custom certificate generation — just download and trust the one sshift already created.
 
-This is the fastest method for development or personal use. It tells Chrome to treat a specific origin as secure, enabling PWA features.
+**Step 1: Get the certificate**
 
-1. Open Chrome and navigate to:
-   ```
-   chrome://flags/#unsafely-treat-insecure-origin-as-secure
-   ```
-2. In the text box, enter your sshift LAN URL, e.g.:
-   ```
-   https://192.168.1.50:8022
-   ```
-   Include the protocol (`https://`) and port number.
-3. Set the dropdown to **Enabled**.
-4. Click the **Relaunch** button at the bottom to restart Chrome.
+Either:
+- Visit `https://<your-sshift-host>:8022/api/cert` in your browser to download it, or
+- Copy it from the server at `~/.local/share/sshift/ssl-cert.pem`
 
-After relaunching, Chrome will treat that origin as a secure context — the "Not Secure" warning will disappear, and you can install sshift as a PWA.
+**Step 2: Trust the certificate on your devices**
 
-> **Note:** This flag is per-device and per-browser. Each device on your LAN needs its own configuration. It is intended for development and personal use, not production.
+- **Windows:** Double-click the `.pem` file → Install Certificate → Local Machine → Place all certificates in "Trusted Root Certification Authorities"
+- **macOS:** Double-click the `.pem` file → Add to Keychain → Set to "Always Trust" in Keychain Access
+- **Linux:** Copy to `/usr/local/share/ca-certificates/` and run `sudo update-ca-certificates`
+- **Android:** Settings → Security → Install from storage → Select the `.pem` file
+- **iOS:** Send the file via AirDrop/email → Open → Install profile → Go to Settings → General → About → Certificate Trust Settings → Enable full trust
+
+After trusting the certificate, the "Not Secure" warning will disappear and PWA installation will work.
+
+> **Note:** Each device on your LAN needs to trust the certificate independently.
 
 #### Option 2: Custom Trusted Certificate
 
-For a more permanent solution, create a certificate for your LAN IP and add it to your device's trusted root store.
+For scenarios where you need a certificate with specific Subject Alternative Names (e.g., a static IP or domain), generate your own certificate, configure sshift to use it, and then trust it on your devices.
 
 **Step 1: Generate a certificate for your LAN IP**
 
@@ -272,7 +288,7 @@ Then configure sshift to listen on localhost only:
 
 #### Option 4: Local DNS with mDNS/Avahi
 
-Assign a `.local` hostname to your machine using mDNS, then use that hostname in your browser. Combined with Option 2 or 3, this provides a clean URL like `https://sshift.local` instead of an IP address.
+Assign a `.local` hostname to your machine using mDNS, then use that hostname in your browser. Combined with Option 1 or 2, this provides a clean URL like `https://sshift.local` instead of an IP address.
 
 ```bash
 # Install avahi (Linux)
@@ -286,8 +302,8 @@ avahi-resolve -4 --name your-hostname.local
 
 | Method | Ease | Per-Device Setup | PWA Support | Trust Level |
 |--------|------|-------------------|-------------|-------------|
-| Chrome flag | Easiest | Yes (each browser) | Yes | Dev/personal only |
-| Trusted cert | Moderate | Yes (each OS) | Yes | Full |
+| Trust auto-generated cert | Easiest | Yes (each OS) | Yes | Full |
+| Custom trusted cert | Moderate | Yes (each OS) | Yes | Full |
 | nginx reverse proxy | Advanced | No (trust once) | Yes | Full |
 | mDNS hostname | Moderate | No | Yes (with cert) | Full |
 
