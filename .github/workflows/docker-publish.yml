@@ -75,3 +75,53 @@ jobs:
           cache: type=gha
           cache-from: type=gha,scope=${{ github.workflow }}
           cache-to: type=gha,mode=max,scope=${{ github.workflow }}
+
+  cleanup:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    permissions:
+      packages: write
+    steps:
+      - name: Keep only 5 most recent package versions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          PKG=$(echo "${{ github.repository }}" | sed 's|.*/||' | tr '[:upper:]' '[:lower:]')
+          KEEP=5
+
+          # Determine API base path (org vs user)
+          if gh api "/orgs/$OWNER" --silent 2>/dev/null; then
+            API_BASE="/orgs/$OWNER"
+          else
+            API_BASE="/user"
+          fi
+
+          # Fetch package version IDs sorted by creation date (newest first)
+          mapfile -t IDS < <(gh api -H "Accept: application/vnd.github+json" \
+            "$API_BASE/packages/container/$PKG/versions?per_page=100" \
+            --jq 'sort_by(.created_at) | reverse | .[].id')
+
+          TOTAL=${#IDS[@]}
+          echo "Found $TOTAL package versions"
+
+          if [ "$TOTAL" -le "$KEEP" ]; then
+            echo "Only $TOTAL versions found, no cleanup needed"
+            exit 0
+          fi
+
+          DELETED=0
+          for ((i=KEEP; i<TOTAL; i++)); do
+            ID="${IDS[$i]}"
+            echo "Deleting package version $ID..."
+            if gh api -X DELETE "$API_BASE/packages/container/$PKG/versions/$ID" --silent; then
+              DELETED=$((DELETED + 1))
+            else
+              echo "Warning: failed to delete version $ID"
+            fi
+          done
+
+          echo "Cleanup complete: kept $KEEP most recent, deleted $DELETED old versions"
