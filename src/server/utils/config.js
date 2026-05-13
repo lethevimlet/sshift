@@ -274,19 +274,32 @@ function getKeyPath() {
 
 /**
  * Get the data directory for persistent storage (SSL certs, etc.)
- * Searches the same paths as config to find a writable data directory.
+ * Always returns the user-space directory so certs survive npm updates.
  * @returns {string} Path to data directory
  */
 function getDataDir() {
+  return USER_INSTALL_DIR;
+}
+
+/**
+ * Get the legacy data directory (package directory) used before
+ * certs were moved to user space. Used for migration only.
+ * @returns {string|null} Path to legacy data directory, or null if N/A
+ */
+function getLegacyDataDir() {
   const configPath = getConfigPath();
   const configDir = path.dirname(configPath);
-  
-  // If config is in a .env subdirectory, use parent
+
   if (path.basename(configDir) === '.env') {
-    return path.dirname(configDir);
+    const pkgDataDir = path.dirname(configDir);
+    if (pkgDataDir !== USER_INSTALL_DIR) {
+      return pkgDataDir;
+    }
+  } else if (configDir !== USER_INSTALL_DIR) {
+    return configDir;
   }
-  
-  return configDir;
+
+  return null;
 }
 
 function hashPassword(password) {
@@ -336,9 +349,11 @@ module.exports = {
   getCertPath,
   getKeyPath,
   getDataDir,
+  getLegacyDataDir,
   hashPassword,
   isPasswordSet,
   verifyPassword,
   setPassword,
-  removePassword
+  removePassword,
+  USER_INSTALL_DIR
 };
