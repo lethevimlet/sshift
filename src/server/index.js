@@ -19,7 +19,7 @@ const selfsigned = require('selfsigned');
 const httpolyglot = require('httpolyglot');
 
 // Import utilities
-const { ensureConfig, loadConfig, getPort, getBindAddress, getEnableHttps, getHttpRedirect, getCertPath, getKeyPath, getDataDir, isPasswordSet } = require('./utils/config');
+const { ensureConfig, loadConfig, getPort, getBindAddress, getEnableHttps, getHttpRedirect, getCertPath, getKeyPath, getDataDir, getLegacyDataDir, isPasswordSet, USER_INSTALL_DIR } = require('./utils/config');
 
 // Import services
 const { sshManager, sftpManager } = require('./services');
@@ -39,6 +39,7 @@ const SSL_KEY_FILE = 'ssl-key.pem';
 /**
  * Get SSL credentials, reusing persisted certificates if available.
  * Generates new self-signed certificates only if no persisted ones exist.
+ * Migrates certs from package directory to user-space directory if needed.
  * @returns {Promise<Object>} Certificate and private key
  */
 async function getSSLCredentials() {
@@ -69,12 +70,41 @@ async function getSSLCredentials() {
   if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
     console.log('[HTTPS] Reusing persisted SSL certificate from', dataDir);
     try {
-      return {
-        cert: fs.readFileSync(certPath, 'utf8'),
-        key: fs.readFileSync(keyPath, 'utf8')
-      };
+      const cert = fs.readFileSync(certPath, 'utf8');
+      const key = fs.readFileSync(keyPath, 'utf8');
+      if (!certIncludesOrg(cert)) {
+        console.log('[HTTPS] Existing certificate lacks organizationName, regenerating...');
+      } else {
+        return { cert, key };
+      }
     } catch (err) {
       console.warn('[HTTPS] Failed to read persisted certificate, regenerating:', err.message);
+    }
+  } else {
+    // Migrate from legacy (package) directory if certs exist there
+    const legacyDir = getLegacyDataDir();
+    if (legacyDir) {
+      const legacyCert = path.join(legacyDir, SSL_CERT_FILE);
+      const legacyKey = path.join(legacyDir, SSL_KEY_FILE);
+      if (fs.existsSync(legacyCert) && fs.existsSync(legacyKey)) {
+        console.log('[HTTPS] Migrating SSL certificate from', legacyDir, 'to', dataDir);
+        try {
+          if (!fs.existsSync(dataDir)) {
+            fs.mkdirSync(dataDir, { recursive: true });
+          }
+          const certData = fs.readFileSync(legacyCert, 'utf8');
+          const keyData = fs.readFileSync(legacyKey, 'utf8');
+          fs.writeFileSync(certPath, certData, { mode: 0o600 });
+          fs.writeFileSync(keyPath, keyData, { mode: 0o600 });
+          console.log('[HTTPS] SSL certificate migrated to user-space directory');
+          if (certIncludesOrg(certData)) {
+            return { cert: certData, key: keyData };
+          }
+          console.log('[HTTPS] Migrated certificate lacks organizationName, regenerating...');
+        } catch (err) {
+          console.warn('[HTTPS] Failed to migrate certificate:', err.message);
+        }
+      }
     }
   }
 
@@ -92,6 +122,21 @@ async function getSSLCredentials() {
   }
 
   return creds;
+}
+
+/**
+ * Check if a PEM certificate includes an organizationName (O=) attribute.
+ * @param {string} certPem - PEM-encoded certificate
+ * @returns {boolean} True if O=sshift is present
+ */
+function certIncludesOrg(certPem) {
+  try {
+    const { X509Certificate } = require('crypto');
+    const x509 = new X509Certificate(certPem);
+    return /O=sshift/i.test(x509.subject);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -125,7 +170,10 @@ async function generateSelfSignedCert() {
   ];
   
   try {
-    const attrs = [{ name: 'commonName', value: hostname }];
+    const attrs = [
+      { name: 'commonName', value: hostname },
+      { name: 'organizationName', value: 'sshift' }
+    ];
     const pems = await selfsigned.generate(attrs, {
       days: 365,
       keySize: 2048,
