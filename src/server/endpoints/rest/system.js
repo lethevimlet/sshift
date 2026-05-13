@@ -8,6 +8,8 @@ const { getDataDir } = require('../../utils/config');
 
 const SSL_CERT_FILE = 'ssl-cert.pem';
 const SSL_KEY_FILE = 'ssl-key.pem';
+const UPDATE_MARKER_FILE = '.updating';
+const RESTART_MARKER_FILE = '.restart-after-update';
 
 /**
  * Register system endpoints
@@ -15,6 +17,23 @@ const SSL_KEY_FILE = 'ssl-key.pem';
  * @param {Object} io - Socket.IO instance
  */
 function registerSystemEndpoints(app, io) {
+  // Clean up stale update marker files from previous update attempts
+  const dataDir = getDataDir();
+  const staleUpdateMarker = path.join(dataDir, UPDATE_MARKER_FILE);
+  const staleRestartMarker = path.join(dataDir, RESTART_MARKER_FILE);
+  try {
+    if (fs.existsSync(staleUpdateMarker)) {
+      fs.unlinkSync(staleUpdateMarker);
+      console.log('[UPDATE] Cleaned up stale update marker');
+    }
+    if (fs.existsSync(staleRestartMarker)) {
+      fs.unlinkSync(staleRestartMarker);
+      console.log('[UPDATE] Cleaned up stale restart marker');
+    }
+  } catch (e) {
+    console.error('[UPDATE] Failed to clean up marker files:', e.message);
+  }
+
   // API: Get version
   app.get('/api/version', (req, res) => {
     try {
@@ -110,8 +129,9 @@ function registerSystemEndpoints(app, io) {
 
   // API: Get update status
   app.get('/api/update-status', (req, res) => {
-    const updateMarker = path.join(__dirname, '../../../../.updating');
-    const restartMarker = path.join(__dirname, '../../../../.restart-after-update');
+    const dataDir = getDataDir();
+    const updateMarker = path.join(dataDir, UPDATE_MARKER_FILE);
+    const restartMarker = path.join(dataDir, RESTART_MARKER_FILE);
     
     // Read package.json for current version
     let version = 'unknown';
@@ -172,6 +192,7 @@ function registerSystemEndpoints(app, io) {
     try {
       const { spawn } = require('child_process');
       const platform = process.platform;
+      const dataDir = getDataDir();
       
       // Determine the install script based on platform
       let installScript;
@@ -188,9 +209,10 @@ function registerSystemEndpoints(app, io) {
       }
       
       // Write update marker to indicate update in progress
-      const updateMarker = path.join(__dirname, '../../../../.updating');
+      const updateMarker = path.join(dataDir, UPDATE_MARKER_FILE);
       try {
         const pkg = require('../../../../package.json');
+        fs.mkdirSync(dataDir, { recursive: true });
         fs.writeFileSync(updateMarker, JSON.stringify({
           startTime: Date.now(),
           oldVersion: pkg.version
@@ -200,7 +222,7 @@ function registerSystemEndpoints(app, io) {
       }
       
       // Write a restart marker file to indicate we want to restart after update
-      const restartMarker = path.join(__dirname, '../../../../.restart-after-update');
+      const restartMarker = path.join(dataDir, RESTART_MARKER_FILE);
       try {
         fs.writeFileSync(restartMarker, 'true');
       } catch (e) {
@@ -211,9 +233,12 @@ function registerSystemEndpoints(app, io) {
       res.json({ message: 'Update started. Server will restart automatically.' });
       
       // Execute update script with --update flag (detached from parent process)
+      // Set SSHIFT_NO_SUDO=1 to prevent sudo prompts which won't work in detached mode
       const updateCommand = platform === 'win32' 
         ? `powershell.exe -ExecutionPolicy Bypass -File "${installScript}" --update`
         : `"${installScript}" --update`;
+      
+      const updateEnv = { ...process.env, SSHIFT_NO_SUDO: '1' };
       
       console.log('[UPDATE] Starting update process...');
       
@@ -224,7 +249,8 @@ function registerSystemEndpoints(app, io) {
           cwd: path.join(__dirname, '../../../..'),
           shell: true,
           detached: true,
-          stdio: 'ignore'
+          stdio: 'ignore',
+          env: updateEnv
         });
         
         // Unref the child process so the parent can exit without waiting for it
