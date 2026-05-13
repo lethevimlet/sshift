@@ -562,40 +562,60 @@ function New-Config {
     $configFile = Join-Path $envDir "config.json"
     $port = if ($ServerPort -ne "") { $ServerPort } else { "8022" }
     
-    $configContent = @"
-{
-  "port": $port,
-  "devPort": 3000,
-  "bind": "0.0.0.0",
-  "enableHttps": true,
-  "sticky": true,
-  "sshKeepaliveInterval": 15000,
-  "sshKeepaliveCountMax": 500,
-  "bookmarks": [],
-  "folders": []
-}
-"@
-    
-    # Write config to user install directory (preferred by updated config loader)
-    $configContent | Out-File -FilePath $configFile -Encoding ASCII
-    
-    # Also write config to the npm package directory so the older config loader finds it
-    $sshiftPath = (Get-Command -Name "sshift" -ErrorAction SilentlyContinue).Source
-    if ($sshiftPath) {
-        # sshift is typically at <npm_prefix>\sshift.cmd, package dir is <npm_prefix>\node_modules\@lethevimlet\sshift
-        $npmPrefix = npm config get prefix 2>$null
-        if ($npmPrefix) {
-            $pkgDir = Join-Path $npmPrefix "node_modules\@lethevimlet\sshift"
-            if (Test-Path $pkgDir) {
-                $pkgEnvDir = Join-Path $pkgDir ".env"
-                New-Item -ItemType Directory -Force -Path $pkgEnvDir | Out-Null
-                $configContent | Out-File -FilePath (Join-Path $pkgEnvDir "config.json") -Encoding ASCII
-                $configContent | Out-File -FilePath (Join-Path $pkgDir "config.json") -Encoding ASCII
-            }
-        }
+    # Merge default values into existing config:
+    # - Preserves user's existing values
+    # - Adds new default properties from newer versions
+    # - If -port was explicitly set, overrides the port value
+    $defaults = @{
+        port = [int]$port
+        devPort = 3000
+        bind = "0.0.0.0"
+        enableHttps = $true
+        sticky = $true
+        sshKeepaliveInterval = 15000
+        sshKeepaliveCountMax = 500
+        bookmarks = @()
+        folders = @()
     }
     
-    Write-Success "Configuration created with HTTPS enabled on port $port"
+    $wasNew = $true
+    if (Test-Path $configFile) {
+        try {
+            $existing = Get-Content $configFile -Raw | ConvertFrom-Json
+            $wasNew = $false
+        } catch {
+            Write-Warning "Could not parse existing config, using defaults"
+            $existing = [PSCustomObject]@{}
+        }
+    } else {
+        $existing = [PSCustomObject]@{}
+    }
+    
+    # Build merged config: start with defaults, overlay existing values
+    $merged = [PSCustomObject]@{}
+    foreach ($key in $defaults.Keys) {
+        $merged | Add-Member -NotePropertyName $key -NotePropertyValue $defaults[$key] -Force
+    }
+    foreach ($prop in $existing.PSObject.Properties) {
+        $merged | Add-Member -NotePropertyName $prop.Name -NotePropertyValue $prop.Value -Force
+    }
+    
+    # If -port was explicitly set, override the port value
+    if ($ServerPort -ne "") {
+        $merged.port = [int]$ServerPort
+    }
+    
+    # Write merged config
+    $merged | ConvertTo-Json -Depth 10 | Set-Content -Path $configFile -Encoding ASCII
+    
+    if ($wasNew) {
+        Write-Info "Configuration created at $configFile"
+    } else {
+        Write-Info "Existing configuration merged with defaults at $configFile"
+    }
+    
+    $effectivePort = $merged.port
+    Write-Success "Configuration created with HTTPS enabled on port $effectivePort"
 }
 
 # Add to PATH

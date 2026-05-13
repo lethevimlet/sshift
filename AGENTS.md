@@ -36,12 +36,12 @@ This project uses a `.agents` directory for all AI-generated documentation files
 
 | Priority | Path | Notes |
 |----------|------|-------|
-| 1 | `<PACKAGE_DIR>/.env/config.json` | NPM package directory |
-| 2 | `<PACKAGE_DIR>/config.json` | NPM package root (created by `ensureConfig()` if no config found) |
-| 3 | `~/.local/share/sshift/.env/config.json` | User install location |
+| 1 | `<PACKAGE_DIR>/.env/config.json` | NPM package directory (user-managed, not written by installer) |
+| 2 | `<PACKAGE_DIR>/config.json` | NPM package root (user-managed, not written by installer) |
+| 3 | `~/.local/share/sshift/.env/config.json` | **Default location** — installer and `ensureConfig()` create here |
 | 4 | `~/.local/share/sshift/config.json` | User install (no `.env` subdir) |
 
-If no config file exists at any path, `ensureConfig()` creates one at `<PACKAGE_DIR>/config.json`.
+If no config file exists at any path, `ensureConfig()` creates one at `~/.local/share/sshift/.env/config.json` (user-space, survives `npm update`).
 
 ### .env File Loading (first setter wins, dotenv does not overwrite)
 
@@ -69,7 +69,7 @@ The project includes installation scripts for easy setup:
 ### sshift-install.sh (Linux/macOS)
 - Installs Node.js 20+ and npm if not present
 - Installs sshift globally via npm (`npm install -g @lethevimlet/sshift`)
-- Creates config at `~/.local/share/sshift/.env/config.json` (also writes to npm package dir for compatibility)
+- Creates config at `~/.local/share/sshift/.env/config.json`; merges new default properties into existing config without overwriting user values
 - Configures autostart on boot (systemd on Linux, launchd on macOS)
 - Starts sshift after installation
 - Prints summary box with install path and URLs
@@ -78,7 +78,7 @@ The project includes installation scripts for easy setup:
 ### sshift-install.ps1 (Windows)
 - Installs Node.js 20+ if not present
 - Installs sshift via npm
-- Creates config at `~/.local/share/sshift/.env/config.json` (also writes to npm package dir for compatibility)
+- Creates config at `~/.local/share/sshift/.env/config.json`; merges new default properties into existing config without overwriting user values
 - Configures autostart on boot via Task Scheduler
 - Prints summary box with install path and URLs
 - Supports arguments: `-installDir DIR`, `-port PORT`, `-start`, `-stop`, `-restart`, `-status`, `-update`, `-uninstall`, `-help`

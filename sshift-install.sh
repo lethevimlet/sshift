@@ -411,49 +411,44 @@ create_config() {
     mkdir -p "$INSTALL_DIR/.env"
 
     local port="${SERVER_PORT:-8022}"
-    local config_content="{
-  \"port\": $port,
-  \"devPort\": 3000,
-  \"bind\": \"0.0.0.0\",
-  \"enableHttps\": true,
-  \"sticky\": true,
-  \"sshKeepaliveInterval\": 15000,
-  \"sshKeepaliveCountMax\": 500,
-  \"bookmarks\": [],
-  \"folders\": []
-}"
+    local config_file="$INSTALL_DIR/.env/config.json"
 
-    # Write config to user install directory (preferred by updated config loader)
-    echo "$config_content" > "$INSTALL_DIR/.env/config.json"
-
-    # Also write config to the npm package directory so the older config loader finds it
-    local sshift_bin_path=$(which sshift 2>/dev/null)
-    if [ -n "$sshift_bin_path" ]; then
-        local real_path="$sshift_bin_path"
-        # Resolve symlinks portably (readlink -f is not available on macOS BSD)
-        while [ -L "$real_path" ]; do
-            local target=$(readlink "$real_path" 2>/dev/null)
-            if [ -z "$target" ]; then break; fi
-            # Handle relative symlinks
-            case "$target" in
-                /*) real_path="$target" ;;
-                *) real_path="$(dirname "$real_path")/$target" ;;
-            esac
-        done
-        local pkg_dir=$(dirname "$real_path")
-        if [ -d "$pkg_dir" ]; then
-            if mkdir -p "$pkg_dir/.env" 2>/dev/null; then
-                echo "$config_content" > "$pkg_dir/.env/config.json"
-                echo "$config_content" > "$pkg_dir/config.json"
-            else
-                # Package directory may be root-owned (e.g. Homebrew npm global installs on macOS)
-                # The user-space config at INSTALL_DIR is already written, so this is just a
-                # backwards-compat fallback — skip silently if we lack permissions.
-                warn "Cannot write to package directory $pkg_dir (permission denied). Using config at $INSTALL_DIR/.env/config.json instead."
-            fi
-        fi
+    # Merge default values into existing config:
+    # - Preserves user's existing values
+    # - Adds new default properties from newer versions
+    # - If --port was explicitly set, overrides the port value
+    local port_override=""
+    if [ -n "$SERVER_PORT" ]; then
+        port_override="$SERVER_PORT"
     fi
 
+    local config_action
+    config_action=$(node -e "
+const fs = require('fs');
+const defaults = {port: $port, devPort: 3000, bind: '0.0.0.0', enableHttps: true, sticky: true, sshKeepaliveInterval: 15000, sshKeepaliveCountMax: 500, bookmarks: [], folders: []};
+const configPath = '$config_file';
+let existing = {};
+let wasNew = true;
+if (fs.existsSync(configPath)) {
+  try { existing = JSON.parse(fs.readFileSync(configPath, 'utf8')); wasNew = false; } catch(e) { process.stderr.write('Warning: Could not parse existing config, using defaults\n'); }
+}
+const merged = Object.assign({}, defaults, existing);
+const portOverride = '$port_override';
+if (portOverride) { merged.port = parseInt(portOverride); }
+fs.writeFileSync(configPath, JSON.stringify(merged, null, 2) + '\n');
+process.stdout.write(wasNew ? 'created' : 'merged');
+" 2>&1) || config_action="created"
+
+    if [ "$config_action" = "merged" ]; then
+        info "Existing configuration merged with defaults at $config_file"
+    else
+        info "Configuration created at $config_file"
+    fi
+
+    local effective_port=$(grep -oP '"port"\s*:\s*\K[0-9]+' "$config_file" 2>/dev/null | head -1)
+    if [ -n "$effective_port" ]; then
+        port="$effective_port"
+    fi
     success "Configuration created with HTTPS enabled on port $port"
 }
 

@@ -45,7 +45,8 @@ const defaultConfig = {
 
 /**
  * Ensure a config file exists. If no config is found in any search path,
- * create config.json in the package root using env var overrides or defaults.
+ * create config.json at the user install directory (~/.local/share/sshift/.env/config.json)
+ * so it survives npm updates (which replace the package directory).
  * This mirrors the installer create_config behavior.
  */
 function ensureConfig() {
@@ -55,7 +56,11 @@ function ensureConfig() {
     }
   }
 
-  const configPath = path.join(PACKAGE_DIR, 'config.json');
+  const configDir = path.join(USER_INSTALL_DIR, '.env');
+  if (!fs.existsSync(configDir)) {
+    fs.mkdirSync(configDir, { recursive: true });
+  }
+  const configPath = path.join(configDir, 'config.json');
   const config = { ...defaultConfig };
 
   if (process.env.PORT) {
@@ -85,8 +90,8 @@ function getConfigPath() {
     }
   }
   
-  // Return default path (first user install directory)
-  const defaultPath = ENV_CONFIG_PATHS[0];
+  // Return default path (user install directory, survives npm updates)
+  const defaultPath = path.join(USER_INSTALL_DIR, '.env', 'config.json');
   console.log('[CONFIG] Using default path:', defaultPath);
   return defaultPath;
 }
