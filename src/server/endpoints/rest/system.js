@@ -9,7 +9,6 @@ const { getDataDir } = require('../../utils/config');
 const SSL_CERT_FILE = 'ssl-cert.pem';
 const SSL_KEY_FILE = 'ssl-key.pem';
 const UPDATE_MARKER_FILE = '.updating';
-const RESTART_MARKER_FILE = '.restart-after-update';
 
 /**
  * Register system endpoints
@@ -17,21 +16,24 @@ const RESTART_MARKER_FILE = '.restart-after-update';
  * @param {Object} io - Socket.IO instance
  */
 function registerSystemEndpoints(app, io) {
-  // Clean up stale update marker files from previous update attempts
+  // Clean up stale update marker from previous update attempt
   const dataDir = getDataDir();
   const staleUpdateMarker = path.join(dataDir, UPDATE_MARKER_FILE);
-  const staleRestartMarker = path.join(dataDir, RESTART_MARKER_FILE);
+  const staleUpdateScript = path.join(dataDir, '.sshift-update.sh');
+  const stalePsScript = path.join(dataDir, '.sshift-update.ps1');
   try {
     if (fs.existsSync(staleUpdateMarker)) {
       fs.unlinkSync(staleUpdateMarker);
       console.log('[UPDATE] Cleaned up stale update marker');
     }
-    if (fs.existsSync(staleRestartMarker)) {
-      fs.unlinkSync(staleRestartMarker);
-      console.log('[UPDATE] Cleaned up stale restart marker');
+    if (fs.existsSync(staleUpdateScript)) {
+      fs.unlinkSync(staleUpdateScript);
+    }
+    if (fs.existsSync(stalePsScript)) {
+      fs.unlinkSync(stalePsScript);
     }
   } catch (e) {
-    console.error('[UPDATE] Failed to clean up marker files:', e.message);
+    console.error('[UPDATE] Failed to clean up marker file:', e.message);
   }
 
   // API: Get version
@@ -131,7 +133,6 @@ function registerSystemEndpoints(app, io) {
   app.get('/api/update-status', (req, res) => {
     const dataDir = getDataDir();
     const updateMarker = path.join(dataDir, UPDATE_MARKER_FILE);
-    const restartMarker = path.join(dataDir, RESTART_MARKER_FILE);
     
     // Read package.json for current version
     let version = 'unknown';
@@ -145,13 +146,11 @@ function registerSystemEndpoints(app, io) {
     
     // Check if we're in the middle of an update
     const isUpdating = fs.existsSync(updateMarker);
-    const restartRequested = fs.existsSync(restartMarker);
     
     res.json({
       version,
       updating: isUpdating,
-      restartRequested,
-      ready: !isUpdating // Server is ready if not updating
+      ready: !isUpdating
     });
   });
 
@@ -194,20 +193,6 @@ function registerSystemEndpoints(app, io) {
       const platform = process.platform;
       const dataDir = getDataDir();
       
-      // Determine the install script based on platform
-      let installScript;
-      if (platform === 'win32') {
-        installScript = path.join(__dirname, '../../../../sshift-install.ps1');
-      } else {
-        installScript = path.join(__dirname, '../../../../sshift-install.sh');
-      }
-      
-      // Check if install script exists
-      if (!fs.existsSync(installScript)) {
-        res.status(500).json({ error: 'Install script not found' });
-        return;
-      }
-      
       // Write update marker to indicate update in progress
       const updateMarker = path.join(dataDir, UPDATE_MARKER_FILE);
       try {
@@ -221,48 +206,62 @@ function registerSystemEndpoints(app, io) {
         console.error('[UPDATE] Failed to write update marker:', e.message);
       }
       
-      // Write a restart marker file to indicate we want to restart after update
-      const restartMarker = path.join(dataDir, RESTART_MARKER_FILE);
-      try {
-        fs.writeFileSync(restartMarker, 'true');
-      } catch (e) {
-        console.error('[UPDATE] Failed to write restart marker:', e.message);
-      }
-      
       // Send response immediately, then update in background
       res.json({ message: 'Update started. Server will restart automatically.' });
       
-      // Execute update script with --update flag (detached from parent process)
-      // Set SSHIFT_NO_SUDO=1 to prevent sudo prompts which won't work in detached mode
-      const updateCommand = platform === 'win32' 
-        ? `powershell.exe -ExecutionPolicy Bypass -File "${installScript}" --update`
-        : `"${installScript}" --update`;
-      
-      const updateEnv = { ...process.env, SSHIFT_NO_SUDO: '1' };
+      // Write a temporary update script and run it detached
+      const nodeExe = process.execPath;
+      const sshiftScript = process.argv[1];
+      const updateScriptPath = path.join(dataDir, '.sshift-update.sh');
+
+      if (platform === 'win32') {
+        const psScript = `npm install -g @lethevimlet/sshift@latest; & '${nodeExe}' '${sshiftScript}'`;
+        fs.writeFileSync(updateScriptPath.replace('.sh', '.ps1'), psScript, 'utf8');
+      } else {
+        const updateScript = `#!/bin/sh
+npm install -g @lethevimlet/sshift@latest
+exec "${nodeExe}" "${sshiftScript}"
+`;
+        fs.writeFileSync(updateScriptPath, updateScript, 'utf8');
+        fs.chmodSync(updateScriptPath, 0o755);
+      }
       
       console.log('[UPDATE] Starting update process...');
       
-      // Wait for response to be sent before spawning update process
-      res.on('finish', () => {
-        // Use spawn with detached mode to allow the update script to continue after parent exits
-        const updateProcess = spawn(updateCommand, [], {
-          cwd: path.join(__dirname, '../../../..'),
-          shell: true,
-          detached: true,
-          stdio: 'ignore',
-          env: updateEnv
-        });
-        
-        // Unref the child process so the parent can exit without waiting for it
-        updateProcess.unref();
-        
-        // Give the update script a moment to start
-        setTimeout(() => {
-          // Exit immediately to allow the update script to manage the restart
-          console.log('[UPDATE] Exiting for update...');
-          process.exit(0);
-        }, 500);
+      let spawnFailed = false;
+      let spawnCommand, spawnArgs;
+      if (platform === 'win32') {
+        spawnCommand = 'powershell';
+        spawnArgs = ['-ExecutionPolicy', 'Bypass', '-File', updateScriptPath.replace('.sh', '.ps1')];
+      } else {
+        spawnCommand = '/bin/sh';
+        spawnArgs = [updateScriptPath];
+      }
+      
+      const updateProcess = spawn(spawnCommand, spawnArgs, {
+        cwd: dataDir,
+        detached: true,
+        stdio: 'ignore',
+        env: { ...process.env }
       });
+      
+      updateProcess.on('error', (err) => {
+        console.error('[UPDATE] Failed to start update process:', err.message);
+        spawnFailed = true;
+        // Clean up marker since update failed
+        try { fs.unlinkSync(updateMarker); } catch (e) { /* ignore */ }
+      });
+      
+      updateProcess.unref();
+      
+      setTimeout(() => {
+        if (spawnFailed) {
+          console.error('[UPDATE] Update process failed to start. Keeping server running.');
+          return;
+        }
+        console.log('[UPDATE] Exiting for update...');
+        process.exit(0);
+      }, 500);
     } catch (err) {
       console.error('Error triggering update:', err);
       res.status(500).json({ error: 'Failed to trigger update' });
