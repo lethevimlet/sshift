@@ -54,6 +54,8 @@ class MobileTerminalHandler {
     this.endHandle = null;
     this.contextMenu = null;
     this.hiddenTextarea = null;
+    this._isComposing = false;
+    this._compositionText = '';
     this.contextMenuUserPositioned = false; // Track if user has manually positioned the menu
     
     // Configuration
@@ -439,8 +441,7 @@ class MobileTerminalHandler {
     this.hiddenTextarea.setAttribute('autocorrect', 'off');
     this.hiddenTextarea.setAttribute('autocapitalize', 'off');
     this.hiddenTextarea.setAttribute('spellcheck', 'false');
-    this.hiddenTextarea.setAttribute('contenteditable', 'true');
-    this.hiddenTextarea.setAttribute('readonly', 'true'); // Prevent keyboard on focus by default
+    this.hiddenTextarea.setAttribute('readonly', 'true');
     this.hiddenTextarea.style.position = 'absolute';
     this.hiddenTextarea.style.left = '-9999px';
     this.hiddenTextarea.style.top = '0';
@@ -459,15 +460,17 @@ class MobileTerminalHandler {
     
     // Handle input events (for virtual keyboard)
     this.hiddenTextarea.addEventListener('input', (e) => {
-      // Don't process input if in selection mode
       if (this.touchState.isSelecting) {
         e.preventDefault();
         this.hiddenTextarea.value = '';
         return;
       }
-      
+
+      if (this._isComposing) {
+        return;
+      }
+
       if (e.data && !this.touchState.isDragging) {
-        // Send input to terminal
         this._sendToTerminal(e.data);
         this.hiddenTextarea.value = '';
       }
@@ -475,12 +478,15 @@ class MobileTerminalHandler {
     
     // Handle keydown for special keys
     this.hiddenTextarea.addEventListener('keydown', (e) => {
-      // Don't process keys if in selection mode
       if (this.touchState.isSelecting) {
         e.preventDefault();
         return;
       }
-      
+
+      if (this._isComposing) {
+        return;
+      }
+
       if (e.key === 'Enter') {
         e.preventDefault();
         this._sendToTerminal('\r');
@@ -502,9 +508,28 @@ class MobileTerminalHandler {
         e.preventDefault();
         this._intentionalBlur = true;
         this.hiddenTextarea.blur();
-        // Also collapse any active keyboard
         this._collapseKeyboard();
       }
+    });
+
+    // Composition events for IME/autocomplete handling
+    this.hiddenTextarea.addEventListener('compositionstart', () => {
+      this._isComposing = true;
+      this._compositionText = '';
+    });
+
+    this.hiddenTextarea.addEventListener('compositionupdate', (e) => {
+      this._compositionText = e.data || '';
+    });
+
+    this.hiddenTextarea.addEventListener('compositionend', (e) => {
+      this._isComposing = false;
+      const composed = this.hiddenTextarea.value;
+      if (composed && !this.touchState.isDragging) {
+        this._sendToTerminal(composed);
+      }
+      this._compositionText = '';
+      this.hiddenTextarea.value = '';
     });
   }
   
