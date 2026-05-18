@@ -4759,10 +4759,32 @@ body.dragging-tabs .tabs-container {
   /* Mobile context menu adjustments */
   .mobile-context-menu {
     max-width: calc(100vw - 32px);
+    padding: 4px;
+    border-radius: 6px;
   }
   
+  .mobile-menu-drag-handle {
+    padding: 3px 0;
+  }
+
+  .mobile-menu-drag-handle i {
+    font-size: 10px;
+  }
+
   .mobile-menu-btn {
-    min-height: 36px; /* Compact touch target matching button size */
+    padding: 5px 8px;
+    font-size: 12px;
+    min-width: 39px;
+    min-height: 47px;
+    gap: 2px;
+  }
+
+  .mobile-menu-btn i {
+    font-size: 16px;
+  }
+
+  .mobile-menu-btn span {
+    font-size: 10px;
   }
 }
 
