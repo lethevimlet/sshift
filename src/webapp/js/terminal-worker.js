@@ -26,7 +26,8 @@ let config = {
 
 function createSessionState(sessionId) {
   return {
-    buffer: '',
+    chunks: [],
+    bufferSize: 0,
     timerActive: false,
     paused: false,
     totalBytesReceived: 0,
@@ -49,26 +50,42 @@ function flushChunks(sessionId) {
     return;
   }
 
-  if (session.buffer.length === 0) {
+  if (session.chunks.length === 0) {
     session.timerActive = false;
     return;
   }
 
   // Take up to chunkSize bytes from the buffer
-  const chunk = session.buffer.substring(0, config.chunkSize);
-  session.buffer = session.buffer.substring(config.chunkSize);
+  let sentSize = 0;
+  const sendChunks = [];
+  while (session.chunks.length > 0 && sentSize < config.chunkSize) {
+    const chunk = session.chunks.shift();
+    if (sentSize + chunk.length <= config.chunkSize) {
+      sendChunks.push(chunk);
+      sentSize += chunk.length;
+    } else {
+      const remaining = config.chunkSize - sentSize;
+      sendChunks.push(chunk.substring(0, remaining));
+      session.chunks.unshift(chunk.substring(remaining));
+      session.bufferSize -= remaining;
+      sentSize = config.chunkSize;
+      break;
+    }
+  }
+  session.bufferSize -= sentSize;
 
-  session.totalBytesSent += chunk.length;
+  const data = sendChunks.join('');
+  session.totalBytesSent += data.length;
   session.chunksSent++;
 
   self.postMessage({
     type: 'data',
     sessionId: sessionId,
-    data: chunk
+    data: data
   });
 
   // If there's more data to send, schedule next chunk
-  if (session.buffer.length > 0) {
+  if (session.chunks.length > 0) {
     setTimeout(() => flushChunks(sessionId), config.flushInterval);
   } else {
     session.timerActive = false;
@@ -98,25 +115,30 @@ self.onmessage = function(e) {
       if (!sessionId) break;
 
       const session = getOrCreateSession(sessionId);
-      session.totalBytesReceived += (msg.data || '').length;
+      const dataLen = (msg.data || '').length;
+      session.totalBytesReceived += dataLen;
 
       // Drop data if buffer is overwhelmed (prevents memory explosion)
-      if (session.buffer.length + (msg.data || '').length > MAX_BUFFER_SIZE) {
+      if (session.bufferSize + dataLen > MAX_BUFFER_SIZE) {
         // Emergency: flush entire buffer immediately in one go
         // Better than dropping data silently
-        if (session.buffer.length > 0) {
+        if (session.chunks.length > 0) {
           self.postMessage({
             type: 'data',
             sessionId: sessionId,
-            data: session.buffer
+            data: session.chunks.join('')
           });
-          session.totalBytesSent += session.buffer.length;
+          session.totalBytesSent += session.bufferSize;
           session.chunksSent++;
-          session.buffer = '';
+          session.chunks = [];
+          session.bufferSize = 0;
         }
       }
 
-      session.buffer += msg.data || '';
+      if (msg.data) {
+        session.chunks.push(msg.data);
+        session.bufferSize += dataLen;
+      }
       scheduleFlush(sessionId);
       break;
     }
@@ -127,16 +149,17 @@ self.onmessage = function(e) {
       if (!sessionId) break;
 
       const session = sessions.get(sessionId);
-      if (!session || session.buffer.length === 0) break;
+      if (!session || session.chunks.length === 0) break;
 
       self.postMessage({
         type: 'data',
         sessionId: sessionId,
-        data: session.buffer
+        data: session.chunks.join('')
       });
-      session.totalBytesSent += session.buffer.length;
+      session.totalBytesSent += session.bufferSize;
       session.chunksSent++;
-      session.buffer = '';
+      session.chunks = [];
+      session.bufferSize = 0;
       session.timerActive = false;
       break;
     }
@@ -166,11 +189,11 @@ self.onmessage = function(e) {
       const sessionId = msg.sessionId;
       if (!sessionId) break;
       const session = sessions.get(sessionId);
-      if (session && session.buffer.length > 0) {
+      if (session && session.chunks.length > 0) {
         self.postMessage({
           type: 'data',
           sessionId: sessionId,
-          data: session.buffer
+          data: session.chunks.join('')
         });
       }
       sessions.delete(sessionId);
@@ -179,11 +202,11 @@ self.onmessage = function(e) {
 
     case 'destroy-all': {
       for (const [sessionId, session] of sessions) {
-        if (session.buffer.length > 0) {
+        if (session.chunks.length > 0) {
           self.postMessage({
             type: 'data',
             sessionId: sessionId,
-            data: session.buffer
+            data: session.chunks.join('')
           });
         }
       }
@@ -198,7 +221,7 @@ self.onmessage = function(e) {
         type: 'stats',
         sessionId: sessionId,
         stats: session ? {
-          bufferLength: session.buffer.length,
+          bufferLength: session.bufferSize,
           totalBytesReceived: session.totalBytesReceived,
           totalBytesSent: session.totalBytesSent,
           chunksSent: session.chunksSent,

@@ -1143,16 +1143,11 @@ class MobileTerminalHandler {
   _pasteText(text) {
     if (!text) return;
     
-    // Send paste to server
     const session = this.app.sessions.get(this.sessionId);
-    if (session && session.socket && session.connected) {
-      session.socket.emit('terminal:input', {
-        sessionId: this.sessionId,
-        data: text
-      });
+    if (session && session.connected) {
+      this.app.sendChunkedInput(this.sessionId, text);
+      this.app.showToast('Pasted', 'success');
     }
-    
-    this.app.showToast('Pasted', 'success');
   }
   
   /**
