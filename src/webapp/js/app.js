@@ -5944,7 +5944,8 @@ const wheelHandler = (e) => {
       writeChunks: [], // Array of chunks for batching terminal writes (avoids O(n^2) string concat)
       writeRAF: null, // requestAnimationFrame ID for write flush
       flushRemaining: null, // Remaining data from a frame that exceeded the write cap
-      originalScrollback: null
+      originalScrollback: null, // Stores original scrollback before dynamic reduction
+      scrollbackRestoreTimer: null
     });
 
     // Switch to the new tab FIRST to make the container visible
@@ -6922,10 +6923,21 @@ const wheelHandler = (e) => {
         }
         terminal.options.scrollback = 200;
       }
-    } else if (session.originalScrollback && bufferLen < lowWatermark) {
-      // Buffer has drained — restore original scrollback
-      terminal.options.scrollback = session.originalScrollback;
-      session.originalScrollback = null;
+      // Cancel any pending restore since we're still in heavy output
+      clearTimeout(session.scrollbackRestoreTimer);
+      session.scrollbackRestoreTimer = null;
+    } else if (session.originalScrollback) {
+      // Schedule scrollback restoration — use a timer so it also restores
+      // if the buffer stays between low and high watermarks (output stopped
+      // but buffer didn't drain below lowWatermark)
+      clearTimeout(session.scrollbackRestoreTimer);
+      session.scrollbackRestoreTimer = setTimeout(() => {
+        if (session.terminal && session.originalScrollback) {
+          session.terminal.options.scrollback = session.originalScrollback;
+          session.originalScrollback = null;
+        }
+        session.scrollbackRestoreTimer = null;
+      }, 3000);
     }
 
     // Cap write size per frame. terminal.write() is synchronous and blocks
@@ -7524,6 +7536,11 @@ const wheelHandler = (e) => {
         cancelAnimationFrame(session.writeRAF);
         session.writeRAF = null;
       }
+      // Clean up scrollback restore timer
+      if (session.scrollbackRestoreTimer) {
+        clearTimeout(session.scrollbackRestoreTimer);
+        session.scrollbackRestoreTimer = null;
+      }
       // Restore scrollback if it was dynamically reduced
       if (session.originalScrollback && session.terminal) {
         session.terminal.options.scrollback = session.originalScrollback;
@@ -7638,6 +7655,12 @@ const wheelHandler = (e) => {
     if (session.type === 'ssh') {
       if (session.writeRAF) {
         cancelAnimationFrame(session.writeRAF);
+      }
+      if (session.scrollbackRestoreTimer) {
+        clearTimeout(session.scrollbackRestoreTimer);
+      }
+      if (session.originalScrollback && session.terminal) {
+        session.terminal.options.scrollback = session.originalScrollback;
       }
       if (session.wheelHandler && session.wheelElement) {
         session.wheelElement.removeEventListener('wheel', session.wheelHandler);

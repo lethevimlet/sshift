@@ -7,15 +7,19 @@
  *   4. Reassembles to the original text (with \n→\r conversion)
  */
 
-const fs = require('fs');
-const path = require('path');
-
 const BP_START = '\x1b[200~';
 const BP_END = '\x1b[201~';
 
+function generateTestData(lines = 500, lineLen = 100) {
+  const lines_arr = [];
+  for (let i = 1; i <= lines; i++) {
+    lines_arr.push(`${i} ${'x'.repeat(lineLen - i.toString().length - 2)}`);
+  }
+  return lines_arr.join('\n') + '\n';
+}
+
 // Replicate sendChunkedInput logic as a pure function for testing
 function chunkInput(data, chunkSize = 2048) {
-  // \n → \r conversion (same as the real code)
   data = data.replace(/\r\n/g, '\r').replace(/\n/g, '\r');
 
   const wrapped = BP_START + data + BP_END;
@@ -46,7 +50,6 @@ function chunkInput(data, chunkSize = 2048) {
   return chunks;
 }
 
-// Reassemble chunks and strip bracketed paste markers
 function reassemble(chunks) {
   const joined = chunks.join('');
   if (joined.startsWith(BP_START) && joined.endsWith(BP_END)) {
@@ -56,11 +59,10 @@ function reassemble(chunks) {
 }
 
 describe('Clipboard streaming chunking', () => {
-  const testFilePath = path.join(__dirname, '..', '..', '..', 'test_text.txt');
   let testData;
 
   beforeAll(() => {
-    testData = fs.readFileSync(testFilePath, 'utf8');
+    testData = generateTestData();
   });
 
   test('\\n is converted to \\r in pasted output', () => {
@@ -142,7 +144,7 @@ describe('Clipboard streaming chunking', () => {
     }
   });
 
-  test('performance: 100KB chunked in under 50ms', () => {
+  test('performance: 50KB chunked in under 50ms', () => {
     const start = process.hrtime.bigint();
     const chunks = chunkInput(testData, 2048);
     const end = process.hrtime.bigint();

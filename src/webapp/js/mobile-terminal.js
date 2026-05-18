@@ -1266,11 +1266,8 @@ class MobileTerminalHandler {
    */
   _sendToTerminal(text) {
     const session = this.app.sessions.get(this.sessionId);
-    if (session && session.socket && session.connected && session.isController) {
-      session.socket.emit('terminal:input', {
-        sessionId: this.sessionId,
-        data: text
-      });
+    if (session && session.connected && session.isController) {
+      this.app.socket.emit('ssh-data', { sessionId: this.sessionId, data: text });
     }
   }
   
