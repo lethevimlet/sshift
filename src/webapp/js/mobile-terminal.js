@@ -39,6 +39,12 @@ class MobileTerminalHandler {
 
     // Terminal resize listener disposable
     this._resizeDisposable = null;
+
+    // Scroll tracking (RAF loop + viewport scroll listener)
+    this._scrollTracking = false;
+    this._scrollRAF = null;
+    this._lastScrollOffset = 0;
+    this._viewportScrollListener = null;
     
     // UI elements
     this.container = null;
@@ -150,7 +156,7 @@ class MobileTerminalHandler {
       offsetY: contentTop - containerRect.top,
       cols,
       rows,
-      scrollOffset: this.terminal.buffer.ydisp || 0,
+      scrollOffset: this.terminal.buffer.active.viewportY,
       containerRect
     };
   }
@@ -173,7 +179,7 @@ class MobileTerminalHandler {
       offsetY: 0,
       cols,
       rows,
-      scrollOffset: this.terminal.buffer.ydisp || 0,
+      scrollOffset: this.terminal.buffer.active.viewportY,
       containerRect
     };
   }
@@ -538,6 +544,28 @@ class MobileTerminalHandler {
         });
       });
     }
+
+    // Listen for native scroll on .xterm-viewport element
+    const viewportEl = this.terminal.element
+      ? this.terminal.element.querySelector('.xterm-viewport')
+      : null;
+    if (viewportEl) {
+      this._viewportScrollListener = () => {
+        if (this.selection.active) {
+          requestAnimationFrame(() => {
+            if (this.selection.active) {
+              const currentScrollOffset = this.terminal.buffer.active.viewportY;
+              if (currentScrollOffset !== this._lastScrollOffset) {
+                this._lastScrollOffset = currentScrollOffset;
+                this._updateSelectionOverlay(this.selection.start, this.selection.end);
+                this._updateHandles(this.selection.start, this.selection.end);
+              }
+            }
+          });
+        }
+      };
+      viewportEl.addEventListener('scroll', this._viewportScrollListener, { passive: true });
+    }
   }
   
   /**
@@ -565,6 +593,20 @@ class MobileTerminalHandler {
     if (this._resizeDisposable) {
       this._resizeDisposable.dispose();
       this._resizeDisposable = null;
+    }
+
+    // Stop scroll tracking
+    this._stopScrollTracking();
+
+    // Remove viewport scroll listener
+    if (this._viewportScrollListener) {
+      const viewportEl = this.terminal && this.terminal.element
+        ? this.terminal.element.querySelector('.xterm-viewport')
+        : null;
+      if (viewportEl) {
+        viewportEl.removeEventListener('scroll', this._viewportScrollListener);
+      }
+      this._viewportScrollListener = null;
     }
 
     // Remove UI elements
@@ -853,11 +895,15 @@ class MobileTerminalHandler {
    */
   _updateSelection() {
     if (!this.selection.active || !this.selection.start || !this.selection.end) {
+      this._stopScrollTracking();
       this.selectionOverlay.style.display = 'none';
       this.startHandle.style.display = 'none';
       this.endHandle.style.display = 'none';
       return;
     }
+    
+    // Start scroll tracking when selection is active
+    this._startScrollTracking();
     
     // Force keyboard to collapse when selection is active
     this._collapseKeyboard();
@@ -940,9 +986,18 @@ class MobileTerminalHandler {
     const textBeginX = (start.y < end.y || (start.y === end.y && start.x <= end.x)) ? start.x : end.x;
     const textEndX = (start.y < end.y || (start.y === end.y && start.x <= end.x)) ? end.x : start.x;
 
+    // Visible viewport range in buffer coordinates
+    const visibleTop = metrics.scrollOffset;
+    const visibleBottom = metrics.scrollOffset + metrics.rows - 1;
+
     this.selectionOverlay.innerHTML = '';
 
     for (let y = startY; y <= endY; y++) {
+      // Skip lines entirely above the visible viewport
+      if (y < visibleTop) continue;
+      // No more visible lines below
+      if (y > visibleBottom) break;
+
       const lineStartX = (y === startY) ? textBeginX : 0;
       const lineEndX = (y === endY) ? textEndX : metrics.cols - 1;
       const extendsToRight = (lineEndX === metrics.cols - 1);
@@ -977,6 +1032,19 @@ class MobileTerminalHandler {
    * @private
    */
   _updateHandles(start, end) {
+    const metrics = this._getTerminalMetrics();
+    if (!metrics) {
+      this.startHandle.style.display = 'none';
+      this.endHandle.style.display = 'none';
+      return;
+    }
+
+    const { offsetY, contentHeight, cellHeight } = metrics;
+
+    // Clamp limits for handle positions within visible content area
+    const clampMinY = offsetY;
+    const clampMaxY = offsetY + contentHeight - cellHeight;
+
     const startPos = start.y * this.terminal.cols + start.x;
     const endPos = end.y * this.terminal.cols + end.x;
     const isInverted = startPos > endPos;
@@ -989,7 +1057,10 @@ class MobileTerminalHandler {
       } else {
         this.startHandle.style.left = `${startCoords.x}px`;
       }
-      this.startHandle.style.top = `${startCoords.y + startCoords.height}px`;
+      const handleTop = startCoords.y + startCoords.height;
+      this.startHandle.style.top = `${Math.max(clampMinY, Math.min(clampMaxY, handleTop))}px`;
+    } else {
+      this.startHandle.style.display = 'none';
     }
 
     const endCoords = this._terminalToScreenCoords(end.x, end.y);
@@ -1000,7 +1071,10 @@ class MobileTerminalHandler {
       } else {
         this.endHandle.style.left = `${endCoords.x + endCoords.width}px`;
       }
-      this.endHandle.style.top = `${endCoords.y + endCoords.height}px`;
+      const handleTop = endCoords.y + endCoords.height;
+      this.endHandle.style.top = `${Math.max(clampMinY, Math.min(clampMaxY, handleTop))}px`;
+    } else {
+      this.endHandle.style.display = 'none';
     }
 
     if (isInverted) {
@@ -1016,6 +1090,52 @@ class MobileTerminalHandler {
     }
   }
   
+  /**
+   * Start tracking terminal scroll position via RAF loop.
+   * Updates overlay/handles when ydisp changes during active selection.
+   * @private
+   */
+  _startScrollTracking() {
+    if (this._scrollTracking) return;
+    this._scrollTracking = true;
+    this._lastScrollOffset = this.terminal.buffer.active.viewportY;
+    this._scrollTrackLoop();
+  }
+
+  /**
+   * Stop the RAF scroll tracking loop
+   * @private
+   */
+  _stopScrollTracking() {
+    this._scrollTracking = false;
+    if (this._scrollRAF) {
+      cancelAnimationFrame(this._scrollRAF);
+      this._scrollRAF = null;
+    }
+  }
+
+  /**
+   * RAF loop that checks for scroll offset changes and updates selection visuals
+   * @private
+   */
+  _scrollTrackLoop() {
+    if (!this._scrollTracking || !this.selection.active) {
+      this._scrollRAF = null;
+      return;
+    }
+
+    const currentScrollOffset = this.terminal.buffer.active.viewportY;
+    if (currentScrollOffset !== this._lastScrollOffset) {
+      this._lastScrollOffset = currentScrollOffset;
+      if (this.selection.start && this.selection.end) {
+        this._updateSelectionOverlay(this.selection.start, this.selection.end);
+        this._updateHandles(this.selection.start, this.selection.end);
+      }
+    }
+
+    this._scrollRAF = requestAnimationFrame(() => this._scrollTrackLoop());
+  }
+
   /**
    * Show context menu at position
    * @private
@@ -1189,6 +1309,9 @@ class MobileTerminalHandler {
     this.selection.start = null;
     this.selection.end = null;
     this.selection.text = '';
+    
+    // Stop scroll tracking since selection is cleared
+    this._stopScrollTracking();
     
     // Reset selecting mode to allow keyboard input
     this.touchState.isSelecting = false;

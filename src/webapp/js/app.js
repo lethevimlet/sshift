@@ -2644,7 +2644,7 @@ const wheelHandler = (e) => {
     // ydisp is the current scroll position (number of lines scrolled back from bottom)
     // The terminal is at bottom if ydisp is 0 or very close to 0
     const maxYDisp = buffer.length - terminal.rows;
-    const currentYDisp = terminal.buffer.ydisp;
+    const currentYDisp = terminal.buffer.active.viewportY;
     
     // We're at the bottom if we're within 2 lines of the bottom
     const isAtBottom = currentYDisp >= maxYDisp - 2;
@@ -2668,7 +2668,7 @@ const wheelHandler = (e) => {
     // ydisp = 0 means we're at the bottom (most recent content)
     // ydisp > 0 means we've scrolled up into the scrollback buffer (older content)
     const buffer = terminal.buffer.active;
-    const scrollTop = buffer.ydisp;
+    const scrollTop = buffer.viewportY;
     
     // Get scroll direction
     const scrollDiff = scrollTop - session.lastScrollTop;
