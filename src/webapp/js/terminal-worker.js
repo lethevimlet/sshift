@@ -178,7 +178,7 @@ self.onmessage = function(e) {
       const session = sessions.get(sessionId);
       if (session) {
         session.paused = false;
-        if (session.buffer.length > 0) {
+        if (session.chunks.length > 0) {
           scheduleFlush(sessionId);
         }
       }
