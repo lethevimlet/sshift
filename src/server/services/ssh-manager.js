@@ -33,7 +33,7 @@ class SSHManager {
       const terminal = new Terminal({
         cols: cols,
         rows: rows,
-        scrollback: 5000,
+        scrollback: 2000,
         allowProposedApi: true,
         logLevel: 'off'
       });
@@ -59,9 +59,12 @@ class SSHManager {
         username: options.username,
         connectedAt: Date.now(),
         // Data batching state
-        dataBuffer: '', // Buffer for outgoing data
+        dataChunks: [], // Array of chunks for outgoing data (avoids O(n^2) string concat)
+        dataBufferSize: 0, // Running total of chunk lengths for fast size checks
         batchTimer: null, // Timer for batched sends
-        lastDataTime: 0 // Timestamp of last data received
+        lastDataTime: 0, // Timestamp of last data received
+        writeQueue: null, // Queue for writes when stream is congested
+        drainListener: false // Whether a drain listener is active
       };
 
       const config = {
@@ -149,18 +152,13 @@ class SSHManager {
           stream.on('data', (data) => {
             const dataStr = data.toString('utf8');
             
-            // Write to headless terminal for state sync (join/resume)
-            session.terminal.write(dataStr);
-            
-            // Buffer data for batched broadcast
+            // Buffer data for batched broadcast (headless terminal write
+            // is also batched inside bufferData to avoid per-chunk writes)
             this.bufferData(sessionId, dataStr);
           });
 
           stream.stderr.on('data', (data) => {
             const dataStr = data.toString('utf8');
-            
-            // Write to headless terminal for state sync
-            session.terminal.write(dataStr);
             
             // Buffer data for batched broadcast
             this.bufferData(sessionId, dataStr);
@@ -228,15 +226,13 @@ class SSHManager {
     const session = this.sessions.get(sessionId);
     if (!session) return;
     
-    // Notify plugins about terminal output
-    pluginManager.onData(sessionId, dataStr);
-    
-    // Add data to buffer
-    session.dataBuffer += dataStr;
+    // Add data to chunk array (avoids O(n^2) string concatenation)
+    session.dataChunks.push(dataStr);
+    session.dataBufferSize += dataStr.length;
     session.lastDataTime = Date.now();
     
     // If buffer exceeds max size, flush immediately
-    if (session.dataBuffer.length >= this.batchMaxSize) {
+    if (session.dataBufferSize >= this.batchMaxSize) {
       this.flushData(sessionId);
       return;
     }
@@ -261,12 +257,23 @@ class SSHManager {
     }
     
     // If there's data to send, broadcast it
-    if (session.dataBuffer.length > 0) {
+    if (session.dataChunks.length > 0) {
+      const joinedData = session.dataChunks.join('');
+      
+      // Write to headless terminal for state sync (batched write)
+      if (session.terminal) {
+        session.terminal.write(joinedData);
+      }
+      
+      // Notify plugins about terminal output (batched, not per-chunk)
+      pluginManager.onData(sessionId, joinedData);
+      
       this.broadcastToSession(sessionId, 'ssh-data', { 
         sessionId, 
-        data: session.dataBuffer 
+        data: joinedData
       });
-      session.dataBuffer = '';
+      session.dataChunks = [];
+      session.dataBufferSize = 0;
     }
   }
 
@@ -470,7 +477,25 @@ class SSHManager {
   write(sessionId, data) {
     const session = this.sessions.get(sessionId);
     if (session && session.stream) {
-      session.stream.write(data);
+      const canWrite = session.stream.write(data);
+      if (!canWrite) {
+        // Stream buffer is full — queue write and wait for drain
+        if (!session.writeQueue) session.writeQueue = [];
+        session.writeQueue.push(data);
+        if (!session.drainListener) {
+          session.drainListener = true;
+          session.stream.once('drain', () => {
+            session.drainListener = false;
+            if (session.writeQueue && session.writeQueue.length > 0) {
+              const queue = session.writeQueue;
+              session.writeQueue = [];
+              for (const chunk of queue) {
+                this.write(sessionId, chunk);
+              }
+            }
+          });
+        }
+      }
     }
   }
 

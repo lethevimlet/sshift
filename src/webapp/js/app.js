@@ -802,6 +802,63 @@ class SSHIFTClient {
     });
   }
 
+sendChunkedInput(sessionId, data, chunkSize = 2048) {
+    if (!data || !this.sessions.has(sessionId)) return;
+    const session = this.sessions.get(sessionId);
+    if (!session || !session.connected) return;
+
+    // Terminal emulators convert \n to \r before sending to the PTY.
+    // Clipboard text contains \n line endings, but PTY input expects \r
+    // as the "Enter" character. Without this conversion, programs like
+    // nano interpret \n as a raw newline that doesn't trigger line actions.
+    data = data.replace(/\r\n/g, '\r').replace(/\n/g, '\r');
+
+    // Wrap in bracketed paste sequences so the remote shell treats this as
+    // a single paste rather than individual keystrokes.
+    const BP_START = '\x1b[200~';
+    const BP_END = '\x1b[201~';
+
+    const wrapped = BP_START + data + BP_END;
+
+    if (wrapped.length <= chunkSize) {
+      this.socket.emit('ssh-data', { sessionId, data: wrapped });
+      return;
+    }
+
+    // For large pastes, send the start bracket, then chunk the content,
+    // then send the end bracket. This keeps bracketed paste mode intact
+    // across all chunks.
+    let offset = 0;
+    let isFirst = true;
+    const sendNext = () => {
+      if (offset >= data.length) {
+        this.socket.emit('ssh-data', { sessionId, data: BP_END });
+        return;
+      }
+      let end = Math.min(offset + chunkSize, data.length);
+      if (end < data.length) {
+        // Split at the last \r to keep line boundaries intact
+        const lastCr = data.lastIndexOf('\r', end);
+        if (lastCr > offset) {
+          end = lastCr + 1;
+        }
+      }
+      let chunk = data.substring(offset, end);
+      if (isFirst) {
+        chunk = BP_START + chunk;
+        isFirst = false;
+      }
+      offset = end;
+      this.socket.emit('ssh-data', { sessionId, data: chunk });
+      if (offset < data.length) {
+        setTimeout(sendNext, 5);
+      } else {
+        this.socket.emit('ssh-data', { sessionId, data: BP_END });
+      }
+    };
+    sendNext();
+  }
+
   // Legacy method for backwards compatibility
   saveStickySessions() {
     this.saveTabs();
@@ -5884,8 +5941,10 @@ const wheelHandler = (e) => {
       syncing: false, // Flag to prevent data writes during screen sync
       fontSize: this.terminalFontSize, // Initialize with default font size
       mobileHandler: null, // Mobile terminal handler for touch interactions
-      writeBuffer: '', // Buffer for batching terminal writes
-      writeRAF: null // requestAnimationFrame ID for write flush
+      writeChunks: [], // Array of chunks for batching terminal writes (avoids O(n^2) string concat)
+      writeRAF: null, // requestAnimationFrame ID for write flush
+      flushRemaining: null, // Remaining data from a frame that exceeded the write cap
+      originalScrollback: null
     });
 
     // Switch to the new tab FIRST to make the container visible
@@ -6255,7 +6314,7 @@ const wheelHandler = (e) => {
         lineHeight: 1.0,
         cursorBlink: false,
         cursorStyle: 'block',
-        scrollback: 5000,
+        scrollback: 2000,
         allowProposedApi: true,
         convertEol: true,
         allowTransparency: false,
@@ -6402,11 +6461,9 @@ const wheelHandler = (e) => {
       // Handle terminal input
       terminal.onData((data) => {
         const sess = this.sessions.get(sessionId);
-        console.log('[SSHIFT] Terminal input received, session:', sessionId, 'connected:', sess?.connected, 'connecting:', sess?.connecting, 'data:', JSON.stringify(data), 'ctrlPressed:', this.ctrlPressed, 'altPressed:', this.altPressed);
         
         // Only allow input if this client is the controller
         if (sess && !sess.isController) {
-          console.log('[SSHIFT] Ignoring input - not in control of session');
           return;
         }
         
@@ -6432,7 +6489,6 @@ const wheelHandler = (e) => {
                 };
                 const sequence = ctrlSequences[char];
                 if (sequence) {
-                  console.log('[SSHIFT] Mobile Ctrl+' + char + ' via onData, sending:', sequence.charCodeAt(0));
                   this.socket.emit('ssh-data', { sessionId, data: sequence });
                   // Reset Ctrl after use
                   this.ctrlPressed = false;
@@ -6442,7 +6498,6 @@ const wheelHandler = (e) => {
                 }
               } else if (this.altPressed) {
                 // Send ESC + key for Alt
-                console.log('[SSHIFT] Mobile Alt+' + char + ' via onData');
                 this.socket.emit('ssh-data', { sessionId, data: '\x1b' + data });
                 // Reset Alt after use
                 this.altPressed = false;
@@ -6453,11 +6508,9 @@ const wheelHandler = (e) => {
             }
           }
           
-          console.log('[SSHIFT] Sending input to server, sessionId:', sessionId);
           this.socket.emit('ssh-data', { sessionId, data });
         } else if (sess && sess.connecting) {
           // Buffer input while connecting (optional)
-          console.log('[SSHIFT] Input received while connecting, ignoring');
         } else {
           console.warn('[SSHIFT] Input received but session not connected! Session:', sess);
         }
@@ -6490,15 +6543,12 @@ const wheelHandler = (e) => {
 
       // Handle copy/paste keyboard shortcuts
       terminal.attachCustomKeyEventHandler((event) => {
-        console.log('[SSHIFT] Key event:', event.type, event.key, 'ctrl:', event.ctrlKey, 'shift:', event.shiftKey, 'hasSelection:', terminal.hasSelection());
-        
         // Handle mobile Ctrl modifier - apply to physical keyboard input
         // When mobile Ctrl is active and user types a key, send Ctrl+key
         if (event.type === 'keydown' && this.ctrlPressed && !event.ctrlKey) {
           const key = event.key.toLowerCase();
           // Only apply Ctrl to single character keys (letters, numbers)
           if (key.length === 1 && /[a-z0-9]/.test(key)) {
-            console.log('[SSHIFT] Mobile Ctrl active, sending Ctrl+' + key);
             // Send Ctrl+key sequence
             const ctrlSequences = {
               'a': '\x01', 'b': '\x02', 'c': '\x03', 'd': '\x04', 'e': '\x05',
@@ -6512,7 +6562,6 @@ const wheelHandler = (e) => {
             const sess = this.sessions.get(sessionId);
             if (sequence && sess && sess.connected) {
               this.socket.emit('ssh-data', { sessionId, data: sequence });
-              console.log('[SSHIFT] Sent Ctrl+' + key + ' sequence');
             }
             // Reset Ctrl after use
             this.ctrlPressed = false;
@@ -6527,12 +6576,10 @@ const wheelHandler = (e) => {
           const key = event.key;
           // Only apply Alt to single character keys
           if (key.length === 1) {
-            console.log('[SSHIFT] Mobile Alt active, sending Alt+' + key);
             // Send ESC + key for Alt
             const sess = this.sessions.get(sessionId);
             if (sess && sess.connected) {
               this.socket.emit('ssh-data', { sessionId, data: '\x1b' + key });
-              console.log('[SSHIFT] Sent Alt+' + key + ' sequence');
             }
             // Reset Alt after use
             this.altPressed = false;
@@ -6561,13 +6608,11 @@ const wheelHandler = (e) => {
         
         // Ctrl+V - Paste
         if (event.ctrlKey && event.key === 'v' && event.type === 'keydown') {
-          console.log('[SSHIFT] Paste shortcut triggered');
           this.readFromClipboard().then(text => {
-            console.log('[SSHIFT] Clipboard content:', text ? 'found' : 'empty');
             if (text) {
               const sess = this.sessions.get(sessionId);
               if (sess && sess.connected) {
-                this.socket.emit('ssh-data', { sessionId, data: text });
+                this.sendChunkedInput(sessionId, text);
                 this.showToast('Pasted from clipboard', 'success');
               }
             } else {
@@ -6596,12 +6641,11 @@ const wheelHandler = (e) => {
         
         // Ctrl+Shift+V - Force paste
         if (event.ctrlKey && event.shiftKey && event.key === 'V') {
-          console.log('[SSHIFT] Force paste shortcut triggered');
           this.readFromClipboard().then(text => {
             if (text) {
               const sess = this.sessions.get(sessionId);
               if (sess && sess.connected) {
-                this.socket.emit('ssh-data', { sessionId, data: text });
+                this.sendChunkedInput(sessionId, text);
                 this.showToast('Pasted from clipboard', 'success');
               }
             } else {
@@ -6642,7 +6686,6 @@ const wheelHandler = (e) => {
           }
         } catch (err) {
           console.warn('[SSHIFT] Could not pre-read clipboard:', err.name, err.message);
-          // Clipboard API failed, but we'll try fallback when user clicks paste
         }
         
         // Show terminal context menu
@@ -6664,7 +6707,7 @@ const wheelHandler = (e) => {
           console.log('[SSHIFT] Pasted text length:', pastedText.length);
           const sess = this.sessions.get(sessionId);
           if (sess && sess.connected) {
-            this.socket.emit('ssh-data', { sessionId, data: pastedText });
+            this.sendChunkedInput(sessionId, pastedText);
             this.showToast('Pasted from clipboard', 'success');
           }
         } else {
@@ -6678,13 +6721,8 @@ const wheelHandler = (e) => {
       this.updateViewportBackground(session);
 
       // Flush any data that was buffered before the terminal was ready
-      if (session.writeBuffer) {
-        terminal.write(session.writeBuffer);
-        session.writeBuffer = '';
-        if (session.writeRAF) {
-          cancelAnimationFrame(session.writeRAF);
-          session.writeRAF = null;
-        }
+      if (session.writeChunks.length > 0 || session.flushRemaining) {
+        this._flushWriteChunks(sessionId);
       }
 
       // Initialize mobile terminal handler for touch interactions
@@ -6810,17 +6848,11 @@ const wheelHandler = (e) => {
       }
       
       try {
-        // Buffer data and flush once per animation frame to prevent
-        // render queue backup during high-throughput output (e.g. video)
-        session.writeBuffer += data.data;
+        session.writeChunks.push(data.data);
         
         if (!session.writeRAF) {
           session.writeRAF = requestAnimationFrame(() => {
-            if (session.terminal && session.writeBuffer) {
-              session.terminal.write(session.writeBuffer);
-              session.writeBuffer = '';
-            }
-            session.writeRAF = null;
+            this._flushWriteChunks(data.sessionId);
           });
         }
         
@@ -6839,6 +6871,75 @@ const wheelHandler = (e) => {
       }
     } else {
       console.warn('[SSHIFT] Received data for missing session/terminal:', data.sessionId);
+    }
+  }
+
+  _flushWriteChunks(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session || !session.terminal) {
+      if (session) session.writeRAF = null;
+      return;
+    }
+
+    session.writeRAF = null;
+
+    // Combine any remaining data from last frame with new chunks
+    let combined;
+    if (session.writeChunks.length > 0) {
+      const chunks = session.writeChunks;
+      session.writeChunks = [];
+      combined = chunks.length === 1 ? chunks[0] : chunks.join('');
+      if (session.flushRemaining) {
+        combined = session.flushRemaining + combined;
+        session.flushRemaining = null;
+      }
+    } else if (session.flushRemaining) {
+      combined = session.flushRemaining;
+      session.flushRemaining = null;
+    } else {
+      return;
+    }
+
+    const terminal = session.terminal;
+
+    // When the buffer grows large, reduce scrollback to keep write() fast.
+    // terminal.write() cost is proportional to buffer size because adding lines
+    // that overflow the viewport triggers O(buffer_length) buffer maintenance.
+    // Dynamically lowering scrollback during heavy output limits the max buffer
+    // size, keeping each write() consistently fast. It's restored after output
+    // settles. We do NOT use terminal.clear() because that wipes visible content.
+    const bufferLen = terminal.buffer.active.length;
+    const rows = terminal.rows || 24;
+    const highWatermark = rows + 200;
+    const lowWatermark = rows + 100;
+
+    if (bufferLen > highWatermark) {
+      // Buffer is large — reduce scrollback to cap the max buffer size
+      const currentScrollback = terminal.options.scrollback;
+      if (currentScrollback > 200 || !session.originalScrollback) {
+        if (!session.originalScrollback) {
+          session.originalScrollback = currentScrollback;
+        }
+        terminal.options.scrollback = 200;
+      }
+    } else if (session.originalScrollback && bufferLen < lowWatermark) {
+      // Buffer has drained — restore original scrollback
+      terminal.options.scrollback = session.originalScrollback;
+      session.originalScrollback = null;
+    }
+
+    // Cap write size per frame. terminal.write() is synchronous and blocks
+    // the main thread. We spill overflow to the next frame via flushRemaining.
+    const MAX_WRITE_PER_FRAME = 32768;
+
+    if (combined.length > MAX_WRITE_PER_FRAME) {
+      terminal.write(combined.substring(0, MAX_WRITE_PER_FRAME));
+      session.flushRemaining = combined.substring(MAX_WRITE_PER_FRAME);
+      session.writeRAF = requestAnimationFrame(() => {
+        this._flushWriteChunks(sessionId);
+      });
+    } else {
+      terminal.write(combined);
     }
   }
 
@@ -7423,6 +7524,10 @@ const wheelHandler = (e) => {
         cancelAnimationFrame(session.writeRAF);
         session.writeRAF = null;
       }
+      // Restore scrollback if it was dynamically reduced
+      if (session.originalScrollback && session.terminal) {
+        session.terminal.options.scrollback = session.originalScrollback;
+      }
       // Clean up mobile handler
       if (session.mobileHandler) {
         session.mobileHandler.destroy();
@@ -7531,6 +7636,9 @@ const wheelHandler = (e) => {
     
     // Clean up the session locally (don't emit tab-close again)
     if (session.type === 'ssh') {
+      if (session.writeRAF) {
+        cancelAnimationFrame(session.writeRAF);
+      }
       if (session.wheelHandler && session.wheelElement) {
         session.wheelElement.removeEventListener('wheel', session.wheelHandler);
       }
@@ -8643,11 +8751,9 @@ async syncTabsFromServer(tabs) {
               if (clipboardContent) {
                 // We have clipboard content, paste it
                 const sess = this.sessions.get(sessionId);
-                console.log('[SSHIFT] Session found:', !!sess, 'connected:', sess?.connected);
                 if (sess && sess.connected) {
-                  this.socket.emit('ssh-data', { sessionId, data: clipboardContent });
+                  this.sendChunkedInput(sessionId, clipboardContent);
                   this.showToast('Pasted from clipboard', 'success');
-                  console.log('[SSHIFT] Paste successful');
                   // Focus terminal after paste
                   if (this.isMobile && sess.mobileHandler && sess.mobileHandler.hiddenTextarea) {
                     sess.mobileHandler._focusHiddenTextarea();
@@ -8760,7 +8866,7 @@ async syncTabsFromServer(tabs) {
       if (text) {
         const sess = this.sessions.get(sessionId);
         if (sess && sess.connected) {
-          this.socket.emit('ssh-data', { sessionId, data: text });
+          this.sendChunkedInput(sessionId, text);
           this.showToast('Pasted from clipboard', 'success');
           // Focus terminal after paste
           if (sess.terminal) {
