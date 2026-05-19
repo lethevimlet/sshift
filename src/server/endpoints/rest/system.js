@@ -4,7 +4,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { getDataDir } = require('../../utils/config');
+const { getDataDir, getCertPath, getKeyPath } = require('../../utils/config');
 
 const SSL_CERT_FILE = 'ssl-cert.pem';
 const SSL_KEY_FILE = 'ssl-key.pem';
@@ -171,17 +171,19 @@ function registerSystemEndpoints(app, io) {
   // API: Get security context info
   app.get('/api/security-info', (req, res) => {
     const dataDir = getDataDir();
-    const certPath = path.join(dataDir, SSL_CERT_FILE);
-    const hasCert = fs.existsSync(certPath);
+    const selfSignedCertPath = path.join(dataDir, SSL_CERT_FILE);
+    const hasCert = fs.existsSync(selfSignedCertPath);
     const protocol = req.protocol;
     const isSecure = req.secure || protocol === 'https';
     const isLocalhost = req.hostname === 'localhost' || req.hostname === '127.0.0.1' || req.hostname === '::1';
+    const usesCustomCert = !!(getCertPath() && getKeyPath());
 
     res.json({
       isSecure,
       isLocalhost,
       protocol,
       certAvailable: hasCert,
+      usesCustomCert,
       hostname: req.hostname
     });
   });

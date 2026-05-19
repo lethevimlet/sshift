@@ -990,60 +990,53 @@
     </div>
   </div>
 
-  <!-- Security Info Modal -->
-  <div class="modal" id="securityInfoModal">
-    <div class="modal-content modal-lg">
-      <div class="modal-header">
-        <h2><i class="fas fa-shield-alt"></i> Security & Connection Info</h2>
-        <button class="modal-close" id="closeSecurityInfoModal">
-          <i class="fas fa-times"></i>
-        </button>
-      </div>
-      <div class="modal-body">
-        <div class="setting-group">
-          <div class="setting-item" style="flex-direction: column; align-items: stretch;">
-            <label class="setting-label"><i class="fas fa-info-circle"></i> Instructions</label>
-            <div class="setting-description" style="font-size: 12px; line-height: 1.5;">
-              <strong>Chrome/Edge (Desktop):</strong> Open <a href="chrome://settings/certificates" style="color: var(--accent-primary); word-break: break-all;">chrome://settings/certificates</a> (or <a href="edge://settings/certificates" style="color: var(--accent-primary);">edge://settings/certificates</a>) in the address bar, then import the downloaded .crt file to "Trusted Root Certification Authorities".<br><br>
-              <strong>Chrome (Android):</strong> Settings > Security > Install from SD card > Select the downloaded file.<br><br>
-              <strong>Firefox:</strong> Open <a href="about:preferences#privacy" style="color: var(--accent-primary);">about:preferences#privacy</a> > View Certificates > Import > Trust for identifying websites.<br><br>
-              <strong>macOS/iOS:</strong> Double-click the .crt file > Add to Keychain > Set trust to "Always Trust". On iOS: Settings > General > VPN & Device Management > Install profile, then Settings > General > About > Certificate Trust Settings > Enable full trust.
-            </div>
-          </div>
+<!-- Security Info Modal -->
+   <div class="modal" id="securityInfoModal">
+     <div class="modal-content modal-lg">
+       <div class="modal-header">
+         <h2><i class="fas fa-shield-alt"></i> Security & Connection Info</h2>
+         <button class="modal-close" id="closeSecurityInfoModal">
+           <i class="fas fa-times"></i>
+         </button>
+       </div>
+       <div class="modal-body">
+         <div class="setting-group">
+           <div id="swStatusContainer" class="setting-item sw-status-card">
+             <div class="sw-status-icon" id="swStatusIcon">
+               <i class="fas fa-spinner fa-spin"></i>
+             </div>
+             <div class="sw-status-title" id="swStatusTitle">Checking...</div>
+             <div class="setting-description sw-status-detail" id="swStatusText">Detecting service worker status</div>
+           </div>
 
-          <div id="swStatusContainer" class="setting-item" style="flex-direction: column; align-items: stretch;">
-            <label class="setting-label"><i class="fas fa-hard-drive"></i> Service Worker</label>
-            <div class="setting-description" id="swStatusText">
-              <i class="fas fa-spinner fa-spin"></i> Checking...
-            </div>
-          </div>
-
-          <div class="setting-item" style="flex-direction: column; align-items: stretch;">
-            <label class="setting-label"><i class="fas fa-lock"></i> SSL Certificate</label>
-            <div class="setting-description">
-              Service workers require a trusted HTTPS connection. To use this app over LAN with a self-signed certificate, install the certificate as a trusted root CA on your device.
-            </div>
-            <button class="btn btn-secondary" id="downloadCertBtn" style="margin-top: 8px;">
-              <i class="fas fa-download"></i> Download Certificate
-            </button>
+           <div class="setting-item" style="flex-direction: column; align-items: stretch;">
+             <label class="setting-label"><i class="fas fa-lock"></i> SSL Certificate</label>
+<div class="setting-description">
+                 Service workers require a trusted HTTPS connection. To use this app over LAN with a self-signed certificate, install the certificate as a trusted root CA on your device. See the <a href="https://lethevimlet.github.io/sshift/installation.html#trusting-the-https-certificate" target="_blank" rel="noopener noreferrer" class="sw-install-link">installation instructions</a> for details.
+               </div>
+              <div id="customCertWarning" class="sw-custom-cert-warning" style="display: none; margin-top: 8px;">
+                <i class="fas fa-exclamation-circle"></i> A custom certificate is configured. Download the certificate from your administrator.
+              </div>
+              <button class="btn btn-secondary" id="downloadCertBtn" style="margin-top: 8px;">
+                <i class="fas fa-download"></i> Download Certificate
+              </button>
+</div>
           </div>
         </div>
-
-        <div class="setting-item" style="margin-top: 12px;">
-          <label class="toggle-switch">
-            <input type="checkbox" id="dontShowSecurityInfo">
-            <span class="toggle-slider"></span>
+        <div class="modal-footer">
+          <label style="display: flex; align-items: center; gap: 8px; margin-right: auto; cursor: pointer;">
+            <label class="toggle-switch">
+              <input type="checkbox" id="dontShowSecurityInfo">
+              <span class="toggle-slider"></span>
+            </label>
+            <span style="font-size: 13px;">Don't show this on startup</span>
           </label>
-          <span style="margin-left: 8px; font-size: 13px;">Don't show this on startup</span>
+          <button class="btn btn-primary" id="closeSecurityInfoBtn">
+            <i class="fas fa-check"></i> Got it
+          </button>
         </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-primary" id="closeSecurityInfoBtn">
-          <i class="fas fa-check"></i> Got it
-        </button>
-      </div>
-    </div>
-  </div>
+     </div>
+   </div>
 
   <!-- Mobile Keys Bar -->
   <div class="mobile-keys-bar" id="mobileKeysBar">

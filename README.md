@@ -24,24 +24,37 @@ A modern, responsive web-based SSH and SFTP terminal client built with Node.js, 
 
 - 🔐 **SSH Terminal** - Full xterm.js emulation with TUI support (vim, nano, htop, tmux)
 - 📁 **SFTP Browser** - File manager interface with upload/download
+- 🔗 **Persistent Sessions** - Background SSH sessions stay alive even while browsing
 - 🤖 **AI Attention Alerts** - Tab flash notifications when AI tools (OpenCode, Claude) need your input
 - 🗂️ **Tabbed Interface** - Multiple concurrent sessions
 - 🔖 **Bookmarks** - Save connection details for quick access
 - 🔒 **Password Protection** - Optional password lock for app access
 - ⌨️ **Mobile-Friendly** - Special keys popup for mobile devices
-- 🎨 **Modern UI** - GitHub-inspired dark theme, fully responsive
+- 🎨 **Modern UI** - Configurable light/dark themes, accent colors, terminal color schemes, fully responsive
 
 ## 🚀 Quick Start
 
+**Linux/macOS:**
 ```bash
-# Install globally
-npm install -g @lethevimlet/sshift
+curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/sshift-install.sh | bash
+```
 
-# Start the server
+**Windows (PowerShell):**
+```powershell
+Set-ExecutionPolicy Bypass -Scope Process
+Invoke-Expression (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/lethevimlet/sshift/main/sshift-install.ps1" -UseBasicParsing).Content
+```
+
+The installer handles Node.js, npm, autostart, and HTTPS config automatically. The application will be available at `https://localhost:8022`
+
+Alternatively, install globally via npm:
+
+```bash
+npm install -g @lethevimlet/sshift
 sshift
 ```
 
-The application will be available at `https://localhost:8022`
+> **Note:** When installing via npm, you'll need to configure autostart yourself (e.g., systemd, launchd, or Task Scheduler).
 
 ## 📖 Documentation
 

@@ -4806,8 +4806,24 @@ const wheelHandler = (e) => {
     }
 
     const downloadCertBtn = document.getElementById('downloadCertBtn');
+    const customCertWarning = document.getElementById('customCertWarning');
+
+    fetch('/api/security-info').then(r => r.json()).then(info => {
+      if (info.usesCustomCert) {
+        if (downloadCertBtn) {
+          downloadCertBtn.disabled = true;
+          downloadCertBtn.style.opacity = '0.5';
+          downloadCertBtn.style.cursor = 'not-allowed';
+        }
+        if (customCertWarning) {
+          customCertWarning.style.display = 'flex';
+        }
+      }
+    }).catch(() => {});
+
     if (downloadCertBtn) {
       downloadCertBtn.addEventListener('click', () => {
+        if (downloadCertBtn.disabled) return;
         window.open('/api/cert', '_blank');
       });
     }
@@ -4839,26 +4855,69 @@ const wheelHandler = (e) => {
   }
 
   openSecurityInfoDialog() {
+    const swStatusIcon = document.getElementById('swStatusIcon');
+    const swStatusTitle = document.getElementById('swStatusTitle');
     const swStatusText = document.getElementById('swStatusText');
-    // Re-check actual SW state from navigator API
+    const swStatusContainer = document.getElementById('swStatusContainer');
+
     let swStatus = window._swStatus;
     if (navigator.serviceWorker && navigator.serviceWorker.controller) {
       swStatus = 'active';
       window._swStatus = 'active';
     }
 
-    if (swStatusText) {
+    if (swStatusIcon && swStatusTitle && swStatusText && swStatusContainer) {
+      swStatusContainer.classList.remove('sw-status-active', 'sw-status-failed', 'sw-status-unsupported');
+
       if (swStatus === 'active') {
-        swStatusText.innerHTML = '<i class="fas fa-check-circle" style="color: var(--accent-success, #4caf50);"></i> Service Worker is <strong>active</strong>. Offline caching is available.';
+        swStatusContainer.classList.add('sw-status-active');
+        swStatusIcon.innerHTML = '<i class="fas fa-check-circle"></i>';
+        swStatusTitle.textContent = 'Connected';
+        swStatusText.innerHTML =
+          '<ul class="sw-feature-list">' +
+          '<li><i class="fas fa-check"></i> No browser security warnings</li>' +
+          '<li><i class="fas fa-check"></i> Installable as app (PWA)</li>' +
+          '<li><i class="fas fa-check"></i> Clipboard API access</li>' +
+          '</ul>';
       } else if (swStatus === 'failed') {
-        swStatusText.innerHTML = '<i class="fas fa-exclamation-triangle" style="color: var(--accent-danger, #f44336);"></i> Service Worker <strong>failed to register</strong>: ' + (window._swError || 'Unknown error') + '. This is usually caused by an untrusted HTTPS certificate. Download and install the certificate below to fix this, then reload the page.';
+        swStatusContainer.classList.add('sw-status-failed');
+        swStatusIcon.innerHTML = '<i class="fas fa-exclamation-triangle"></i>';
+        swStatusTitle.textContent = 'Connection Failed';
+        swStatusText.innerHTML =
+          '<p>' + (window._swError || 'Unknown error') + '</p>' +
+          '<ul class="sw-feature-list">' +
+          '<li><i class="fas fa-times"></i> No browser security warnings</li>' +
+          '<li><i class="fas fa-times"></i> Installable as app (PWA)</li>' +
+          '<li><i class="fas fa-times"></i> Clipboard API access</li>' +
+          '</ul>' +
+          '<p class="sw-hint">Trust the HTTPS certificate to enable all features.</p>';
       } else if (swStatus === 'redundant') {
-        swStatusText.innerHTML = '<i class="fas fa-exclamation-triangle" style="color: var(--accent-danger, #f44336);"></i> Service Worker became <strong>redundant</strong>. ' + (window._swError || 'The HTTPS certificate may not be trusted.') + ' Download and install the certificate below, then reload the page.';
+        swStatusContainer.classList.add('sw-status-failed');
+        swStatusIcon.innerHTML = '<i class="fas fa-exclamation-triangle"></i>';
+        swStatusTitle.textContent = 'Connection Failed';
+        swStatusText.innerHTML =
+          '<p>' + (window._swError || 'The HTTPS certificate may not be trusted.') + '</p>' +
+          '<ul class="sw-feature-list">' +
+          '<li><i class="fas fa-times"></i> No browser security warnings</li>' +
+          '<li><i class="fas fa-times"></i> Installable as app (PWA)</li>' +
+          '<li><i class="fas fa-times"></i> Clipboard API access</li>' +
+          '</ul>' +
+          '<p class="sw-hint">Trust the HTTPS certificate to enable all features.</p>';
       } else if (swStatus === 'unsupported') {
-        swStatusText.innerHTML = '<i class="fas fa-info-circle" style="color: var(--accent-warning, #ff9800);"></i> Service Workers are <strong>not supported</strong> in this browser.';
+        swStatusContainer.classList.add('sw-status-unsupported');
+        swStatusIcon.innerHTML = '<i class="fas fa-info-circle"></i>';
+        swStatusTitle.textContent = 'Not Supported';
+        swStatusText.innerHTML =
+          '<p>Service Workers are not available in this browser.</p>' +
+          '<ul class="sw-feature-list">' +
+          '<li><i class="fas fa-times"></i> No browser security warnings</li>' +
+          '<li><i class="fas fa-times"></i> Installable as app (PWA)</li>' +
+          '<li><i class="fas fa-times"></i> Clipboard API access</li>' +
+          '</ul>';
       } else {
-        // Still loading, retry
-        swStatusText.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking...';
+        swStatusIcon.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        swStatusTitle.textContent = 'Checking...';
+        swStatusText.textContent = 'Detecting service worker status';
         setTimeout(() => this.openSecurityInfoDialog(), 500);
         return;
       }

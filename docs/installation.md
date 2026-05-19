@@ -184,3 +184,64 @@ sshift --bind 192.168.1.100
   "bind": "0.0.0.0"  # Bind to all interfaces (default)
 }
 ```
+
+## Trusting the HTTPS Certificate
+
+SSHIFT uses a self-signed HTTPS certificate by default. For service workers (which enable offline caching) to function, your browser must trust the certificate. Follow the instructions for your platform below.
+
+First, download the certificate by clicking **Download Certificate** in the Security & Connection Info dialog, or navigate to `https://<your-host>:8022/api/cert` in your browser.
+
+### Chrome / Edge (Desktop)
+
+1. Open `chrome://settings/certificates` (or `edge://settings/certificates`) in the address bar
+2. Click **Import** and select the downloaded `.crt` file
+3. Choose **Trusted Root Certification Authorities** as the store
+4. Restart the browser and reload sshift
+
+### Chrome (Android)
+
+1. Go to **Settings > Security > Install from SD card**
+2. Select the downloaded `.crt` file
+3. Name the certificate and confirm
+4. Restart the browser and reload sshift
+
+### Firefox
+
+1. Open `about:preferences#privacy`
+2. Scroll to **Certificates** and click **View Certificates**
+3. Click **Import** and select the `.crt` file
+4. Check **Trust this CA to identify websites**
+5. Restart the browser and reload sshift
+
+### macOS
+
+1. Double-click the downloaded `.crt` file
+2. When prompted, add it to the **System** keychain
+3. Open **Keychain Access**, find the certificate, and double-click it
+4. Expand **Trust** and set **When using this certificate** to **Always Trust**
+5. Close the dialog and authenticate to save changes
+6. Restart the browser and reload sshift
+
+### iOS
+
+1. Open the downloaded `.crt` file on your device
+2. Go to **Settings > General > VPN & Device Management** and install the profile
+3. Go to **Settings > General > About > Certificate Trust Settings**
+4. Enable full trust for the certificate
+5. Restart the browser and reload sshift
+
+### Linux (system-wide)
+
+On most Linux distributions you can trust the certificate system-wide:
+
+```bash
+# Debian/Ubuntu
+sudo cp sshift.crt /usr/local/share/ca-certificates/
+sudo update-ca-certificates
+
+# RHEL/CentOS/Fedora
+sudo cp sshift.crt /etc/pki/ca-trust/source/anchors/
+sudo update-ca-trust
+```
+
+Note that system-wide trust does not affect Chromium-based browsers, which use their own certificate store. Follow the Chrome/Edge instructions above for those browsers.

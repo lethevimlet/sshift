@@ -45,6 +45,7 @@ A modern, responsive web-based SSH and SFTP terminal client built with Node.js, 
 - File size and permissions display
 
 ### 🗂️ Tabbed Interface
+- **Persistent background SSH sessions** stay alive while browsing
 - Multiple concurrent SSH and SFTP sessions
 - Switch between sessions with tabs
 - Visual session indicators
@@ -65,7 +66,7 @@ A modern, responsive web-based SSH and SFTP terminal client built with Node.js, 
 - Triggered by clicking on tabs (mobile)
 
 ### 🎨 Modern UI
-- **GitHub-inspired dark theme**
+- **Configurable themes** - light/dark, accent colors, terminal color schemes
 - Easy on the eyes
 - High contrast for readability
 - Fully responsive design
