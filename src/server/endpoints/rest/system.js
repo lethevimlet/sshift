@@ -4,7 +4,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { getDataDir, getCertPath, getKeyPath } = require('../../utils/config');
+const { getDataDir, getCertPath, getKeyPath, getConfigPath } = require('../../utils/config');
 
 const SSL_CERT_FILE = 'ssl-cert.pem';
 const SSL_KEY_FILE = 'ssl-key.pem';
@@ -185,6 +185,24 @@ function registerSystemEndpoints(app, io) {
       certAvailable: hasCert,
       usesCustomCert,
       hostname: req.hostname
+    });
+  });
+
+  // API: Debug info (paths and config)
+  app.get('/api/debug-info', (req, res) => {
+    const dataDir = getDataDir();
+    const selfSignedCertPath = path.join(dataDir, SSL_CERT_FILE);
+    const selfSignedKeyPath = path.join(dataDir, SSL_KEY_FILE);
+    const customCertPath = getCertPath();
+    const customKeyPath = getKeyPath();
+    const usesCustomCert = !!(customCertPath && customKeyPath);
+
+    res.json({
+      configPath: getConfigPath(),
+      dataDir,
+      certPath: usesCustomCert ? customCertPath : selfSignedCertPath,
+      keyPath: usesCustomCert ? customKeyPath : selfSignedKeyPath,
+      usesCustomCert
     });
   });
 

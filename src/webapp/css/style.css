@@ -3658,6 +3658,37 @@ body.dragging-tabs .tabs-container {
   opacity: 1;
 }
 
+.debug-info-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.debug-info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.debug-info-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.debug-info-value {
+  font-size: 13px;
+  color: var(--text-primary);
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', Consolas, monospace;
+  background: var(--bg-tertiary);
+  padding: 6px 10px;
+  border-radius: 6px;
+  word-break: break-all;
+  border: 1px solid var(--border-color);
+}
+
 .toggle-switch {
   position: relative;
   display: inline-block;

@@ -4221,6 +4221,9 @@ const wheelHandler = (e) => {
     // Initialize password toggle
     this.initPasswordToggle();
     
+    // Initialize debug info dialog
+    this.initDebugInfoDialog();
+    
     // Initialize sessions modal handlers
     this.initSessionsModalHandlers();
 
@@ -4936,6 +4939,63 @@ const wheelHandler = (e) => {
     }
 
     this.openModal('securityInfoModal');
+  }
+
+  // Debug Info Dialog
+  initDebugInfoDialog() {
+    const showBtn = document.getElementById('showDebugInfoBtn');
+    if (showBtn) {
+      showBtn.addEventListener('click', () => {
+        this.openDebugInfoDialog();
+      });
+    }
+
+    const closeBtn = document.getElementById('closeDebugInfoModal');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        this.closeModal('debugInfoModal');
+      });
+    }
+
+    const closeBtn2 = document.getElementById('closeDebugInfoBtn');
+    if (closeBtn2) {
+      closeBtn2.addEventListener('click', () => {
+        this.closeModal('debugInfoModal');
+      });
+    }
+
+    const modal = document.getElementById('debugInfoModal');
+    if (modal) {
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+          this.closeModal('debugInfoModal');
+        }
+      });
+    }
+  }
+
+  openDebugInfoDialog() {
+    fetch('/api/debug-info').then(r => r.json()).then(info => {
+      const configPathEl = document.getElementById('debugConfigPath');
+      const dataDirEl = document.getElementById('debugDataDir');
+      const certPathEl = document.getElementById('debugCertPath');
+      const keyPathEl = document.getElementById('debugKeyPath');
+      const certTypeEl = document.getElementById('debugCertType');
+
+      if (configPathEl) configPathEl.textContent = info.configPath || 'N/A';
+      if (dataDirEl) dataDirEl.textContent = info.dataDir || 'N/A';
+      if (certPathEl) certPathEl.textContent = info.certPath || 'N/A';
+      if (keyPathEl) keyPathEl.textContent = info.keyPath || 'N/A';
+      if (certTypeEl) certTypeEl.textContent = info.usesCustomCert ? 'Custom' : 'Self-signed';
+    }).catch(() => {
+      const ids = ['debugConfigPath', 'debugDataDir', 'debugCertPath', 'debugKeyPath', 'debugCertType'];
+      ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = 'Error loading';
+      });
+    });
+
+    this.openModal('debugInfoModal');
   }
 
   // Sessions Modal

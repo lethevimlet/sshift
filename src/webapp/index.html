@@ -912,6 +912,23 @@
           </div>
         </div>
         
+        <!-- Debug Info -->
+        <div class="setting-group">
+          <div class="setting-item">
+            <label class="setting-label">
+              <i class="fas fa-bug"></i> Debug Info
+            </label>
+            <div class="setting-description">
+              Show certificate and configuration file paths currently in use.
+            </div>
+            <div class="setting-control">
+              <button class="btn btn-secondary" id="showDebugInfoBtn">
+                <i class="fas fa-info-circle"></i> View Paths
+              </button>
+            </div>
+          </div>
+        </div>
+        
         <!-- Plugins -->
         <div class="setting-group">
           <h3 class="setting-group-title"><i class="fas fa-puzzle-piece"></i> Plugins</h3>
@@ -1037,6 +1054,47 @@
         </div>
      </div>
    </div>
+
+  <!-- Debug Info Modal -->
+  <div class="modal" id="debugInfoModal">
+    <div class="modal-content modal-sm">
+      <div class="modal-header">
+        <h2><i class="fas fa-bug"></i> Debug Info</h2>
+        <button class="modal-close" id="closeDebugInfoModal">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="debug-info-list" id="debugInfoList">
+          <div class="debug-info-item">
+            <span class="debug-info-label">Config File</span>
+            <span class="debug-info-value" id="debugConfigPath">Loading...</span>
+          </div>
+          <div class="debug-info-item">
+            <span class="debug-info-label">Data Directory</span>
+            <span class="debug-info-value" id="debugDataDir">Loading...</span>
+          </div>
+          <div class="debug-info-item">
+            <span class="debug-info-label">SSL Certificate</span>
+            <span class="debug-info-value" id="debugCertPath">Loading...</span>
+          </div>
+          <div class="debug-info-item">
+            <span class="debug-info-label">SSL Private Key</span>
+            <span class="debug-info-value" id="debugKeyPath">Loading...</span>
+          </div>
+          <div class="debug-info-item">
+            <span class="debug-info-label">Certificate Type</span>
+            <span class="debug-info-value" id="debugCertType">Loading...</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" id="closeDebugInfoBtn">
+          <i class="fas fa-check"></i> Close
+        </button>
+      </div>
+    </div>
+  </div>
 
   <!-- Mobile Keys Bar -->
   <div class="mobile-keys-bar" id="mobileKeysBar">
