@@ -10425,6 +10425,12 @@ async syncTabsFromServer(tabs) {
         
         const data = await response.json();
         
+        // Check for update error from server
+        if (data.updateError) {
+          this.handleUpdateError(data.updateError);
+          return;
+        }
+        
         // Update progress based on status
         if (data.updating) {
           // Still updating
@@ -10462,23 +10468,25 @@ async syncTabsFromServer(tabs) {
             window.location.reload();
           }, 1000);
         } else if (data.ready && data.version === oldVersion) {
-          // Server restarted but version is the same
-          // This might mean the update failed or we need to wait longer
-          if (attempts < maxAttempts) {
-            const progress = Math.min(90, 70 + (attempts * 0.5));
-            if (progressBar) {
-              progressBar.style.width = `${progress}%`;
-            }
-            
-            if (statusEl) {
-              statusEl.textContent = `Waiting for new version... (${attempts}/${maxAttempts})`;
-            }
-            
-            setTimeout(poll, 1000);
-          } else {
-            // Same version after timeout - might be an error
-            this.handleUpdateError('Server restarted but version unchanged. Please check the update manually.');
+          // Server is back and ready. Same version could mean:
+          // 1. Already at the latest version (npm install succeeded but no newer version exists)
+          // 2. Update failed silently
+          // Either way, the server is back and functional — just reload.
+          if (progressBar) {
+            progressBar.style.width = '100%';
           }
+          
+          if (messageEl) {
+            messageEl.textContent = 'Server restarted. Reloading page...';
+          }
+          
+          if (statusEl) {
+            statusEl.textContent = `Current version: ${data.version}`;
+          }
+          
+          setTimeout(() => {
+            window.location.reload();
+          }, 1000);
         } else {
           // Unexpected state
           if (attempts < maxAttempts) {

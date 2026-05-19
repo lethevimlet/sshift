@@ -21,6 +21,7 @@ function registerSystemEndpoints(app, io) {
   const staleUpdateMarker = path.join(dataDir, UPDATE_MARKER_FILE);
   const staleUpdateScript = path.join(dataDir, '.sshift-update.sh');
   const stalePsScript = path.join(dataDir, '.sshift-update.ps1');
+  const staleUpdateLog = path.join(dataDir, '.sshift-update.log');
   try {
     if (fs.existsSync(staleUpdateMarker)) {
       fs.unlinkSync(staleUpdateMarker);
@@ -31,6 +32,11 @@ function registerSystemEndpoints(app, io) {
     }
     if (fs.existsSync(stalePsScript)) {
       fs.unlinkSync(stalePsScript);
+    }
+    if (fs.existsSync(staleUpdateLog)) {
+      const logContent = fs.readFileSync(staleUpdateLog, 'utf8');
+      console.log('[UPDATE] Previous update log:\n' + logContent);
+      fs.unlinkSync(staleUpdateLog);
     }
   } catch (e) {
     console.error('[UPDATE] Failed to clean up marker file:', e.message);
@@ -133,6 +139,7 @@ function registerSystemEndpoints(app, io) {
   app.get('/api/update-status', (req, res) => {
     const dataDir = getDataDir();
     const updateMarker = path.join(dataDir, UPDATE_MARKER_FILE);
+    const updateLogPath = path.join(dataDir, '.sshift-update.log');
     
     // Read package.json for current version
     let version = 'unknown';
@@ -146,11 +153,25 @@ function registerSystemEndpoints(app, io) {
     
     // Check if we're in the middle of an update
     const isUpdating = fs.existsSync(updateMarker);
+
+    // Check for update error log
+    let updateError = null;
+    if (!isUpdating && fs.existsSync(updateLogPath)) {
+      try {
+        const logContent = fs.readFileSync(updateLogPath, 'utf8');
+        if (logContent.includes('npm install failed')) {
+          updateError = 'Update failed: npm install exited with an error.';
+        }
+      } catch (e) {
+        // Ignore log read errors
+      }
+    }
     
     res.json({
       version,
       updating: isUpdating,
-      ready: !isUpdating
+      ready: !isUpdating,
+      updateError
     });
   });
 
@@ -209,14 +230,16 @@ function registerSystemEndpoints(app, io) {
   // API: Trigger update
   app.post('/api/update', async (req, res) => {
     try {
-      const { spawn } = require('child_process');
+      const { spawn, execSync } = require('child_process');
       const platform = process.platform;
       const dataDir = getDataDir();
       
       // Write update marker to indicate update in progress
       const updateMarker = path.join(dataDir, UPDATE_MARKER_FILE);
+      let oldVersion = 'unknown';
       try {
         const pkg = require('../../../../package.json');
+        oldVersion = pkg.version;
         fs.mkdirSync(dataDir, { recursive: true });
         fs.writeFileSync(updateMarker, JSON.stringify({
           startTime: Date.now(),
@@ -225,28 +248,105 @@ function registerSystemEndpoints(app, io) {
       } catch (e) {
         console.error('[UPDATE] Failed to write update marker:', e.message);
       }
-      
+
+      // Resolve the npm and sshift binary paths
+      let npmBinPath;
+      let sshiftBinPath;
+      try {
+        npmBinPath = execSync('command -v npm || which npm', { encoding: 'utf8' }).trim();
+      } catch (e) {
+        // Fallback: try common locations
+        const nodeDir = path.dirname(process.execPath);
+        npmBinPath = path.join(nodeDir, 'npm');
+      }
+
+      try {
+        sshiftBinPath = execSync('command -v sshift || which sshift', { encoding: 'utf8' }).trim();
+      } catch (e) {
+        sshiftBinPath = null;
+      }
+
+      // If sshift isn't in PATH, try to resolve it relative to npm's global bin dir
+      if (!sshiftBinPath) {
+        try {
+          const npmGlobalBinDir = execSync('npm bin -g', { encoding: 'utf8' }).trim();
+          sshiftBinPath = path.join(npmGlobalBinDir, 'sshift');
+        } catch (e) {
+          sshiftBinPath = null;
+        }
+      }
+
+      // Fallback: derive from process.argv[1] if available
+      if (!sshiftBinPath && process.argv[1]) {
+        sshiftBinPath = process.argv[1];
+      }
+
+      if (!sshiftBinPath) {
+        console.error('[UPDATE] Cannot determine sshift binary path for restart');
+        try { fs.unlinkSync(updateMarker); } catch (e) { /* ignore */ }
+        return res.status(500).json({ error: 'Cannot determine sshift binary path for restart' });
+      }
+
+      const nodeExe = process.execPath;
+      const updateScriptPath = path.join(dataDir, '.sshift-update.sh');
+      const updateLogPath = path.join(dataDir, '.sshift-update.log');
+
       // Send response immediately, then update in background
       res.json({ message: 'Update started. Server will restart automatically.' });
-      
-      // Write a temporary update script and run it detached
-      const nodeExe = process.execPath;
-      const sshiftScript = process.argv[1];
-      const updateScriptPath = path.join(dataDir, '.sshift-update.sh');
 
       if (platform === 'win32') {
-        const psScript = `npm install -g @lethevimlet/sshift@latest; & '${nodeExe}' '${sshiftScript}'`;
-        fs.writeFileSync(updateScriptPath.replace('.sh', '.ps1'), psScript, 'utf8');
+        const sshiftCmd = sshiftBinPath.includes(' ') ? `& '${sshiftBinPath}'` : `sshift`;
+        const psScript = `$ErrorActionPreference = 'Continue'
+try {
+  & npm install -g @lethevimlet/sshift@latest 2>&1 | Out-File -FilePath '${updateLogPath}' -Append
+  if ($LASTEXITCODE -ne 0) {
+    Write-Output 'npm install failed with exit code ' + $LASTEXITCODE | Out-File -FilePath '${updateLogPath}' -Append
+    exit 1
+  }
+} catch {
+  Write-Output $_.Exception.Message | Out-File -FilePath '${updateLogPath}' -Append
+  exit 1
+}
+Remove-Item -Path '${updateMarker}' -Force -ErrorAction SilentlyContinue
+& '${nodeExe}' '${sshiftBinPath}'
+`;
+        const psScriptPath = updateScriptPath.replace('.sh', '.ps1');
+        fs.writeFileSync(psScriptPath, psScript, 'utf8');
       } else {
         const updateScript = `#!/bin/sh
-npm install -g @lethevimlet/sshift@latest
-exec "${nodeExe}" "${sshiftScript}"
+set -e
+LOG="${updateLogPath}"
+echo "$(date): Starting sshift update..." > "$LOG"
+
+# Try npm install
+NPM_BIN="${npmBinPath}"
+echo "$(date): Using npm at: $NPM_BIN" >> "$LOG"
+
+if ! "$NPM_BIN" install -g @lethevimlet/sshift@latest >> "$LOG" 2>&1; then
+  echo "$(date): npm install failed, removing update marker" >> "$LOG"
+  rm -f "${updateMarker}"
+  exit 1
+fi
+
+echo "$(date): npm install completed successfully" >> "$LOG"
+
+# Remove the update marker before restart so the new instance sees a clean state
+rm -f "${updateMarker}"
+
+# Find the sshift binary — prefer PATH lookup since npm just updated it
+SSHIFT_BIN="$(command -v sshift 2>/dev/null || which sshift 2>/dev/null || echo "${sshiftBinPath}")"
+
+echo "$(date): Restarting sshift from: $SSHIFT_BIN" >> "$LOG"
+exec "${nodeExe}" "$SSHIFT_BIN"
 `;
         fs.writeFileSync(updateScriptPath, updateScript, 'utf8');
         fs.chmodSync(updateScriptPath, 0o755);
       }
       
       console.log('[UPDATE] Starting update process...');
+      console.log('[UPDATE] npm path:', npmBinPath);
+      console.log('[UPDATE] sshift restart path:', sshiftBinPath);
+      console.log('[UPDATE] Log file:', updateLogPath);
       
       let spawnFailed = false;
       let spawnCommand, spawnArgs;
@@ -268,12 +368,14 @@ exec "${nodeExe}" "${sshiftScript}"
       updateProcess.on('error', (err) => {
         console.error('[UPDATE] Failed to start update process:', err.message);
         spawnFailed = true;
-        // Clean up marker since update failed
         try { fs.unlinkSync(updateMarker); } catch (e) { /* ignore */ }
       });
       
       updateProcess.unref();
       
+      // Give the update script enough time to start before exiting.
+      // The script runs npm install (which can take time) in the background,
+      // but we need to wait long enough for the spawn to succeed.
       setTimeout(() => {
         if (spawnFailed) {
           console.error('[UPDATE] Update process failed to start. Keeping server running.');
@@ -281,7 +383,7 @@ exec "${nodeExe}" "${sshiftScript}"
         }
         console.log('[UPDATE] Exiting for update...');
         process.exit(0);
-      }, 500);
+      }, 2000);
     } catch (err) {
       console.error('Error triggering update:', err);
       res.status(500).json({ error: 'Failed to trigger update' });
