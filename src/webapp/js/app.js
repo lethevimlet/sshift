@@ -6804,6 +6804,7 @@ const wheelHandler = (e) => {
         
         // Ctrl+V - Paste
         if (event.ctrlKey && event.key === 'v' && event.type === 'keydown') {
+          event.preventDefault(); // Prevent browser paste event to avoid double-paste
           this.readFromClipboard().then(text => {
             if (text) {
               const sess = this.sessions.get(sessionId);
@@ -6815,7 +6816,7 @@ const wheelHandler = (e) => {
               this.showToast('Clipboard is empty', 'info');
             }
           });
-          return false; // Prevent default behavior
+          return false; // Prevent xterm key handling
         }
         
         // Ctrl+Shift+C - Force copy
@@ -6837,6 +6838,7 @@ const wheelHandler = (e) => {
         
         // Ctrl+Shift+V - Force paste
         if (event.ctrlKey && event.shiftKey && event.key === 'V') {
+          event.preventDefault(); // Prevent browser paste event to avoid double-paste
           this.readFromClipboard().then(text => {
             if (text) {
               const sess = this.sessions.get(sessionId);
@@ -6886,29 +6888,6 @@ const wheelHandler = (e) => {
         
         // Show terminal context menu
         this.showTerminalContextMenu(sessionId, terminal, e);
-      });
-
-      // Handle native paste event from browser
-      container.addEventListener('paste', (e) => {
-        console.log('[SSHIFT] Native paste event triggered');
-        e.preventDefault();
-        
-        // Get pasted data from clipboard
-        let pastedText = '';
-        if (e.clipboardData && e.clipboardData.getData) {
-          pastedText = e.clipboardData.getData('text/plain');
-        }
-        
-        if (pastedText) {
-          console.log('[SSHIFT] Pasted text length:', pastedText.length);
-          const sess = this.sessions.get(sessionId);
-          if (sess && sess.connected) {
-            this.sendChunkedInput(sessionId, pastedText);
-            this.showToast('Pasted from clipboard', 'success');
-          }
-        } else {
-          this.showToast('Clipboard is empty', 'info');
-        }
       });
 
       session.terminal = terminal;

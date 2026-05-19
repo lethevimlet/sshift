@@ -454,6 +454,7 @@ class MobileTerminalHandler {
     // Handle paste events
     this.hiddenTextarea.addEventListener('paste', (e) => {
       e.preventDefault();
+      if (this._pasteInProgress) return;
       const text = e.clipboardData.getData('text');
       this._pasteText(text);
     });
@@ -1528,7 +1529,10 @@ class MobileTerminalHandler {
           break;
         case 'v':
           e.preventDefault();
-          this._pasteFromClipboard();
+          this._pasteInProgress = true;
+          this._pasteFromClipboard().finally(() => {
+            setTimeout(() => { this._pasteInProgress = false; }, 100);
+          });
           break;
         case 'a':
           e.preventDefault();
