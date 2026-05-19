@@ -1195,7 +1195,7 @@ class MobileTerminalHandler {
     
     // Position above the start handle
     let posX = startHandleRect.left + (startHandleRect.width / 2) - (menuWidth / 2);
-    let posY = startHandleRect.top - menuHeight - 10; // 10px gap above handle
+    let posY = startHandleRect.top - menuHeight - 55; // 55px gap above handle to keep clear of finger
     
     // Adjust position to stay within viewport
     if (posX + menuWidth > window.innerWidth) {

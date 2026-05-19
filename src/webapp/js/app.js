@@ -72,7 +72,7 @@ class SSHIFTClient {
     };
     
     // Terminal font size (for pinch-to-zoom on mobile)
-    this.terminalFontSize = 14; // Default font size
+    this.terminalFontSize = window.innerWidth <= 768 ? 11 : 14;
     this.minFontSize = 8; // Minimum font size
     this.maxFontSize = 32; // Maximum font size
     
@@ -913,7 +913,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
   // Terminal Font Size Management (for pinch-to-zoom and buttons)
   loadTerminalFontSize() {
     // Don't persist - always start with default
-    return 14; // Default font size
+    return window.innerWidth <= 768 ? 11 : 14;
   }
 
   saveTerminalFontSize(size) {
@@ -2447,6 +2447,8 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       // If we switched between mobile and desktop, re-apply the layout
       if (wasMobile !== this.isMobile && this.currentLayout) {
         console.log('[SSHIFT] Viewport changed, re-applying layout for', this.isMobile ? 'mobile' : 'desktop');
+        this.terminalFontSize = this.isMobile ? 11 : 14;
+        this.setTerminalFontSize(this.terminalFontSize);
         this.applyLayout(this.currentLayout);
         this.updateMobileTabsDropdown();
       }
