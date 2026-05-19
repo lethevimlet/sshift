@@ -33,6 +33,7 @@ class SSHIFTClient {
     this.isSyncingTabs = false; // Flag to prevent saveTabs emission during tabs-sync
     this.sftpClipboard = null; // For cut/copy/paste: { action: 'cut'|'copy', path: string, name: string, sessionId: string }
     this.terminalClipboardContent = null; // Pre-read clipboard content for context menu paste
+    this.osc52Buffer = null; // Buffered OSC 52 clipboard content pending write
     this.terminalColorOverride = true; // Default to true, will be loaded in initThemeAndAccent
     this.terminalBgColor = '#0d1117';
     this.terminalFgColor = '#e6edf3';
@@ -713,28 +714,37 @@ class SSHIFTClient {
 
   // Helper method to copy text to clipboard with fallback
   async copyToClipboard(text) {
-    try {
-      // Try modern clipboard API first
-      if (navigator.clipboard && navigator.clipboard.writeText) {
+    // Try modern clipboard API first (requires secure context + user gesture)
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try {
         await navigator.clipboard.writeText(text);
+        console.log('[SSHIFT] Clipboard API write succeeded, length:', text.length);
         return true;
+      } catch (err) {
+        console.warn('[SSHIFT] Clipboard API write failed:', err.name, err.message);
       }
-    } catch (err) {
-      console.warn('[SSHIFT] Modern clipboard API failed, trying fallback:', err);
+    } else {
+      console.warn('[SSHIFT] Clipboard API not available');
     }
     
-    // Fallback to execCommand
+    // Fallback to execCommand (also requires user gesture in modern browsers)
     try {
       const textarea = document.createElement('textarea');
       textarea.value = text;
       textarea.style.position = 'fixed';
       textarea.style.left = '-9999px';
       textarea.style.top = '-9999px';
+      textarea.style.opacity = '0';
       document.body.appendChild(textarea);
       textarea.focus();
       textarea.select();
       const success = document.execCommand('copy');
       document.body.removeChild(textarea);
+      if (success) {
+        console.log('[SSHIFT] execCommand copy succeeded, length:', text.length);
+      } else {
+        console.warn('[SSHIFT] execCommand copy returned false');
+      }
       return success;
     } catch (err) {
       console.error('[SSHIFT] Fallback clipboard copy failed:', err);
@@ -6474,6 +6484,70 @@ const wheelHandler = (e) => {
         console.log('[SSHIFT] Image addon disabled in settings');
       }
       
+      // Register OSC 52 handler for clipboard operations from remote terminals
+      // This allows programs like opencode, tmux, vim, etc. to set the clipboard
+      // via the OSC 52 escape sequence: \e]52;c;<base64-text>\007
+      //
+      // Browser Clipboard API requires a user gesture, but OSC 52 data arrives
+      // asynchronously from the SSH stream. We buffer the content synchronously
+      // and flush it on the next user interaction (click, keydown, touchstart).
+      // Immediate writes are also attempted but may fail without a user gesture.
+      try {
+        const flushOsc52Buffer = () => {
+          if (this.osc52Buffer !== null && this.osc52Buffer !== undefined) {
+            const text = this.osc52Buffer;
+            this.osc52Buffer = null;
+            console.log('[SSHIFT] Flushing OSC 52 clipboard buffer, length:', text.length);
+            this.copyToClipboard(text).then(success => {
+              if (success) {
+                console.log('[SSHIFT] OSC 52 clipboard write succeeded (flushed on user gesture)');
+                this.showToast('Copied to clipboard', 'success');
+              } else {
+                console.warn('[SSHIFT] OSC 52 clipboard write failed after flush, re-buffering');
+                this.osc52Buffer = text;
+              }
+            }).catch(err => {
+              console.warn('[SSHIFT] OSC 52 clipboard write failed:', err);
+              this.osc52Buffer = text;
+            });
+          }
+        };
+        document.addEventListener('click', flushOsc52Buffer, true);
+        document.addEventListener('keydown', flushOsc52Buffer, true);
+        document.addEventListener('touchstart', flushOsc52Buffer, true);
+
+        // Store for cleanup when the session is closed
+        const sess = this.sessions.get(sessionId);
+        if (sess) sess.osc52FlushListener = flushOsc52Buffer;
+
+// Also register as fallback with xterm.js's OSC handler in case any
+        // OSC 52 sequences slip through the data stream interceptor (e.g. from
+        // screen sync restoration). The data stream interceptor is the primary handler.
+        terminal.registerOscHandler(52, (data) => {
+          console.log('[SSHIFT] OSC 52 handler fallback triggered (should be handled by stream interceptor)');
+          const semicolonIndex = data.indexOf(';');
+          if (semicolonIndex === -1) return true;
+          const content = data.substring(semicolonIndex + 1);
+          if (!content) {
+            this.osc52Buffer = '';
+            return true;
+          }
+          try {
+            const decoded = atob(content);
+            this.osc52Buffer = decoded;
+            this.copyToClipboard(decoded).then(success => {
+              if (success) this.osc52Buffer = null;
+            }).catch(() => {});
+          } catch (e) {
+            console.warn('[SSHIFT] OSC 52 base64 decode failed:', e);
+          }
+          return true;
+        });
+        console.log('[SSHIFT] OSC 52 clipboard handler registered');
+      } catch (e) {
+        console.warn('[SSHIFT] Failed to register OSC 52 handler:', e.message);
+      }
+      
       // Enable cursor blink after addons are loaded to avoid
       // repaint interference during initial render
       terminal.options.cursorBlink = true;
@@ -6934,6 +7008,119 @@ const wheelHandler = (e) => {
     }
   }
 
+  // Parse and handle OSC 52 clipboard sequences from terminal data stream.
+  // Extracts clipboard content, writes it to browser clipboard, and safely
+  // handles sequences that span across data chunks.
+  // Also handles tmux DCS passthrough: \x1bPtmux;\x1b\x1b]52;c;...\x07\x1b\\
+  _handleOsc52(data) {
+    if (!data || data.indexOf('52;') === -1) return data;
+
+    let result = data;
+
+    // Handle tmux/screen DCS passthrough wrapper:
+    // \x1bPtmux;\x1b wraps an inner escape sequence, terminated by \x1b\\
+    // \x1bP\x1b (screen) similarly
+    // We unwrap these by extracting the inner OSC 52 sequence.
+    while (true) {
+      const tmuxStart = result.indexOf('\x1bPtmux;\x1b');
+      const screenStart = result.indexOf('\x1bP\x1b');
+      let dcsStart = -1;
+      let dcsPrefixLen = 0;
+
+      if (tmuxStart !== -1 && (screenStart === -1 || tmuxStart < screenStart)) {
+        dcsStart = tmuxStart;
+        dcsPrefixLen = '\x1bPtmux;\x1b'.length;
+      } else if (screenStart !== -1) {
+        dcsStart = screenStart;
+        dcsPrefixLen = '\x1bP\x1b'.length;
+      }
+
+      if (dcsStart !== -1) {
+        // Find the DCS terminator: \x1b\\ (ST)
+        const dcsEnd = result.indexOf('\x1b\\', dcsStart + dcsPrefixLen);
+        if (dcsEnd !== -1) {
+          // Extract the inner sequence and replace the whole DCS block with just the inner sequence
+          const inner = result.substring(dcsStart + dcsPrefixLen, dcsEnd);
+          result = result.substring(0, dcsStart) + inner + result.substring(dcsEnd + 2);
+        } else {
+          break; // Incomplete DCS, leave for next chunk
+        }
+      } else {
+        break;
+      }
+    }
+
+    // Now process plain OSC 52 sequences
+    if (result.indexOf('\x1b]52;') === -1) return result;
+
+    let searchFrom = 0;
+
+    while (true) {
+      const startIdx = result.indexOf('\x1b]52;', searchFrom);
+      if (startIdx === -1) break;
+
+      // Find end of OSC sequence: BEL (\x07) or ST (\x1b\\)
+      let endIdx = -1;
+      let endLen = 1;
+      const belIdx = result.indexOf('\x07', startIdx + 5);
+      const stIdx = result.indexOf('\x1b\\', startIdx + 5);
+
+      if (belIdx !== -1 && (stIdx === -1 || belIdx < stIdx)) {
+        endIdx = belIdx;
+        endLen = 1;
+      } else if (stIdx !== -1) {
+        endIdx = stIdx;
+        endLen = 2;
+      }
+
+      if (endIdx === -1) {
+        break;
+      }
+
+      // Extract the payload: everything between "ESC]52;" and the terminator
+      const payloadStart = startIdx + 5; // skip \x1b]52;
+      const payload = result.substring(payloadStart, endIdx);
+      console.log('[SSHIFT] OSC 52 intercepted from stream, payload length:', payload.length);
+
+      // Parse: <target>;<base64>
+      const semiIdx = payload.indexOf(';');
+      if (semiIdx !== -1) {
+        const clipboardTarget = payload.substring(0, semiIdx);
+        const content = payload.substring(semiIdx + 1);
+        if (content) {
+          try {
+            const decoded = atob(content);
+            console.log('[SSHIFT] OSC 52 decoded, target:', clipboardTarget, 'length:', decoded.length, 'preview:', decoded.substring(0, 60));
+            // Buffer synchronously, then try immediate write
+            this.osc52Buffer = decoded;
+            this.copyToClipboard(decoded).then(success => {
+              if (success) {
+                this.osc52Buffer = null;
+                console.log('[SSHIFT] OSC 52 immediate clipboard write succeeded');
+              } else {
+                console.log('[SSHIFT] OSC 52 immediate write failed, will flush on next user gesture');
+              }
+            }).catch(() => {
+              console.log('[SSHIFT] OSC 52 immediate write rejected, will flush on next user gesture');
+            });
+          } catch (e) {
+            console.warn('[SSHIFT] OSC 52 base64 decode failed:', e);
+          }
+        } else {
+          // Clear clipboard request
+          this.osc52Buffer = '';
+          navigator.clipboard.writeText('').catch(() => {});
+        }
+      }
+
+      // Remove the OSC 52 sequence from the data so xterm.js doesn't render garbage
+      result = result.substring(0, startIdx) + result.substring(endIdx + endLen);
+      searchFrom = startIdx;
+    }
+
+    return result;
+  }
+
   _flushWriteChunks(sessionId) {
     const session = this.sessions.get(sessionId);
     if (!session || !session.terminal) {
@@ -6998,6 +7185,11 @@ const wheelHandler = (e) => {
         session.scrollbackRestoreTimer = null;
       }, 3000);
     }
+
+    // Intercept OSC 52 clipboard sequences before writing to terminal.
+    // OSC 52 format: ESC ] 52 ; <target> ; <base64> (BEL or ST)
+    // This is more reliable than registerOscHandler which may not fire.
+    combined = this._handleOsc52(combined);
 
     // Cap write size per frame. terminal.write() is synchronous and blocks
     // the main thread. We spill overflow to the next frame via flushRemaining.
@@ -7615,6 +7807,13 @@ const wheelHandler = (e) => {
         session.wheelHandler = null;
         session.wheelElement = null;
       }
+      // Clean up OSC 52 clipboard flush listeners
+      if (session.osc52FlushListener) {
+        document.removeEventListener('click', session.osc52FlushListener, true);
+        document.removeEventListener('keydown', session.osc52FlushListener, true);
+        document.removeEventListener('touchstart', session.osc52FlushListener, true);
+        session.osc52FlushListener = null;
+      }
       if (session.terminal) {
         session.terminal.dispose();
       }
@@ -7723,6 +7922,12 @@ const wheelHandler = (e) => {
       }
       if (session.wheelHandler && session.wheelElement) {
         session.wheelElement.removeEventListener('wheel', session.wheelHandler);
+      }
+      if (session.osc52FlushListener) {
+        document.removeEventListener('click', session.osc52FlushListener, true);
+        document.removeEventListener('keydown', session.osc52FlushListener, true);
+        document.removeEventListener('touchstart', session.osc52FlushListener, true);
+        session.osc52FlushListener = null;
       }
       if (session.terminal) {
         session.terminal.dispose();
