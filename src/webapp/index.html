@@ -9,16 +9,16 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="SSHIFT">
-  <link rel="manifest" href="/manifest.json">
+  <link rel="manifest" href="/manifest.json?v=__VERSION__">
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16x16.png">
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
   <title>SSHIFT - SSH & SFTP Terminal Client</title>
   <!-- Local resources for offline support -->
-  <link rel="stylesheet" href="/libs/xterm/xterm.css">
-  <link rel="stylesheet" href="/libs/font-awesome/css/all.min.css">
-  <link rel="stylesheet" href="/css/style.css">
-  <script src="/libs/lucide/lucide.min.js"></script>
+  <link rel="stylesheet" href="/libs/xterm/xterm.css?v=__VERSION__">
+  <link rel="stylesheet" href="/libs/font-awesome/css/all.min.css?v=__VERSION__">
+  <link rel="stylesheet" href="/css/style.css?v=__VERSION__">
+  <script src="/libs/lucide/lucide.min.js?v=__VERSION__"></script>
 </head>
 <body>
   <!-- Lock Screen Overlay (shown by default, hidden by JS if no password) -->
@@ -1138,16 +1138,16 @@
 
   <!-- Scripts -->
   <!-- xterm.js and addons - Local files for offline support -->
-  <script src="/libs/xterm/xterm.js"></script>
-  <script src="/libs/xterm/xterm-addon-fit.js"></script>
-  <script src="/libs/xterm/xterm-addon-web-links.js"></script>
-  <script src="/libs/xterm/xterm-addon-search.js"></script>
-  <script src="/libs/xterm/xterm-addon-serialize.js"></script>
-  <script src="/libs/xterm/xterm-addon-webgl.js"></script>
-  <script src="/libs/xterm/xterm-addon-image.js"></script>
+  <script src="/libs/xterm/xterm.js?v=__VERSION__"></script>
+  <script src="/libs/xterm/xterm-addon-fit.js?v=__VERSION__"></script>
+  <script src="/libs/xterm/xterm-addon-web-links.js?v=__VERSION__"></script>
+  <script src="/libs/xterm/xterm-addon-search.js?v=__VERSION__"></script>
+  <script src="/libs/xterm/xterm-addon-serialize.js?v=__VERSION__"></script>
+  <script src="/libs/xterm/xterm-addon-webgl.js?v=__VERSION__"></script>
+  <script src="/libs/xterm/xterm-addon-image.js?v=__VERSION__"></script>
   
   <!-- Mobile terminal support -->
-  <script src="/js/mobile-terminal.js"></script>
+  <script src="/js/mobile-terminal.js?v=__VERSION__"></script>
   
   <!-- Normalize addon exports - UMD pattern exports { FitAddon: class } not the class directly -->
   <script>
@@ -1285,52 +1285,53 @@
   </script>
   
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/js/app.js"></script>
+  <script src="/js/app.js?v=__VERSION__"></script>
   <script>
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js').then((reg) => {
-          console.log('[SSHIFT] Service Worker registered, scope:', reg.scope);
-          window._swRegistration = reg;
-          // Check the actual state
-          if (reg.active) {
-            window._swStatus = 'active';
-          } else if (reg.installing) {
-            window._swStatus = 'installing';
-          } else if (reg.waiting) {
-            window._swStatus = 'waiting';
-          } else {
-            window._swStatus = 'registered';
-          }
-          window._swError = null;
-          // Listen for state changes
-          reg.addEventListener('updatefound', () => {
-            const newWorker = reg.installing;
-            newWorker.addEventListener('statechange', () => {
-              if (newWorker.state === 'activated') {
-                window._swStatus = 'active';
-              } else if (newWorker.state === 'redundant') {
-                if (!navigator.serviceWorker.controller) {
-                  window._swStatus = 'redundant';
-                  window._swError = 'Service Worker became redundant. This usually means the certificate is not trusted.';
-                }
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').then((reg) => {
+        console.log('[SSHIFT] Service Worker registered, scope:', reg.scope);
+        window._swRegistration = reg;
+        if (reg.active) {
+          window._swStatus = 'active';
+        } else if (reg.installing) {
+          window._swStatus = 'installing';
+        } else if (reg.waiting) {
+          window._swStatus = 'waiting';
+        } else {
+          window._swStatus = 'registered';
+        }
+        window._swError = null;
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'activated') {
+              window._swStatus = 'active';
+              if (navigator.serviceWorker.controller) {
+                console.log('[SSHIFT] New service worker activated, reloading for updates');
+                window.location.reload();
               }
-            });
+            } else if (newWorker.state === 'redundant') {
+              if (!navigator.serviceWorker.controller) {
+                window._swStatus = 'redundant';
+                window._swError = 'Service Worker became redundant. This usually means the certificate is not trusted.';
+              }
+            }
           });
-          // Also check if the page is controlled by a SW
-          if (navigator.serviceWorker.controller) {
-            window._swStatus = 'active';
-          }
-        }).catch((err) => {
-          console.warn('[SSHIFT] Service Worker registration failed:', err.message);
-          window._swStatus = 'failed';
-          window._swError = err.message;
         });
+        if (navigator.serviceWorker.controller) {
+          window._swStatus = 'active';
+        }
+      }).catch((err) => {
+        console.warn('[SSHIFT] Service Worker registration failed:', err.message);
+        window._swStatus = 'failed';
+        window._swError = err.message;
       });
-    } else {
-      window._swStatus = 'unsupported';
-      window._swError = 'Service Workers not supported in this browser';
-    }
+    });
+  } else {
+    window._swStatus = 'unsupported';
+    window._swError = 'Service Workers not supported in this browser';
+  }
   </script>
 </body>
 </html>

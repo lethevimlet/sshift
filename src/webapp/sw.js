@@ -1,7 +1,6 @@
-const CACHE_NAME = 'sshift-v2';
+const CACHE_NAME = 'sshift-__VERSION__';
 
 const PRECACHE_URLS = [
-  '/index.html',
   '/css/style.css',
   '/libs/xterm/xterm.css',
   '/libs/font-awesome/css/all.min.css',
@@ -44,6 +43,24 @@ self.addEventListener('fetch', (event) => {
 
   if (url.protocol === 'http:' || url.protocol === 'https:') {
     if (url.pathname.startsWith('/socket.io/')) return;
+    if (url.pathname.startsWith('/api/')) return;
+  }
+
+  const isNavigation = event.request.mode === 'navigate';
+
+  if (isNavigation) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request))
+    );
+    return;
   }
 
   event.respondWith(

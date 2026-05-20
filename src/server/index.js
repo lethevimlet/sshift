@@ -304,16 +304,31 @@ async function initializeServer() {
   app.use('/tests', express.static(path.join(webappPath, 'tests')));
 
   // Service Worker script - must be served from root with proper headers
+  // Version placeholder is replaced dynamically so the cache busts on each update
   app.get('/sw.js', (req, res) => {
     res.setHeader('Content-Type', 'application/javascript');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Service-Worker-Allowed', '/');
-    res.sendFile(path.join(webappPath, 'sw.js'));
+    const swPath = path.join(webappPath, 'sw.js');
+    fs.readFile(swPath, 'utf8', (err, data) => {
+      if (err) return res.status(500).send('/* SW load error */');
+      const version = require(path.join(__dirname, '../../package.json')).version;
+      res.send(data.replace(/__VERSION__/g, version));
+    });
   });
 
-  // Main route
+  // Main route - no-cache so browser always checks for updates
+  // Version placeholder is replaced dynamically for cache-busting
   app.get('/', (req, res) => {
-    res.sendFile(path.join(webappPath, 'index.html'));
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    const htmlPath = path.join(webappPath, 'index.html');
+    fs.readFile(htmlPath, 'utf8', (err, data) => {
+      if (err) return res.status(500).send('Error loading page');
+      const version = require(path.join(__dirname, '../../package.json')).version;
+      res.send(data.replace(/__VERSION__/g, version));
+    });
   });
 
   // Register REST endpoints
