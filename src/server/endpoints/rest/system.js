@@ -388,14 +388,6 @@ echo "$(date): node path: $NODE_BIN" >> "$LOG"
 echo "$(date): sshift fallback: $SSHIFT_FALLBACK" >> "$LOG"
 echo "$(date): systemd_managed: $SYSTEMD_MANAGED" >> "$LOG"
 
-if [ "$SYSTEMD_MANAGED" = "1" ]; then
-  echo "$(date): Detected systemd-managed service: $SYSTEMD_UNIT" >> "$LOG"
-  # Stop the service before updating to prevent systemd from restarting old version
-  echo "$(date): Stopping $SYSTEMD_UNIT..." >> "$LOG"
-  systemctl stop "$SYSTEMD_UNIT" >> "$LOG" 2>&1 || true
-  sleep 1
-fi
-
 # Find the current sshift binary before npm changes anything
 CURRENT_SSHIFT="$(command -v sshift 2>/dev/null || which sshift 2>/dev/null || echo "$SSHIFT_FALLBACK")"
 
@@ -422,7 +414,7 @@ rm -f "$MARKER"
 
 if [ "$SYSTEMD_MANAGED" = "1" ]; then
   echo "$(date): Restarting via systemd" >> "$LOG"
-  systemctl start "$SYSTEMD_UNIT" >> "$LOG" 2>&1
+  systemctl restart "$SYSTEMD_UNIT" >> "$LOG" 2>&1
 else
   # Find the sshift binary — prefer PATH lookup since npm just updated it
   SSHIFT_BIN="$(command -v sshift 2>/dev/null || which sshift 2>/dev/null || echo "$SSHIFT_FALLBACK")"
@@ -484,6 +476,23 @@ fi
       const updateEnv = { ...process.env };
       updateEnv.PATH = scriptPath;
 
+      // When running under systemd, spawn the update script in a transient scope
+      // so it survives `systemctl restart` of the sshift service. Without this,
+      // the script is in the same cgroup as sshift and gets killed when the
+      // service restarts.
+      if (isSystemdManaged && platform !== 'win32') {
+        try {
+          const systemdRunCheck = require('child_process').execSync('command -v systemd-run', { encoding: 'utf8' }).trim();
+          if (systemdRunCheck) {
+            console.log('[UPDATE] Using systemd-run to isolate update script from service');
+            spawnCommand = systemdRunCheck;
+            spawnArgs = ['--scope', '--unit=sshift-update', '/bin/sh', updateScriptPath];
+          }
+        } catch (e) {
+          // systemd-run not available, fall through to default spawn
+        }
+      }
+
       const updateProcess = spawn(spawnCommand, spawnArgs, {
         cwd: dataDir,
         detached: true,
@@ -500,21 +509,14 @@ fi
       updateProcess.unref();
       
       // Give the update script enough time to start before exiting.
-      // The script runs npm install (which can take time) in the background,
-      // but we need to wait long enough for the spawn to succeed.
-      // When running under systemd, the update script will stop/start the service,
-      // so we DON'T exit ourselves — the script's `systemctl stop` will kill us.
-      // For non-systemd, we exit so the script can exec the new binary.
-      const exitDelay = isSystemdManaged ? 500 : 2000;
+      // Under systemd: we exit so the service can be restarted by `systemctl
+      // restart` in the script. The script runs in a separate systemd scope
+      // so it survives the service restart.
+      // Non-systemd: we exit so the script can exec the new binary.
+      const exitDelay = isSystemdManaged ? 1000 : 2000;
       setTimeout(() => {
         if (spawnFailed) {
           console.error('[UPDATE] Update process failed to start. Keeping server running.');
-          return;
-        }
-        if (isSystemdManaged) {
-          // Under systemd, the update script will call `systemctl stop` to stop us.
-          // We don't need to exit ourselves. Just keep running until systemd stops us.
-          console.log('[UPDATE] Update script running under systemd. Service will be stopped by the script.');
           return;
         }
         console.log('[UPDATE] Exiting for update...');
