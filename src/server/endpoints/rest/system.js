@@ -453,7 +453,7 @@ while [ $NPM_ATTEMPTS -lt $NPM_MAX_ATTEMPTS ]; do
   fi
   echo "$(date): npm install attempt $NPM_ATTEMPTS failed" >> "$LOG"
   if [ $NPM_ATTEMPTS -lt $NPM_MAX_ATTEMPTS ]; then
-    echo "$(date): Waiting ${NPM_DELAY}s before retry (npm registry propagation delay)..." >> "$LOG"
+    echo "$(date): Waiting \${NPM_DELAY}s before retry (npm registry propagation delay)..." >> "$LOG"
     sleep $NPM_DELAY
   fi
 done
