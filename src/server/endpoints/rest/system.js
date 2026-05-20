@@ -17,6 +17,8 @@ const UPDATE_MARKER_FILE = '.updating';
  */
 function registerSystemEndpoints(app, io) {
   // Clean up stale update marker from previous update attempt
+  // NOTE: Do NOT delete the update log here — the client needs to read it
+  // to detect errors. The log is cleaned up separately after a short delay.
   const dataDir = getDataDir();
   const staleUpdateMarker = path.join(dataDir, UPDATE_MARKER_FILE);
   const staleUpdateScript = path.join(dataDir, '.sshift-update.sh');
@@ -36,7 +38,10 @@ function registerSystemEndpoints(app, io) {
     if (fs.existsSync(staleUpdateLog)) {
       const logContent = fs.readFileSync(staleUpdateLog, 'utf8');
       console.log('[UPDATE] Previous update log:\n' + logContent);
-      fs.unlinkSync(staleUpdateLog);
+      // Delay log deletion so the client can read error status
+      setTimeout(() => {
+        try { fs.unlinkSync(staleUpdateLog); } catch (e) { /* ignore */ }
+      }, 30000);
     }
   } catch (e) {
     console.error('[UPDATE] Failed to clean up marker file:', e.message);
@@ -156,12 +161,17 @@ function registerSystemEndpoints(app, io) {
 
     // Check for update error log
     let updateError = null;
+    let updateLog = null;
     if (!isUpdating && fs.existsSync(updateLogPath)) {
       try {
         const logContent = fs.readFileSync(updateLogPath, 'utf8');
         if (logContent.includes('npm install failed')) {
           updateError = 'Update failed: npm install exited with an error.';
         }
+        // Return the last 4KB of the log for debugging
+        const lastLines = logContent.slice(-4096);
+        const relevantLines = lastLines.split('\n').filter(l => l.trim()).slice(-10);
+        updateLog = relevantLines.join('\n');
       } catch (e) {
         // Ignore log read errors
       }
@@ -171,7 +181,8 @@ function registerSystemEndpoints(app, io) {
       version,
       updating: isUpdating,
       ready: !isUpdating,
-      updateError
+      updateError,
+      updateLog
     });
   });
 
@@ -291,53 +302,88 @@ function registerSystemEndpoints(app, io) {
       const updateScriptPath = path.join(dataDir, '.sshift-update.sh');
       const updateLogPath = path.join(dataDir, '.sshift-update.log');
 
+      // Build PATH for the update script to ensure npm and node are findable
+      const pathDirs = [];
+      if (process.env.PATH) pathDirs.push(...process.env.PATH.split(':'));
+      const nodeDir = path.dirname(process.execPath);
+      if (!pathDirs.includes(nodeDir)) pathDirs.unshift(nodeDir);
+      ['/usr/local/bin', '/usr/bin', '/usr/sbin', '/bin', '/sbin'].forEach((d) => {
+        if (!pathDirs.includes(d)) pathDirs.push(d);
+      });
+      const scriptPath = pathDirs.join(':');
+
       // Send response immediately, then update in background
       res.json({ message: 'Update started. Server will restart automatically.' });
 
       if (platform === 'win32') {
         const sshiftCmd = sshiftBinPath.includes(' ') ? `& '${sshiftBinPath}'` : `sshift`;
         const psScript = `$ErrorActionPreference = 'Continue'
+$MarkerPath = '${updateMarker}'
+$LogPath = '${updateLogPath}'
+$NodeExe = '${nodeExe}'
+$SshiftBin = '${sshiftBinPath}'
+
 try {
-  & npm install -g @lethevimlet/sshift@latest 2>&1 | Out-File -FilePath '${updateLogPath}' -Append
+  & npm install -g @lethevimlet/sshift@latest 2>&1 | Out-File -FilePath $LogPath -Append
   if ($LASTEXITCODE -ne 0) {
-    Write-Output 'npm install failed with exit code ' + $LASTEXITCODE | Out-File -FilePath '${updateLogPath}' -Append
+    Write-Output "npm install failed with exit code $LASTEXITCODE" | Out-File -FilePath $LogPath -Append
+    Remove-Item -Path $MarkerPath -Force -ErrorAction SilentlyContinue
+    & $NodeExe $SshiftBin
     exit 1
   }
 } catch {
-  Write-Output $_.Exception.Message | Out-File -FilePath '${updateLogPath}' -Append
+  Write-Output $_.Exception.Message | Out-File -FilePath $LogPath -Append
+  Remove-Item -Path $MarkerPath -Force -ErrorAction SilentlyContinue
+  & $NodeExe $SshiftBin
   exit 1
 }
-Remove-Item -Path '${updateMarker}' -Force -ErrorAction SilentlyContinue
-& '${nodeExe}' '${sshiftBinPath}'
+Remove-Item -Path $MarkerPath -Force -ErrorAction SilentlyContinue
+& $NodeExe $SshiftBin
 `;
         const psScriptPath = updateScriptPath.replace('.sh', '.ps1');
         fs.writeFileSync(psScriptPath, psScript, 'utf8');
       } else {
         const updateScript = `#!/bin/sh
-set -e
 LOG="${updateLogPath}"
-echo "$(date): Starting sshift update..." > "$LOG"
-
-# Try npm install
+MARKER="${updateMarker}"
 NPM_BIN="${npmBinPath}"
-echo "$(date): Using npm at: $NPM_BIN" >> "$LOG"
+SSHIFT_FALLBACK="${sshiftBinPath}"
+NODE_BIN="${nodeExe}"
+OLD_VERSION="${oldVersion}"
 
+echo "$(date): Starting sshift update (from v${oldVersion})..." > "$LOG"
+echo "$(date): npm path: $NPM_BIN" >> "$LOG"
+echo "$(date): node path: $NODE_BIN" >> "$LOG"
+echo "$(date): sshift fallback: $SSHIFT_FALLBACK" >> "$LOG"
+
+# Find the current sshift binary before npm changes anything
+CURRENT_SSHIFT="$(command -v sshift 2>/dev/null || which sshift 2>/dev/null || echo "$SSHIFT_FALLBACK")"
+
+# Run npm install
+echo "$(date): Running npm install..." >> "$LOG"
 if ! "$NPM_BIN" install -g @lethevimlet/sshift@latest >> "$LOG" 2>&1; then
-  echo "$(date): npm install failed, removing update marker" >> "$LOG"
-  rm -f "${updateMarker}"
-  exit 1
+  echo "$(date): npm install failed" >> "$LOG"
+  echo "npm install failed" >> "$LOG"
+  rm -f "$MARKER"
+  # Always restart the server — the old version is still installed
+  echo "$(date): Restarting sshift (old version) from: $CURRENT_SSHIFT" >> "$LOG"
+  exec "$NODE_BIN" "$CURRENT_SSHIFT"
 fi
-
 echo "$(date): npm install completed successfully" >> "$LOG"
 
-# Remove the update marker before restart so the new instance sees a clean state
-rm -f "${updateMarker}"
+# Remove the update marker before restart
+rm -f "$MARKER"
 
 # Find the sshift binary — prefer PATH lookup since npm just updated it
-SSHIFT_BIN="$(command -v sshift 2>/dev/null || which sshift 2>/dev/null || echo "${sshiftBinPath}")"
+SSHIFT_BIN="$(command -v sshift 2>/dev/null || which sshift 2>/dev/null || echo "$SSHIFT_FALLBACK")"
+if [ ! -x "$SSHIFT_BIN" ]; then
+  echo "$(date): ERROR: sshift binary not found or not executable at: $SSHIFT_BIN" >> "$LOG"
+  echo "$(date): Attempting to restart with fallback path" >> "$LOG"
+  SSHIFT_BIN="$SSHIFT_FALLBACK"
+fi
 
 echo "$(date): Restarting sshift from: $SSHIFT_BIN" >> "$LOG"
-exec "${nodeExe}" "$SSHIFT_BIN"
+exec "$NODE_BIN" "$SSHIFT_BIN"
 `;
         fs.writeFileSync(updateScriptPath, updateScript, 'utf8');
         fs.chmodSync(updateScriptPath, 0o755);
@@ -358,11 +404,14 @@ exec "${nodeExe}" "$SSHIFT_BIN"
         spawnArgs = [updateScriptPath];
       }
       
+      const updateEnv = { ...process.env };
+      updateEnv.PATH = scriptPath;
+
       const updateProcess = spawn(spawnCommand, spawnArgs, {
         cwd: dataDir,
         detached: true,
         stdio: 'ignore',
-        env: { ...process.env }
+        env: updateEnv
       });
       
       updateProcess.on('error', (err) => {

@@ -10440,7 +10440,8 @@ async syncTabsFromServer(tabs) {
         
         // Check for update error from server
         if (data.updateError) {
-          this.handleUpdateError(data.updateError);
+          const logMsg = data.updateLog ? '\n\n' + data.updateLog : '';
+          this.handleUpdateError(data.updateError + logMsg);
           return;
         }
         
@@ -10476,9 +10477,8 @@ async syncTabsFromServer(tabs) {
             statusEl.textContent = `New version: ${data.version}`;
           }
           
-          // Reload page after a short delay
           setTimeout(() => {
-            window.location.reload();
+            this.forceReloadAfterUpdate();
           }, 1000);
         } else if (data.ready && data.version === oldVersion) {
           // Server is back and ready. Same version could mean:
@@ -10498,7 +10498,7 @@ async syncTabsFromServer(tabs) {
           }
           
           setTimeout(() => {
-            window.location.reload();
+            this.forceReloadAfterUpdate();
           }, 1000);
         } else {
           // Unexpected state
@@ -10548,6 +10548,19 @@ async syncTabsFromServer(tabs) {
       updateBtn.disabled = false;
       updateBtn.innerHTML = '<i class="fas fa-download"></i> Update';
     }
+  }
+
+  forceReloadAfterUpdate() {
+    const cleanup = [];
+    if ('caches' in window) {
+      cleanup.push(caches.keys().then((names) => Promise.all(names.map((name) => caches.delete(name)))));
+    }
+    if ('serviceWorker' in navigator) {
+      cleanup.push(navigator.serviceWorker.getRegistrations().then((regs) => Promise.all(regs.map((r) => r.unregister()))));
+    }
+    Promise.all(cleanup).catch(() => {}).finally(() => {
+      window.location.href = window.location.origin + window.location.pathname + '?v=' + Date.now();
+    });
   }
 }
 

@@ -295,19 +295,18 @@ async function initializeServer() {
     next();
   });
 
-  // Serve static files from the webapp directory
   const webappPath = path.join(__dirname, '../webapp');
-  app.use(express.static(webappPath));
-  app.use('/js', express.static(path.join(webappPath, 'js')));
-  app.use('/css', express.static(path.join(webappPath, 'css')));
-  app.use('/libs', express.static(path.join(webappPath, 'libs')));
-  app.use('/tests', express.static(path.join(webappPath, 'tests')));
 
   // Service Worker script - must be served from root with proper headers
-  // Version placeholder is replaced dynamically so the cache busts on each update
+  // MUST come before express.static so version placeholders are replaced
+  // and no-cache headers are set. Without this, express.static serves
+  // the raw file with __VERSION__ unreplaced and default cache headers,
+  // completely breaking cache busting on updates.
   app.get('/sw.js', (req, res) => {
     res.setHeader('Content-Type', 'application/javascript');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.setHeader('Service-Worker-Allowed', '/');
     const swPath = path.join(webappPath, 'sw.js');
     fs.readFile(swPath, 'utf8', (err, data) => {
@@ -318,7 +317,9 @@ async function initializeServer() {
   });
 
   // Main route - no-cache so browser always checks for updates
-  // Version placeholder is replaced dynamically for cache-busting
+  // MUST come before express.static so version placeholders are replaced
+  // and no-cache headers are set. Without this, express.static serves
+  // the raw index.html with __VERSION__ unreplaced.
   app.get('/', (req, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
@@ -330,6 +331,41 @@ async function initializeServer() {
       res.send(data.replace(/__VERSION__/g, version));
     });
   });
+
+  // Serve static files from the webapp directory
+  // These come AFTER the custom / and /sw.js handlers so those routes
+  // can set proper cache headers and replace version placeholders.
+  app.use(express.static(webappPath, {
+    maxAge: '1d',
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('.html')) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+      } else if (filePath.endsWith('.js') || filePath.endsWith('.css')) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      }
+    }
+  }));
+  app.use('/js', express.static(path.join(webappPath, 'js'), {
+    maxAge: '1d',
+    setHeaders: (res) => {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+  }));
+  app.use('/css', express.static(path.join(webappPath, 'css'), {
+    maxAge: '1d',
+    setHeaders: (res) => {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+  }));
+  app.use('/libs', express.static(path.join(webappPath, 'libs'), {
+    maxAge: '1d',
+    setHeaders: (res) => {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+  }));
+  app.use('/tests', express.static(path.join(webappPath, 'tests')));
 
   // Register REST endpoints
   rest.registerAllRestEndpoints(app, io);

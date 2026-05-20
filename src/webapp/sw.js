@@ -1,12 +1,15 @@
 const CACHE_NAME = 'sshift-__VERSION__';
+const VERSION = '__VERSION__';
 
 const PRECACHE_URLS = [
-  '/css/style.css',
-  '/libs/xterm/xterm.css',
-  '/libs/font-awesome/css/all.min.css',
-  '/libs/lucide/lucide.min.js',
-  '/manifest.json'
+  '/css/style.css?v=' + VERSION,
+  '/libs/xterm/xterm.css?v=' + VERSION,
+  '/libs/font-awesome/css/all.min.css?v=' + VERSION,
+  '/libs/lucide/lucide.min.js?v=' + VERSION,
+  '/manifest.json?v=' + VERSION
 ];
+
+const NAV_CACHE = CACHE_NAME + '-nav';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -28,7 +31,7 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((cacheNames) =>
       Promise.all(
         cacheNames
-          .filter((name) => name !== CACHE_NAME)
+          .filter((name) => name !== CACHE_NAME && name !== NAV_CACHE)
           .map((name) => caches.delete(name))
       )
     )
@@ -41,10 +44,11 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(event.request.url);
 
-  if (url.protocol === 'http:' || url.protocol === 'https:') {
-    if (url.pathname.startsWith('/socket.io/')) return;
-    if (url.pathname.startsWith('/api/')) return;
-  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
+
+  if (url.pathname.startsWith('/socket.io/')) return;
+  if (url.pathname.startsWith('/api/')) return;
+  if (url.pathname === '/sw.js') return;
 
   const isNavigation = event.request.mode === 'navigate';
 
@@ -54,7 +58,7 @@ self.addEventListener('fetch', (event) => {
         .then((response) => {
           if (response && response.status === 200) {
             const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+            caches.open(NAV_CACHE).then((cache) => cache.put(event.request, clone));
           }
           return response;
         })
@@ -65,15 +69,26 @@ self.addEventListener('fetch', (event) => {
 
   event.respondWith(
     caches.match(event.request).then((cached) => {
-      const fetched = fetch(event.request).then((response) => {
+      if (cached) {
+        return cached;
+      }
+      return fetch(event.request).then((response) => {
         if (response && response.status === 200 && response.type === 'basic') {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
         }
         return response;
-      }).catch(() => cached);
-
-      return cached || fetched;
+      });
     })
   );
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'CLEAR_CACHES') {
+    caches.keys().then((names) => {
+      for (const name of names) {
+        caches.delete(name);
+      }
+    });
+  }
 });
