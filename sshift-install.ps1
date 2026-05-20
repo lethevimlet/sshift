@@ -33,7 +33,7 @@ if ($installDir -eq "") {
 }
 $BinDir = Split-Path $installDir -Parent
 $BinDir = Join-Path $BinDir "bin"
-$PidFile = "$env:TEMP\sshift.pid"
+$PidFile = Join-Path $installDir ".sshift.pid"
 $ServiceName = "sshift"
 $ServerPort = $port
 

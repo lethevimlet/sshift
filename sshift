@@ -32,12 +32,12 @@
 
 const path = require('path');
 const fs = require('fs');
-const { spawn } = require('child_process');
+const os = require('os');
 
 // Get the directory where this script is located
 const scriptDir = __dirname;
 const serverPath = path.join(scriptDir, 'src', 'server', 'index.js');
-const pidFile = path.join(scriptDir, '.sshift.pid');
+const pidFile = path.join(os.homedir(), '.local', 'share', 'sshift', '.sshift.pid');
 
 // CLI argument parsing
 const args = process.argv.slice(2);
@@ -129,6 +129,34 @@ if (!fs.existsSync(serverPath)) {
   console.error('Error: index.js not found');
   console.error('Make sure you are running sshift from the installation directory');
   process.exit(1);
+}
+
+// Helper: Ensure PID file directory exists
+function ensurePidDir() {
+  const dir = path.dirname(pidFile);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+}
+
+// Helper: Write current PID to file
+function writePidFile() {
+  ensurePidDir();
+  fs.writeFileSync(pidFile, process.pid.toString(), { mode: 0o644 });
+}
+
+// Helper: Remove PID file
+function cleanupPidFile() {
+  try {
+    if (fs.existsSync(pidFile)) {
+      const storedPid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
+      if (isNaN(storedPid) || storedPid === process.pid) {
+        fs.unlinkSync(pidFile);
+      }
+    }
+  } catch (e) {
+    // Ignore cleanup errors
+  }
 }
 
 // Helper: Check if sshift is running
@@ -264,6 +292,20 @@ if (options.bind) {
 if (options.dev) {
   process.env.NODE_ENV = 'development';
 }
+
+// Write PID file before starting
+writePidFile();
+
+// Clean up PID file on exit
+process.on('exit', cleanupPidFile);
+process.on('SIGTERM', () => {
+  cleanupPidFile();
+  process.exit(0);
+});
+process.on('SIGINT', () => {
+  cleanupPidFile();
+  process.exit(0);
+});
 
 // Start the server
 require(serverPath);

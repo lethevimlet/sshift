@@ -19,7 +19,7 @@ set -e
 NODE_VERSION="20"
 NPM_PACKAGE="@lethevimlet/sshift"
 INSTALL_DIR="$HOME/.local/share/sshift"
-PID_FILE="/tmp/sshift.pid"
+PID_FILE="$HOME/.local/share/sshift/.sshift.pid"
 SERVICE_NAME="sshift"
 SERVER_PORT=""
 
