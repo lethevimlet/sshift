@@ -372,35 +372,24 @@ if ($IsScheduled) {
         const psScriptPath = updateScriptPath.replace('.sh', '.ps1');
         fs.writeFileSync(psScriptPath, psScript, 'utf8');
       } else {
-        const updateScript = `#!/bin/sh
+const updateScript = `#!/bin/sh
 LOG="${updateLogPath}"
 MARKER="${updateMarker}"
 NPM_BIN="${npmBinPath}"
 SSHIFT_FALLBACK="${sshiftBinPath}"
 NODE_BIN="${nodeExe}"
 OLD_VERSION="${oldVersion}"
+SYSTEMD_MANAGED="${isSystemdManaged ? '1' : '0'}"
+SYSTEMD_UNIT="${systemdUnit}"
 
 echo "$(date): Starting sshift update (from v${oldVersion})..." > "$LOG"
 echo "$(date): npm path: $NPM_BIN" >> "$LOG"
 echo "$(date): node path: $NODE_BIN" >> "$LOG"
 echo "$(date): sshift fallback: $SSHIFT_FALLBACK" >> "$LOG"
+echo "$(date): systemd_managed: $SYSTEMD_MANAGED" >> "$LOG"
 
-# Check if running under systemd
-SYSTEMD_UNIT=""
-if command -v systemctl >/dev/null 2>&1; then
-  SYSTEMD_UNIT="$(systemctl show -p Id -value sshift.service 2>/dev/null || true)"
-  if [ -z "$SYSTEMD_UNIT" ]; then
-    # Try to find sshift in systemd by looking at the running process
-    _my_pid="$$"
-    _my_cgroup="$(cat /proc/$_my_pid/cgroup 2>/dev/null | grep -o 'name=systemd.*sshift[.]service' | head -1)"
-    if [ -n "$_my_cgroup" ]; then
-      SYSTEMD_UNIT="sshift.service"
-    fi
-  fi
-fi
-
-if [ -n "$SYSTEMD_UNIT" ]; then
-  echo "$(date): Detected systemd service: $SYSTEMD_UNIT" >> "$LOG"
+if [ "$SYSTEMD_MANAGED" = "1" ]; then
+  echo "$(date): Detected systemd-managed service: $SYSTEMD_UNIT" >> "$LOG"
   # Stop the service before updating to prevent systemd from restarting old version
   echo "$(date): Stopping $SYSTEMD_UNIT..." >> "$LOG"
   systemctl stop "$SYSTEMD_UNIT" >> "$LOG" 2>&1 || true
@@ -417,7 +406,7 @@ if ! "$NPM_BIN" install -g @lethevimlet/sshift@latest >> "$LOG" 2>&1; then
   echo "npm install failed" >> "$LOG"
   rm -f "$MARKER"
   # Always restart the server — the old version is still installed
-  if [ -n "$SYSTEMD_UNIT" ]; then
+  if [ "$SYSTEMD_MANAGED" = "1" ]; then
     echo "$(date): Restarting via systemd (old version)" >> "$LOG"
     systemctl start "$SYSTEMD_UNIT" >> "$LOG" 2>&1
   else
@@ -431,7 +420,7 @@ echo "$(date): npm install completed successfully" >> "$LOG"
 # Remove the update marker before restart
 rm -f "$MARKER"
 
-if [ -n "$SYSTEMD_UNIT" ]; then
+if [ "$SYSTEMD_MANAGED" = "1" ]; then
   echo "$(date): Restarting via systemd" >> "$LOG"
   systemctl start "$SYSTEMD_UNIT" >> "$LOG" 2>&1
 else
