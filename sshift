@@ -37,7 +37,6 @@ const os = require('os');
 // Get the directory where this script is located
 const scriptDir = __dirname;
 const serverPath = path.join(scriptDir, 'src', 'server', 'index.js');
-const pidFile = path.join(os.homedir(), '.local', 'share', 'sshift', '.sshift.pid');
 
 // CLI argument parsing
 const args = process.argv.slice(2);
@@ -83,6 +82,9 @@ for (let i = 0; i < args.length; i++) {
   }
 }
 
+// PID file: dev instance uses a separate file so both can run side by side
+const pidFile = path.join(os.homedir(), '.local', 'share', 'sshift', options.dev ? '.sshift-dev.pid' : '.sshift.pid');
+
 // Show help
 if (options.help) {
   console.log(`
@@ -96,12 +98,15 @@ Usage:
   ./sshift --stop               Stop running instance
   ./sshift --restart            Restart running instance
   ./sshift --status             Check if sshift is running
+  ./sshift --dev --status       Check if dev instance is running
+  ./sshift --dev --stop         Stop dev instance
+  ./sshift --dev --restart      Restart dev instance
   ./sshift --help               Show this help message
 
 Options:
   -p, --port <port>     Server port (default: 8022, dev: 3000)
   -b, --bind <address> Bind address (default: 0.0.0.0)
-  -d, --dev             Development mode
+  -d, --dev             Development mode (separate PID file for --status/--stop/--restart)
   -s, --stop            Stop running instance
   -r, --restart         Restart running instance
   --status              Check running status
@@ -183,15 +188,15 @@ function isRunning() {
 }
 
 // Helper: Stop running instance
-function stopInstance() {
+function stopInstance(label) {
   const status = isRunning();
   
   if (!status.running) {
-    console.log('sshift is not running');
+    console.log(`${label} is not running`);
     return true;
   }
   
-  console.log(`Stopping sshift (PID: ${status.pid})...`);
+  console.log(`Stopping ${label} (PID: ${status.pid})...`);
   
   try {
     process.kill(status.pid, 'SIGTERM');
@@ -225,10 +230,10 @@ function stopInstance() {
       fs.unlinkSync(pidFile);
     }
     
-    console.log('sshift stopped successfully');
+    console.log(`${label} stopped successfully`);
     return true;
   } catch (e) {
-    console.error(`Error stopping sshift: ${e.message}`);
+    console.error(`Error stopping ${label}: ${e.message}`);
     return false;
   }
 }
@@ -236,25 +241,28 @@ function stopInstance() {
 // Handle --status
 if (options.status) {
   const status = isRunning();
+  const label = options.dev ? 'sshift (dev)' : 'sshift';
   if (status.running) {
-    console.log(`sshift is running (PID: ${status.pid})`);
+    console.log(`${label} is running (PID: ${status.pid})`);
     process.exit(0);
   } else {
-    console.log('sshift is not running');
+    console.log(`${label} is not running`);
     process.exit(1);
   }
 }
 
 // Handle --stop
 if (options.stop) {
-  const success = stopInstance();
+  const label = options.dev ? 'sshift (dev)' : 'sshift';
+  const success = stopInstance(label);
   process.exit(success ? 0 : 1);
 }
 
 // Handle --restart
 if (options.restart) {
-  console.log('Restarting sshift...');
-  stopInstance();
+  const label = options.dev ? 'sshift (dev)' : 'sshift';
+  console.log(`Restarting ${label}...`);
+  stopInstance(label);
   // Continue to start below
 }
 
