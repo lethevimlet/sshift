@@ -302,6 +302,32 @@ function registerSystemEndpoints(app, io) {
       const updateScriptPath = path.join(dataDir, '.sshift-update.sh');
       const updateLogPath = path.join(dataDir, '.sshift-update.log');
 
+      // Detect if running under systemd (moved before script template so the
+      // isSystemdManaged and systemdUnit variables are available for interpolation)
+      let isSystemdManaged = false;
+      let systemdUnit = '';
+      try {
+        // Check if this process is managed by systemd via cgroup
+        const myCgroup = fs.readFileSync(`/proc/${process.pid}/cgroup`, 'utf8');
+        if (myCgroup.includes('sshift')) {
+          isSystemdManaged = true;
+          systemdUnit = 'sshift.service';
+          console.log('[UPDATE] Detected systemd-managed process, unit:', systemdUnit);
+        } else if (process.ppid === 1) {
+          // Parent is init (systemd), check for sshift service
+          try {
+            require('child_process').execSync('systemctl is-enabled sshift.service 2>/dev/null', { encoding: 'utf8' });
+            isSystemdManaged = true;
+            systemdUnit = 'sshift.service';
+            console.log('[UPDATE] Detected systemd service:', systemdUnit);
+          } catch (e) {
+            // Not a systemd service
+          }
+        }
+      } catch (e) {
+        // /proc not available (non-Linux), ignore
+      }
+
       // Build PATH for the update script to ensure npm and node are findable
       const pathDirs = [];
       if (process.env.PATH) pathDirs.push(...process.env.PATH.split(':'));
@@ -436,32 +462,6 @@ fi
       console.log('[UPDATE] npm path:', npmBinPath);
       console.log('[UPDATE] sshift restart path:', sshiftBinPath);
       console.log('[UPDATE] Log file:', updateLogPath);
-      
-      // Detect if running under systemd
-      let isSystemdManaged = false;
-      let systemdUnit = '';
-      try {
-        const { execSync: execSync2 } = require('child_process');
-        // Check if this process is managed by systemd
-        const myCgroup = fs.readFileSync(`/proc/${process.pid}/cgroup`, 'utf8');
-        if (myCgroup.includes('sshift')) {
-          isSystemdManaged = true;
-          systemdUnit = 'sshift.service';
-          console.log('[UPDATE] Detected systemd-managed process, unit:', systemdUnit);
-        } else if (process.ppid === 1) {
-          // Parent is init (systemd), check for sshift service
-          try {
-            execSync2('systemctl is-enabled sshift.service 2>/dev/null', { encoding: 'utf8' });
-            isSystemdManaged = true;
-            systemdUnit = 'sshift.service';
-            console.log('[UPDATE] Detected systemd service:', systemdUnit);
-          } catch (e) {
-            // Not a systemd service
-          }
-        }
-      } catch (e) {
-        // /proc not available (non-Linux), ignore
-      }
 
       let spawnFailed = false;
       let spawnCommand, spawnArgs;
