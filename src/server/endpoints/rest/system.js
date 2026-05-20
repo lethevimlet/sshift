@@ -302,34 +302,70 @@ function registerSystemEndpoints(app, io) {
       const updateScriptPath = path.join(dataDir, '.sshift-update.sh');
       const updateLogPath = path.join(dataDir, '.sshift-update.log');
 
-      // Detect if running under systemd (moved before script template so the
-      // isSystemdManaged and systemdUnit variables are available for interpolation)
-      let isSystemdManaged = false;
-      let systemdUnit = '';
+// Detect service manager (systemd, launchd, Task Scheduler) so the
+      // update script can use the right stop/restart commands instead of exec.
+      // This prevents race conditions where the service manager restarts the
+      // old version before npm install completes.
+      let isServiceManaged = false;
+      let serviceManager = ''; // 'systemd', 'launchd', 'taskscheduler'
+      let serviceUnit = '';
       try {
-        // Check if this process is managed by systemd via cgroup
+        // Linux: check if this process is managed by systemd via cgroup
         const myPid = process.pid;
         const myCgroup = fs.readFileSync(`/proc/${myPid}/cgroup`, 'utf8');
         if (myCgroup.includes('sshift')) {
-          isSystemdManaged = true;
-          systemdUnit = 'sshift.service';
-          console.log('[UPDATE] Detected systemd-managed process via cgroup, unit:', systemdUnit);
+          isServiceManaged = true;
+          serviceManager = 'systemd';
+          serviceUnit = 'sshift.service';
+          console.log('[UPDATE] Detected systemd-managed process via cgroup, unit:', serviceUnit);
         }
       } catch (e) {
         // /proc not available (non-Linux), ignore
       }
-      // Fallback: check if sshift.service is active in systemd
-      if (!isSystemdManaged) {
+      // Fallback for Linux: check if sshift.service is active in systemd
+      if (!isServiceManaged && platform === 'linux') {
         try {
           const { execSync: execSync2 } = require('child_process');
           const isActive = execSync2('systemctl is-active sshift.service 2>/dev/null', { encoding: 'utf8' }).trim();
           if (isActive === 'active') {
-            isSystemdManaged = true;
-            systemdUnit = 'sshift.service';
-            console.log('[UPDATE] Detected active systemd service:', systemdUnit);
+            isServiceManaged = true;
+            serviceManager = 'systemd';
+            serviceUnit = 'sshift.service';
+            console.log('[UPDATE] Detected active systemd service:', serviceUnit);
           }
         } catch (e) {
           // Not a systemd service or systemctl not available
+        }
+      }
+      // macOS: check if sshift is managed by launchd
+      if (!isServiceManaged && platform === 'darwin') {
+        try {
+          const { execSync: execSync2 } = require('child_process');
+          // Check for the sshift launchd plist (installed by sshift-install.sh)
+          const plistCheck = execSync2('launchctl list com.sshift.server 2>/dev/null', { encoding: 'utf8' }).trim();
+          if (plistCheck && plistCheck.length > 0) {
+            isServiceManaged = true;
+            serviceManager = 'launchd';
+            serviceUnit = 'com.sshift.server';
+            console.log('[UPDATE] Detected launchd-managed service:', serviceUnit);
+          }
+        } catch (e) {
+          // Not a launchd service
+        }
+      }
+      // Windows: check if sshift is in Task Scheduler
+      if (!isServiceManaged && platform === 'win32') {
+        try {
+          const { execSync: execSync2 } = require('child_process');
+          const taskCheck = execSync2('schtasks /query /tn sshift 2>nul', { encoding: 'utf8' }).trim();
+          if (taskCheck && taskCheck.includes('sshift')) {
+            isServiceManaged = true;
+            serviceManager = 'taskscheduler';
+            serviceUnit = 'sshift';
+            console.log('[UPDATE] Detected Task Scheduler task:', serviceUnit);
+          }
+        } catch (e) {
+          // Not a scheduled task
         }
       }
 
@@ -426,14 +462,15 @@ NPM_BIN="${npmBinPath}"
 SSHIFT_FALLBACK="${sshiftBinPath}"
 NODE_BIN="${nodeExe}"
 OLD_VERSION="${oldVersion}"
-SYSTEMD_MANAGED="${isSystemdManaged ? '1' : '0'}"
-SYSTEMD_UNIT="${systemdUnit}"
+SERVICE_MANAGED="${isServiceManaged ? '1' : '0'}"
+SERVICE_MANAGER="${serviceManager}"
+SERVICE_UNIT="${serviceUnit}"
 
 echo "$(date): Starting sshift update (from v${oldVersion})..." > "$LOG"
 echo "$(date): npm path: $NPM_BIN" >> "$LOG"
 echo "$(date): node path: $NODE_BIN" >> "$LOG"
 echo "$(date): sshift fallback: $SSHIFT_FALLBACK" >> "$LOG"
-echo "$(date): systemd_managed: $SYSTEMD_MANAGED" >> "$LOG"
+echo "$(date): service_managed: $SERVICE_MANAGED manager: $SERVICE_MANAGER unit: $SERVICE_UNIT" >> "$LOG"
 
 # Find the current sshift binary before npm changes anything
 CURRENT_SSHIFT="$(command -v sshift 2>/dev/null || which sshift 2>/dev/null || echo "$SSHIFT_FALLBACK")"
@@ -463,9 +500,12 @@ if [ "$NPM_SUCCESS" != "true" ]; then
   echo "npm install failed" >> "$LOG"
   rm -f "$MARKER"
   # Always restart the server — the old version is still installed
-  if [ "$SYSTEMD_MANAGED" = "1" ]; then
+  if [ "$SERVICE_MANAGED" = "1" ] && [ "$SERVICE_MANAGER" = "systemd" ]; then
     echo "$(date): Restarting via systemd (old version)" >> "$LOG"
-    systemctl start "$SYSTEMD_UNIT" >> "$LOG" 2>&1
+    systemctl start "$SERVICE_UNIT" >> "$LOG" 2>&1
+  elif [ "$SERVICE_MANAGED" = "1" ] && [ "$SERVICE_MANAGER" = "launchd" ]; then
+    echo "$(date): Restarting via launchd (old version)" >> "$LOG"
+    launchctl start "$SERVICE_UNIT" >> "$LOG" 2>&1
   else
     echo "$(date): Restarting sshift (old version) from: $CURRENT_SSHIFT" >> "$LOG"
     exec "$NODE_BIN" "$CURRENT_SSHIFT"
@@ -477,9 +517,15 @@ echo "$(date): npm install completed successfully" >> "$LOG"
 # Remove the update marker before restart
 rm -f "$MARKER"
 
-if [ "$SYSTEMD_MANAGED" = "1" ]; then
+if [ "$SERVICE_MANAGED" = "1" ] && [ "$SERVICE_MANAGER" = "systemd" ]; then
   echo "$(date): Restarting via systemd" >> "$LOG"
-  systemctl restart "$SYSTEMD_UNIT" >> "$LOG" 2>&1
+  systemctl restart "$SERVICE_UNIT" >> "$LOG" 2>&1
+elif [ "$SERVICE_MANAGED" = "1" ] && [ "$SERVICE_MANAGER" = "launchd" ]; then
+  echo "$(date): Restarting via launchd" >> "$LOG"
+  # launchd doesn't have restart; stop and start
+  launchctl stop "$SERVICE_UNIT" >> "$LOG" 2>&1 || true
+  sleep 1
+  launchctl start "$SERVICE_UNIT" >> "$LOG" 2>&1
 else
   # Find the sshift binary — prefer PATH lookup since npm just updated it
   SSHIFT_BIN="$(command -v sshift 2>/dev/null || which sshift 2>/dev/null || echo "$SSHIFT_FALLBACK")"
@@ -515,11 +561,13 @@ fi
       const updateEnv = { ...process.env };
       updateEnv.PATH = scriptPath;
 
-      // When running under systemd, spawn the update script in a transient scope
-      // so it survives `systemctl restart` of the sshift service. Without this,
-      // the script is in the same cgroup as sshift and gets killed when the
-      // service restarts.
-      if (isSystemdManaged && platform !== 'win32') {
+      // When running under a service manager (systemd/launchd), spawn the update
+      // script in its own scope so it survives a service restart.
+      // For systemd: use systemd-run --scope to escape the service cgroup.
+      // For launchd on macOS: no special handling needed (launchd doesn't kill
+      // child processes on stop like systemd does, it only sends SIGTERM to the
+      // main process, and our process.exit(0) handles that).
+      if (isServiceManaged && serviceManager === 'systemd' && platform !== 'win32') {
         try {
           const systemdRunCheck = require('child_process').execSync('command -v systemd-run', { encoding: 'utf8' }).trim();
           if (systemdRunCheck) {
@@ -548,11 +596,11 @@ fi
       updateProcess.unref();
       
       // Give the update script enough time to start before exiting.
-      // Under systemd: we exit so the service can be restarted by `systemctl
-      // restart` in the script. The script runs in a separate systemd scope
-      // so it survives the service restart.
-      // Non-systemd: we exit so the script can exec the new binary.
-      const exitDelay = isSystemdManaged ? 1000 : 2000;
+      // Under systemd: we exit so systemctl restart can bring up the new version.
+      // The script runs in a separate systemd scope so it survives the restart.
+      // Under launchd: we exit so launchd stop/start can bring up the new version.
+      // For non-managed: we exit so the script can exec the new binary.
+      const exitDelay = isServiceManaged ? 1000 : 2000;
       setTimeout(() => {
         if (spawnFailed) {
           console.error('[UPDATE] Update process failed to start. Keeping server running.');
