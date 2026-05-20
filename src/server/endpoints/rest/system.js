@@ -323,22 +323,51 @@ $LogPath = '${updateLogPath}'
 $NodeExe = '${nodeExe}'
 $SshiftBin = '${sshiftBinPath}'
 
+# Check if running under Task Scheduler
+$TaskName = "sshift"
+$IsScheduled = $false
+try {
+  $Task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+  if ($Task -ne $null) {
+    $IsScheduled = $true
+    Write-Output "Detected Task Scheduler task: $TaskName" | Out-File -FilePath $LogPath -Append
+    Write-Output "Stopping scheduled task..." | Out-File -FilePath $LogPath -Append
+    Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+  }
+} catch {}
+
 try {
   & npm install -g @lethevimlet/sshift@latest 2>&1 | Out-File -FilePath $LogPath -Append
   if ($LASTEXITCODE -ne 0) {
     Write-Output "npm install failed with exit code $LASTEXITCODE" | Out-File -FilePath $LogPath -Append
     Remove-Item -Path $MarkerPath -Force -ErrorAction SilentlyContinue
-    & $NodeExe $SshiftBin
+    if ($IsScheduled) {
+      Write-Output "Starting scheduled task (old version)" | Out-File -FilePath $LogPath -Append
+      Start-ScheduledTask -TaskName $TaskName
+    } else {
+      & $NodeExe $SshiftBin
+    }
     exit 1
   }
 } catch {
   Write-Output $_.Exception.Message | Out-File -FilePath $LogPath -Append
   Remove-Item -Path $MarkerPath -Force -ErrorAction SilentlyContinue
-  & $NodeExe $SshiftBin
+  if ($IsScheduled) {
+    Write-Output "Starting scheduled task (old version)" | Out-File -FilePath $LogPath -Append
+    Start-ScheduledTask -TaskName $TaskName
+  } else {
+    & $NodeExe $SshiftBin
+  }
   exit 1
 }
 Remove-Item -Path $MarkerPath -Force -ErrorAction SilentlyContinue
-& $NodeExe $SshiftBin
+if ($IsScheduled) {
+  Write-Output "Starting scheduled task" | Out-File -FilePath $LogPath -Append
+  Start-ScheduledTask -TaskName $TaskName
+} else {
+  & $NodeExe $SshiftBin
+}
 `;
         const psScriptPath = updateScriptPath.replace('.sh', '.ps1');
         fs.writeFileSync(psScriptPath, psScript, 'utf8');
@@ -356,6 +385,28 @@ echo "$(date): npm path: $NPM_BIN" >> "$LOG"
 echo "$(date): node path: $NODE_BIN" >> "$LOG"
 echo "$(date): sshift fallback: $SSHIFT_FALLBACK" >> "$LOG"
 
+# Check if running under systemd
+SYSTEMD_UNIT=""
+if command -v systemctl >/dev/null 2>&1; then
+  SYSTEMD_UNIT="$(systemctl show -p Id -value sshift.service 2>/dev/null || true)"
+  if [ -z "$SYSTEMD_UNIT" ]; then
+    # Try to find sshift in systemd by looking at the running process
+    _my_pid="$$"
+    _my_cgroup="$(cat /proc/$_my_pid/cgroup 2>/dev/null | grep -o 'name=systemd.*sshift[.]service' | head -1)"
+    if [ -n "$_my_cgroup" ]; then
+      SYSTEMD_UNIT="sshift.service"
+    fi
+  fi
+fi
+
+if [ -n "$SYSTEMD_UNIT" ]; then
+  echo "$(date): Detected systemd service: $SYSTEMD_UNIT" >> "$LOG"
+  # Stop the service before updating to prevent systemd from restarting old version
+  echo "$(date): Stopping $SYSTEMD_UNIT..." >> "$LOG"
+  systemctl stop "$SYSTEMD_UNIT" >> "$LOG" 2>&1 || true
+  sleep 1
+fi
+
 # Find the current sshift binary before npm changes anything
 CURRENT_SSHIFT="$(command -v sshift 2>/dev/null || which sshift 2>/dev/null || echo "$SSHIFT_FALLBACK")"
 
@@ -366,24 +417,35 @@ if ! "$NPM_BIN" install -g @lethevimlet/sshift@latest >> "$LOG" 2>&1; then
   echo "npm install failed" >> "$LOG"
   rm -f "$MARKER"
   # Always restart the server — the old version is still installed
-  echo "$(date): Restarting sshift (old version) from: $CURRENT_SSHIFT" >> "$LOG"
-  exec "$NODE_BIN" "$CURRENT_SSHIFT"
+  if [ -n "$SYSTEMD_UNIT" ]; then
+    echo "$(date): Restarting via systemd (old version)" >> "$LOG"
+    systemctl start "$SYSTEMD_UNIT" >> "$LOG" 2>&1
+  else
+    echo "$(date): Restarting sshift (old version) from: $CURRENT_SSHIFT" >> "$LOG"
+    exec "$NODE_BIN" "$CURRENT_SSHIFT"
+  fi
+  exit 1
 fi
 echo "$(date): npm install completed successfully" >> "$LOG"
 
 # Remove the update marker before restart
 rm -f "$MARKER"
 
-# Find the sshift binary — prefer PATH lookup since npm just updated it
-SSHIFT_BIN="$(command -v sshift 2>/dev/null || which sshift 2>/dev/null || echo "$SSHIFT_FALLBACK")"
-if [ ! -x "$SSHIFT_BIN" ]; then
-  echo "$(date): ERROR: sshift binary not found or not executable at: $SSHIFT_BIN" >> "$LOG"
-  echo "$(date): Attempting to restart with fallback path" >> "$LOG"
-  SSHIFT_BIN="$SSHIFT_FALLBACK"
-fi
+if [ -n "$SYSTEMD_UNIT" ]; then
+  echo "$(date): Restarting via systemd" >> "$LOG"
+  systemctl start "$SYSTEMD_UNIT" >> "$LOG" 2>&1
+else
+  # Find the sshift binary — prefer PATH lookup since npm just updated it
+  SSHIFT_BIN="$(command -v sshift 2>/dev/null || which sshift 2>/dev/null || echo "$SSHIFT_FALLBACK")"
+  if [ ! -x "$SSHIFT_BIN" ]; then
+    echo "$(date): ERROR: sshift binary not found or not executable at: $SSHIFT_BIN" >> "$LOG"
+    echo "$(date): Attempting to restart with fallback path" >> "$LOG"
+    SSHIFT_BIN="$SSHIFT_FALLBACK"
+  fi
 
-echo "$(date): Restarting sshift from: $SSHIFT_BIN" >> "$LOG"
-exec "$NODE_BIN" "$SSHIFT_BIN"
+  echo "$(date): Restarting sshift from: $SSHIFT_BIN" >> "$LOG"
+  exec "$NODE_BIN" "$SSHIFT_BIN"
+fi
 `;
         fs.writeFileSync(updateScriptPath, updateScript, 'utf8');
         fs.chmodSync(updateScriptPath, 0o755);
@@ -394,6 +456,32 @@ exec "$NODE_BIN" "$SSHIFT_BIN"
       console.log('[UPDATE] sshift restart path:', sshiftBinPath);
       console.log('[UPDATE] Log file:', updateLogPath);
       
+      // Detect if running under systemd
+      let isSystemdManaged = false;
+      let systemdUnit = '';
+      try {
+        const { execSync: execSync2 } = require('child_process');
+        // Check if this process is managed by systemd
+        const myCgroup = fs.readFileSync(`/proc/${process.pid}/cgroup`, 'utf8');
+        if (myCgroup.includes('sshift')) {
+          isSystemdManaged = true;
+          systemdUnit = 'sshift.service';
+          console.log('[UPDATE] Detected systemd-managed process, unit:', systemdUnit);
+        } else if (process.ppid === 1) {
+          // Parent is init (systemd), check for sshift service
+          try {
+            execSync2('systemctl is-enabled sshift.service 2>/dev/null', { encoding: 'utf8' });
+            isSystemdManaged = true;
+            systemdUnit = 'sshift.service';
+            console.log('[UPDATE] Detected systemd service:', systemdUnit);
+          } catch (e) {
+            // Not a systemd service
+          }
+        }
+      } catch (e) {
+        // /proc not available (non-Linux), ignore
+      }
+
       let spawnFailed = false;
       let spawnCommand, spawnArgs;
       if (platform === 'win32') {
@@ -425,14 +513,24 @@ exec "$NODE_BIN" "$SSHIFT_BIN"
       // Give the update script enough time to start before exiting.
       // The script runs npm install (which can take time) in the background,
       // but we need to wait long enough for the spawn to succeed.
+      // When running under systemd, the update script will stop/start the service,
+      // so we DON'T exit ourselves — the script's `systemctl stop` will kill us.
+      // For non-systemd, we exit so the script can exec the new binary.
+      const exitDelay = isSystemdManaged ? 500 : 2000;
       setTimeout(() => {
         if (spawnFailed) {
           console.error('[UPDATE] Update process failed to start. Keeping server running.');
           return;
         }
+        if (isSystemdManaged) {
+          // Under systemd, the update script will call `systemctl stop` to stop us.
+          // We don't need to exit ourselves. Just keep running until systemd stops us.
+          console.log('[UPDATE] Update script running under systemd. Service will be stopped by the script.');
+          return;
+        }
         console.log('[UPDATE] Exiting for update...');
         process.exit(0);
-      }, 2000);
+      }, exitDelay);
     } catch (err) {
       console.error('Error triggering update:', err);
       res.status(500).json({ error: 'Failed to trigger update' });
