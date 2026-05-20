@@ -126,11 +126,61 @@ npm start
 
 The application will be available at `https://localhost:8022` (default production port)
 
-## Development Mode
+## CLI Reference
+
+```
+sshift                      Start server on default port (8022)
+sshift --dev                Start in development mode (port 3000, separate PID)
+sshift --port 8080          Start server on custom port
+sshift --bind 127.0.0.1     Bind to specific address
+sshift --status             Check if sshift is running
+sshift --stop               Stop running instance
+sshift --restart            Restart running instance
+sshift --dev --status       Check if dev instance is running
+sshift --dev --stop         Stop dev instance
+sshift --dev --restart      Restart dev instance
+sshift --help               Show help message
+```
+
+| Flag | Shorthand | Description |
+|------|-----------|-------------|
+| `--port <port>` | `-p` | Server port (default: 8022, dev: 3000) |
+| `--bind <addr>` | `-b` | Bind address (default: 0.0.0.0) |
+| `--dev` | `-d` | Development mode — uses `devPort` from config (default 3000) and a separate PID file so dev and production instances can run side-by-side |
+| `--stop` | `-s` | Stop running instance |
+| `--restart` | `-r` | Restart running instance |
+| `--status` | | Check running status |
+| `--help` | `-h` | Show help message |
+
+### Development Mode (`--dev` / `-d`)
+
+The `--dev` flag starts sshift in development mode:
+
+- **Sets `NODE_ENV=development`** — switches the default port from 8022 to 3000 (or the `devPort` configured in `config.json`)
+- **Separate PID file** — uses `.sshift-dev.pid` instead of `.sshift.pid`, so a dev instance and a production instance can run simultaneously
+- **Instance management** — `--dev` can be combined with `--status`, `--stop`, and `--restart` to manage the dev instance independently
 
 ```bash
-# Start in development mode (port 3000)
+# Start in development mode
+sshift --dev
+
+# Or via npm
 npm run dev
+
+# Check dev instance status
+sshift --dev --status
+
+# Stop dev instance (production is unaffected)
+sshift --dev --stop
+
+# Restart dev instance
+sshift --dev --restart
+```
+
+You can also set `NODE_ENV=development` directly:
+
+```bash
+NODE_ENV=development sshift
 ```
 
 ## Port Configuration

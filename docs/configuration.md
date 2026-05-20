@@ -408,6 +408,8 @@ When the same setting is defined in multiple places, SSHIFT uses this priority (
 4. **`config.json` `port`** (production)
 5. **Built-in defaults** — 8022 (production), 3000 (development)
 
+> **Tip:** Use `sshift --dev` (`-d`) to start in development mode. This sets `NODE_ENV=development` and uses a separate PID file, allowing a dev instance to run alongside production. See [Installation > CLI Reference]({{ site.baseurl }}/installation.html) for all CLI options.
+
 ### Bind Address Priority
 
 1. **`--bind` CLI argument** (highest priority; sets `BIND` env var)

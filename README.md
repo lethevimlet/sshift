@@ -124,6 +124,34 @@ npm install
 npm start
 ```
 
+## 🖥️ CLI Reference
+
+```
+sshift                      Start server on default port (8022)
+sshift --dev                Start in development mode (port 3000, separate PID)
+sshift --port 8080          Start server on custom port
+sshift --bind 127.0.0.1     Bind to specific address
+sshift --status             Check if sshift is running
+sshift --stop               Stop running instance
+sshift --restart            Restart running instance
+sshift --dev --status       Check if dev instance is running
+sshift --dev --stop         Stop dev instance
+sshift --dev --restart      Restart dev instance
+sshift --help               Show help message
+```
+
+| Flag | Shorthand | Description |
+|------|-----------|-------------|
+| `--port <port>` | `-p` | Server port (default: 8022, dev: 3000) |
+| `--bind <addr>` | `-b` | Bind address (default: 0.0.0.0) |
+| `--dev` | `-d` | Development mode — uses `devPort` from config (default 3000) and a separate PID file so dev and production instances can run side-by-side |
+| `--stop` | `-s` | Stop running instance |
+| `--restart` | `-r` | Restart running instance |
+| `--status` | | Check running status |
+| `--help` | `-h` | Show help message |
+
+> **Note:** `--dev` sets `NODE_ENV=development`, which switches the default port from 8022 to 3000 (or `devPort` from `config.json`). It also uses a separate PID file (`.sshift-dev.pid`) so you can run a dev instance alongside production and use `--dev --status`/`--dev --stop`/`--dev --restart` to manage it independently.
+
 ## ⚙️ Configuration
 
 SSHIFT uses a priority-based configuration system. Config files are searched in order; the first match wins.
