@@ -308,24 +308,29 @@ function registerSystemEndpoints(app, io) {
       let systemdUnit = '';
       try {
         // Check if this process is managed by systemd via cgroup
-        const myCgroup = fs.readFileSync(`/proc/${process.pid}/cgroup`, 'utf8');
+        const myPid = process.pid;
+        const myCgroup = fs.readFileSync(`/proc/${myPid}/cgroup`, 'utf8');
         if (myCgroup.includes('sshift')) {
           isSystemdManaged = true;
           systemdUnit = 'sshift.service';
-          console.log('[UPDATE] Detected systemd-managed process, unit:', systemdUnit);
-        } else if (process.ppid === 1) {
-          // Parent is init (systemd), check for sshift service
-          try {
-            require('child_process').execSync('systemctl is-enabled sshift.service 2>/dev/null', { encoding: 'utf8' });
-            isSystemdManaged = true;
-            systemdUnit = 'sshift.service';
-            console.log('[UPDATE] Detected systemd service:', systemdUnit);
-          } catch (e) {
-            // Not a systemd service
-          }
+          console.log('[UPDATE] Detected systemd-managed process via cgroup, unit:', systemdUnit);
         }
       } catch (e) {
         // /proc not available (non-Linux), ignore
+      }
+      // Fallback: check if sshift.service is active in systemd
+      if (!isSystemdManaged) {
+        try {
+          const { execSync: execSync2 } = require('child_process');
+          const isActive = execSync2('systemctl is-active sshift.service 2>/dev/null', { encoding: 'utf8' }).trim();
+          if (isActive === 'active') {
+            isSystemdManaged = true;
+            systemdUnit = 'sshift.service';
+            console.log('[UPDATE] Detected active systemd service:', systemdUnit);
+          }
+        } catch (e) {
+          // Not a systemd service or systemctl not available
+        }
       }
 
       // Build PATH for the update script to ensure npm and node are findable
@@ -364,9 +369,25 @@ try {
 } catch {}
 
 try {
-  & npm install -g @lethevimlet/sshift@latest 2>&1 | Out-File -FilePath $LogPath -Append
-  if ($LASTEXITCODE -ne 0) {
-    Write-Output "npm install failed with exit code $LASTEXITCODE" | Out-File -FilePath $LogPath -Append
+  $NpmAttempts = 0
+  $NpmMaxAttempts = 3
+  $NpmSuccess = $false
+  while ($NpmAttempts -lt $NpmMaxAttempts) {
+    $NpmAttempts++
+    Write-Output "$(Get-Date): npm install attempt $NpmAttempts of $NpmMaxAttempts" | Out-File -FilePath $LogPath -Append
+    & npm install -g @lethevimlet/sshift@latest 2>&1 | Out-File -FilePath $LogPath -Append
+    if ($LASTEXITCODE -eq 0) {
+      $NpmSuccess = $true
+      break
+    }
+    Write-Output "$(Get-Date): npm install attempt $NpmAttempts failed" | Out-File -FilePath $LogPath -Append
+    if ($NpmAttempts -lt $NpmMaxAttempts) {
+      Write-Output "$(Get-Date): Waiting 30s before retry..." | Out-File -FilePath $LogPath -Append
+      Start-Sleep -Seconds 30
+    }
+  }
+  if (-not $NpmSuccess) {
+    Write-Output "npm install failed after $NpmMaxAttempts attempts" | Out-File -FilePath $LogPath -Append
     Remove-Item -Path $MarkerPath -Force -ErrorAction SilentlyContinue
     if ($IsScheduled) {
       Write-Output "Starting scheduled task (old version)" | Out-File -FilePath $LogPath -Append
@@ -417,10 +438,28 @@ echo "$(date): systemd_managed: $SYSTEMD_MANAGED" >> "$LOG"
 # Find the current sshift binary before npm changes anything
 CURRENT_SSHIFT="$(command -v sshift 2>/dev/null || which sshift 2>/dev/null || echo "$SSHIFT_FALLBACK")"
 
-# Run npm install
+# Run npm install (with retry for registry propagation delay)
 echo "$(date): Running npm install..." >> "$LOG"
-if ! "$NPM_BIN" install -g @lethevimlet/sshift@latest >> "$LOG" 2>&1; then
-  echo "$(date): npm install failed" >> "$LOG"
+NPM_ATTEMPTS=0
+NPM_MAX_ATTEMPTS=3
+NPM_DELAY=30
+NPM_SUCCESS=false
+while [ $NPM_ATTEMPTS -lt $NPM_MAX_ATTEMPTS ]; do
+  NPM_ATTEMPTS=$((NPM_ATTEMPTS + 1))
+  echo "$(date): npm install attempt $NPM_ATTEMPTS of $NPM_MAX_ATTEMPTS" >> "$LOG"
+  if "$NPM_BIN" install -g @lethevimlet/sshift@latest >> "$LOG" 2>&1; then
+    NPM_SUCCESS=true
+    break
+  fi
+  echo "$(date): npm install attempt $NPM_ATTEMPTS failed" >> "$LOG"
+  if [ $NPM_ATTEMPTS -lt $NPM_MAX_ATTEMPTS ]; then
+    echo "$(date): Waiting ${NPM_DELAY}s before retry (npm registry propagation delay)..." >> "$LOG"
+    sleep $NPM_DELAY
+  fi
+done
+
+if [ "$NPM_SUCCESS" != "true" ]; then
+  echo "$(date): npm install failed after $NPM_MAX_ATTEMPTS attempts" >> "$LOG"
   echo "npm install failed" >> "$LOG"
   rm -f "$MARKER"
   # Always restart the server — the old version is still installed
