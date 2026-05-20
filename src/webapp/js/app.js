@@ -3435,6 +3435,14 @@ const wheelHandler = (e) => {
       this.handleTabClosed(data.sessionId);
     });
 
+    this.socket.on('sessions-updated', () => {
+      const modal = document.getElementById('manageSessionsModal');
+      if (modal && modal.classList.contains('active')) {
+        if (this._sessionsUpdateTimer) clearTimeout(this._sessionsUpdateTimer);
+        this._sessionsUpdateTimer = setTimeout(() => this.loadSessions(), 300);
+      }
+    });
+
     // Handle tab order update from server
     this.socket.on('tab-order', (data) => {
       console.log('[SSHIFT] Tab order updated:', data.order);
@@ -5107,7 +5115,6 @@ const wheelHandler = (e) => {
   }
 
   initSessionsModalHandlers() {
-    // Close button
     const closeBtn = document.getElementById('closeManageSessionsModal');
     if (closeBtn) {
       closeBtn.addEventListener('click', () => {
@@ -5115,7 +5122,13 @@ const wheelHandler = (e) => {
       });
     }
     
-    // Close all button
+    const closeFooterBtn = document.getElementById('closeManageSessions');
+    if (closeFooterBtn) {
+      closeFooterBtn.addEventListener('click', () => {
+        this.closeModal('manageSessionsModal');
+      });
+    }
+    
     const closeAllBtn = document.getElementById('closeAllSessions');
     if (closeAllBtn) {
       closeAllBtn.addEventListener('click', () => {

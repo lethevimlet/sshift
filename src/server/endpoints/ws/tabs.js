@@ -55,10 +55,12 @@ function registerTabHandlers(socket, io) {
         
         // Broadcast to all clients that tab was closed
         io.emit('tab-closed', { sessionId: data.sessionId });
+        io.emit('sessions-updated');
       }
     } else {
       // Broadcast to all clients that tab was closed
       io.emit('tab-closed', { sessionId: data.sessionId });
+      io.emit('sessions-updated');
     }
   });
 

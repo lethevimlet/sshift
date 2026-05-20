@@ -166,10 +166,10 @@ class SSHManager {
 
           stream.on('close', () => {
             console.log(`[SSH] Stream closed: ${sessionId}`);
-            // Flush any remaining buffered data before disconnect
             this.flushData(sessionId);
             this.broadcastToSession(sessionId, 'ssh-disconnected', { sessionId });
             this.disconnect(sessionId);
+            if (this.io) this.io.emit('sessions-updated');
           });
 
           stream.on('exit', (code, signal) => {
@@ -190,6 +190,7 @@ class SSHManager {
         console.error(`[SSH] Connection error: ${err.message}`);
         socket.emit('ssh-error', { sessionId, message: err.message });
         this.sessions.delete(sessionId);
+        if (this.io) this.io.emit('sessions-updated');
         reject(err);
       });
 
@@ -197,6 +198,7 @@ class SSHManager {
         console.log(`[SSH] Connection closed: ${sessionId}`);
         this.broadcastToSession(sessionId, 'ssh-disconnected', { sessionId });
         this.sessions.delete(sessionId);
+        if (this.io) this.io.emit('sessions-updated');
       });
 
       try {
@@ -357,10 +359,14 @@ class SSHManager {
     socket.emit('ssh-joined', {
       sessionId: sessionId,
       noTerminalState: !hasTerminalState,
-      controllerSocket: session.controllerSocket, // Tell client who is in control
-      isController: session.controllerSocket === socket.id, // Tell client if they are in control
-      socketCount: session.sockets.size // Tell client how many sockets are connected
+      controllerSocket: session.controllerSocket,
+      isController: session.controllerSocket === socket.id,
+      socketCount: session.sockets.size
     });
+    
+    if (this.io) {
+      this.io.emit('sessions-updated');
+    }
     
     return true;
   }
@@ -398,6 +404,10 @@ class SSHManager {
         session.controllerSocket = null;
       }
     }
+    
+    if (this.io) {
+      this.io.emit('sessions-updated');
+    }
   }
 
   // Take control of a session
@@ -428,6 +438,10 @@ class SSHManager {
         sessionId,
         controllerSocket: socket.id
       });
+    }
+    
+    if (this.io) {
+      this.io.emit('sessions-updated');
     }
     
     return { 
@@ -463,6 +477,10 @@ class SSHManager {
       }
     } else {
       session.controllerSocket = null;
+    }
+    
+    if (this.io) {
+      this.io.emit('sessions-updated');
     }
     
     return { success: true };

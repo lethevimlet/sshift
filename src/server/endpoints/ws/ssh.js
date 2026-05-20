@@ -51,13 +51,14 @@ function registerSSHHandlers(socket, io) {
         sticky: sticky
       });
       
-      // Broadcast to all clients that a new tab was opened
       io.emit('tab-opened', {
         sessionId,
         name: data.name || 'SSH',
         type: 'ssh',
         connectionData: data
       });
+      
+      io.emit('sessions-updated');
       
       socket.emit('ssh-connected', { sessionId });
     } catch (err) {
@@ -160,8 +161,8 @@ function registerSSHHandlers(socket, io) {
     // Remove from open tabs and order
     removeTab(data.sessionId);
     
-    // Broadcast to all clients that tab was closed
     io.emit('tab-closed', { sessionId: data.sessionId });
+    io.emit('sessions-updated');
   });
 }
 

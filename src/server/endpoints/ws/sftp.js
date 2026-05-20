@@ -44,13 +44,14 @@ function registerSFTPHandlers(socket, io) {
         sticky: sticky
       });
       
-      // Broadcast to all clients that a new tab was opened
       io.emit('tab-opened', {
         sessionId,
         name: data.name || 'SFTP',
         type: 'sftp',
         connectionData: data
       });
+      
+      io.emit('sessions-updated');
       
       socket.emit('sftp-connected', { sessionId });
     } catch (err) {
@@ -135,6 +136,7 @@ function registerSFTPHandlers(socket, io) {
     
     // Broadcast to all clients that tab was closed
     io.emit('tab-closed', { sessionId: data.sessionId });
+    io.emit('sessions-updated');
   });
 }
 

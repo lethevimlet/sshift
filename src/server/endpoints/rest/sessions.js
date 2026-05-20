@@ -76,6 +76,7 @@ function registerSessionsEndpoints(app, io) {
     
     // Broadcast to all clients that the session was closed
     io.emit('tab-closed', { sessionId });
+    io.emit('sessions-updated');
     
     res.json({ success: true, sessionId });
   });
@@ -105,6 +106,8 @@ function registerSessionsEndpoints(app, io) {
     for (const sessionId of closedSessions) {
       removeTab(sessionId);
     }
+    
+    io.emit('sessions-updated');
     
     res.json({ success: true, closedCount: closedSessions.length });
   });
