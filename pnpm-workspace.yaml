@@ -10,4 +10,5 @@ minimumReleaseAgeIgnoreMissingTime: false
 trustPolicy: no-downgrade
 trustPolicyExclude:
   - "@lethevimlet/sshift"
+  - "semver@6.3.1"
 ignoreScripts: true
