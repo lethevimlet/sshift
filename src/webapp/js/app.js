@@ -2690,14 +2690,10 @@ const wheelHandler = (e) => {
     // - Scrolling DOWN (towards bottom) decreases ydisp
     // So: scrollDiff > 0 means scrolling UP into history, scrollDiff < 0 means scrolling DOWN
     
-    // Hide/show header and tabs based on scroll direction
-    // When scrolling UP (into scrollback, scrollDiff > 0), show header/tabs for navigation
-    // When scrolling DOWN (towards bottom, scrollDiff < 0), hide header/tabs to maximize terminal space
-    // But never hide when keyboard is open - they must stay fixed at top
+    // On mobile, header and tabs should always remain visible
+    // Only show (never hide) in case they were hidden by some other mechanism
     if (scrollDiff > 2) {
       this.showHeaderAndTabs();
-    } else if (scrollDiff < -2 && this.currentKeyboardHeight <= 50) {
-      this.hideHeaderAndTabs();
     }
     
     // Update last scroll position
@@ -2705,6 +2701,7 @@ const wheelHandler = (e) => {
   }
   
   hideHeaderAndTabs() {
+    if (this.isMobile) return;
     if (this.headerHidden) return;
     
     console.log('[SSHIFT] Hiding header and tabs');

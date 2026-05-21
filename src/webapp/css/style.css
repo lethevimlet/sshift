@@ -3939,7 +3939,7 @@ body.dragging-tabs .tabs-container {
   }
   
   .header.hidden {
-    transform: translateY(-100%);
+    transform: none !important;
   }
   
   .tabs-container {
@@ -3952,7 +3952,7 @@ body.dragging-tabs .tabs-container {
   }
   
   .tabs-container.hidden {
-    transform: translateY(-100%);
+    transform: none !important;
   }
   
   /* Add padding to main-content to account for fixed header and tabs */
