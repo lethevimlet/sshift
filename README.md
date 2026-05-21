@@ -6,7 +6,7 @@
 [![npm version](https://img.shields.io/npm/v/@lethevimlet/sshift.svg)](https://www.npmjs.com/package/@lethevimlet/sshift)
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io/lethevimlet/sshift-blue.svg)](https://github.com/lethevimlet/sshift/pkgs/container/sshift)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![socket](https://socket.dev/api/badge?packageHandle=npm:@lethevimlet/sshift)](https://socket.dev/npm/package/@lethevimlet/sshift)
+[![Socket Badge](https://badge.socket.dev/npm/package/@lethevimlet/sshift)](https://socket.dev/npm/package/@lethevimlet/sshift)
 
 A modern, responsive web-based SSH and SFTP terminal client built with Node.js, Express, and xterm.js. Designed for the AI coding workflow — featuring tab flash notifications that alert you when AI tools like OpenCode or Claude are waiting for your input, so you never miss a prompt while multitasking. Also features excellent TUI support, tabbed sessions, bookmarks, and mobile-friendly design.
 
