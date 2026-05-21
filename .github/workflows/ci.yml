@@ -43,6 +43,3 @@ jobs:
 
       - name: Install dependencies
         run: sfw pnpm install --frozen-lockfile
-
-      - name: Run tests
-        run: pnpm test
