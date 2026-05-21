@@ -12,9 +12,10 @@ WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
+COPY pnpm-lock.yaml ./
 
 # Install dependencies (including devDependencies for build)
-RUN npm ci --include=dev
+RUN npm ci
 
 # Copy source code
 COPY . .
@@ -25,7 +26,7 @@ FROM node:20-alpine
 # Labels for container metadata
 LABEL maintainer="lethevimlet"
 LABEL description="Web-based SSH & SFTP Terminal Client"
-LABEL version="0.2.0"
+LABEL version="1.1.1"
 
 # Install runtime dependencies
 RUN apk add --no-cache \
@@ -43,7 +44,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install only production dependencies
-RUN npm ci --only=production && \
+RUN npm ci --omit=dev && \
     npm cache clean --force && \
     chown -R sshift:sshift /app
 
@@ -65,7 +66,7 @@ EXPOSE 8022
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD node -e "require('https').get('https://localhost:8022/', {rejectUnauthorized: false}, (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
+  CMD node -e "require('https').get('https://localhost:8022/', {rejectUnauthorized: false}, (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
 # Environment variables
 ENV NODE_ENV=production
