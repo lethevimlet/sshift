@@ -42,7 +42,7 @@ jobs:
       - name: Check if version exists on npm
         id: check_version
         run: |
-          if npm view sshift@${{ steps.package_version.outputs.version }} version 2>/dev/null; then
+          if npm view @lethevimlet/sshift@${{ steps.package_version.outputs.version }} version 2>/dev/null; then
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT
