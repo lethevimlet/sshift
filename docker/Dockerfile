@@ -40,14 +40,12 @@ RUN addgroup -g 1001 -S sshift && \
 # Create app directory
 WORKDIR /app
 
-# Copy package files and pnpm lockfile (authoritative source)
+# Copy package files
 COPY package*.json ./
-COPY pnpm-lock.yaml ./
 
-# Regenerate package-lock.json from pnpm-lock.yaml so npm ci stays in sync,
+# Regenerate package-lock.json to ensure it stays in sync with package.json,
 # then install only production dependencies
-RUN npm i -g pnpm@10 && \
-    pnpm import && \
+RUN npm install --package-lock-only --ignore-scripts && \
     npm ci --omit=dev && \
     npm cache clean --force && \
     chown -R sshift:sshift /app
