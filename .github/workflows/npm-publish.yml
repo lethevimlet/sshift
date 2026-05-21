@@ -25,6 +25,16 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Socket Firewall
+        uses: socketdev/action@v1
+        with:
+          mode: firewall
+
       - name: Get version from package.json
         id: package_version
         run: |
@@ -44,7 +54,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.check_version.outputs.exists == 'false'
-        run: npm ci
+        run: sfw pnpm install --frozen-lockfile
 
       - name: Publish to npm
         if: steps.check_version.outputs.exists == 'false'

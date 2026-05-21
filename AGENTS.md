@@ -12,6 +12,16 @@ This project uses a `.agents` directory for all AI-generated documentation files
 - Always ask the user before any git operations (commit, push, PR)
 - The user will handle version control operations themselves when ready
 
+### Secret scanning (gitleaks)
+
+Pre-commit hooks and CI scan for leaked secrets using [gitleaks](https://github.com/gitleaks/gitleaks):
+
+- **Pre-commit hook**: Installed via [pre-commit](https://pre-commit.com) — blocks commits containing API keys, passwords, tokens, private keys, etc. Run `pre-commit install` after cloning to enable.
+- **CI**: The `gitleaks` job in `.github/workflows/ci.yml` scans the full git history on every PR and push.
+- **Config**: `.gitleaks.toml` extends the default ruleset with project-specific allowlists.
+
+To bypass a false positive, add `gitleaks:allow` as a comment on the offending line.
+
 ## Guidelines for AI Agents
 
 **DO NOT** create AI-related markdown files in the project root directory.
@@ -29,6 +39,65 @@ This project uses a `.agents` directory for all AI-generated documentation files
 - `README.md` - Project readme for human developers
 - `LICENSE` - License file
 - `CHANGELOG.md` - User-facing changelog (if applicable)
+
+## Package Manager & Supply Chain Security
+
+### pnpm (primary)
+
+pnpm is the **primary package manager** for development and CI. It provides:
+
+- **1-week minimum release age** (`minimumReleaseAge: 10080` minutes = 7 days): New packages must be at least 7 days old before they can be installed. This is a time gate against supply chain attacks on newly published packages. `@lethevimlet/sshift` itself is excluded so new releases are always installable immediately.
+- **Trust policy** (`trustPolicy: no-downgrade`): Blocks installation of package versions with weaker trust evidence (e.g., provenance/signatures) than previously published versions. `@lethevimlet/sshift` is excluded from this check as well.
+- **Strict release age enforcement** (`minimumReleaseAgeStrict: true`): Fails resolution instead of falling back to newer versions that don't meet the age requirement.
+
+Configuration lives in `pnpm-workspace.yaml` (pnpm v10 also reads these from `.npmrc`).
+
+### Key files
+- `pnpm-workspace.yaml` — pnpm workspace config and supply chain settings
+- `.npmrc` — Registry/auth settings and pnpm overrides (also `minimum-release-age` for v10 compat)
+
+### npm compatibility
+
+npm users can still `npm install` — both `package-lock.json` and `pnpm-lock.yaml` are tracked. npm users bypass the time gate but get the same dependencies.
+
+### Socket.dev
+
+Socket.dev is not used. Supply chain security is handled entirely by pnpm's built-in gates:
+- **`trustPolicy: no-downgrade`** — blocks packages that lose provenance/signatures between versions
+- **`minimumReleaseAge: 10080`** — 7-day time gate on all new package releases
+- **`minimumReleaseAgeStrict: true`** — fails install instead of falling back to an newer, ungated version
+
+### Socket Firewall (sfw)
+
+[Socket Firewall Free](https://docs.socket.dev/docs/socket-firewall-free) (`sfw`) is a command prefix that intercepts package manager network requests and blocks confirmed malware before it reaches your filesystem. It supports `npm`, `yarn`, and `pnpm`.
+
+Usage:
+- `sfw pnpm install` — Install dependencies with Socket scanning (malware blocking + AI warning)
+- `pnpm install:safe` — Shortcut that runs `sfw pnpm install`
+- `sfw pnpm add <pkg>` — Add a dependency with Socket scanning
+
+Installation: `npm i -g sfw` or download from [GitHub releases](https://github.com/SocketDev/sfw-free/releases).
+
+Note: `sfw` requires network connectivity and only works with public registries. It blocks confirmed malware and warns on AI-detected threats.
+
+### Commands
+- `pnpm install` — Install dependencies (with 1-week release age gate)
+- `pnpm install:safe` or `sfw pnpm install` — Install with pnpm time gate + Socket Firewall scanning
+- `sfw pnpm add <pkg>` — Add a dependency with Socket scanning
+- `npm install` — Install without time gate (npm compatibility)
+
+### GitHub Actions
+
+All CI workflows enforce both supply chain policies:
+
+- **`.github/workflows/ci.yml`** — Runs on PRs and pushes to main/develop:
+  - Installs dependencies with `sfw pnpm install --frozen-lockfile` (Socket scanning + time gate)
+  - Runs the test suite
+- **`.github/workflows/npm-publish.yml`** — Runs on push to main when `package.json` changes:
+  - Installs dependencies with `sfw pnpm install --frozen-lockfile` (Socket scanning + time gate)
+  - Publishes to npm with provenance
+
+Both workflows use the `socketdev/action@v1` GitHub Action to install `sfw` on the runner.
 
 ## Config Files
 

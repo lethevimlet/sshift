@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# pnpm
+.pnpm-store/
+
 # Config files (user-specific)
 config.json
 .env

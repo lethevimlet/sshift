@@ -241,10 +241,79 @@ function registerSystemEndpoints(app, io) {
   // API: Trigger update
   app.post('/api/update', async (req, res) => {
     try {
+      const isLocalhost = req.hostname === 'localhost' || req.hostname === '127.0.0.1' || req.hostname === '::1';
+      if (!isLocalhost && !req.headers.authorization && !req.query.token) {
+        return res.status(403).json({ error: 'Remote update requires authentication. Set a password or use localhost.' });
+      }
+
       const { spawn, execSync } = require('child_process');
       const platform = process.platform;
       const dataDir = getDataDir();
       
+      // Resolve the target version by checking GitHub for the latest release
+      // This pins the exact version instead of using @latest, preventing
+      // supply chain attacks where a compromised registry could serve a
+      // different package than what was published.
+      let targetVersion = 'latest';
+      const currentPkg = require('../../../../package.json');
+      try {
+        const https = require('https');
+        const githubVersion = await new Promise((resolve, reject) => {
+          const opts = {
+            hostname: 'api.github.com',
+            path: '/repos/lethevimlet/sshift/contents/package.json',
+            method: 'GET',
+            headers: { 'User-Agent': 'sshift-update-checker', 'Accept': 'application/vnd.github.v3+json' }
+          };
+          const ghReq = https.request(opts, (ghRes) => {
+            let body = '';
+            ghRes.on('data', (chunk) => { body += chunk; });
+            ghRes.on('end', () => {
+              try {
+                if (ghRes.statusCode !== 200) return reject(new Error('GitHub API returned ' + ghRes.statusCode));
+                const parsed = JSON.parse(body);
+                const content = Buffer.from(parsed.content, 'base64').toString('utf8');
+                resolve(JSON.parse(content).version);
+              } catch (e) { reject(e); }
+            });
+          });
+          ghReq.on('error', reject);
+          ghReq.setTimeout(10000, () => { ghReq.destroy(); reject(new Error('GitHub request timed out')); });
+          ghReq.end();
+        });
+        if (githubVersion && /^\d+\.\d+\.\d+$/.test(githubVersion)) {
+          // Verify the version actually exists on the npm registry before pinning.
+          // GitHub may show a version before npm propagation completes, which would
+          // cause all install retries to fail against a non-existent version.
+          const npmAvailable = await new Promise((resolve) => {
+            const npmReq = https.request({
+              hostname: 'registry.npmjs.org',
+              path: '/@lethevimlet/sshift/' + githubVersion,
+              method: 'GET',
+              headers: { 'User-Agent': 'sshift-update-checker' }
+            }, (npmRes) => {
+              resolve(npmRes.statusCode === 200);
+            });
+            npmReq.on('error', () => resolve(false));
+            npmReq.setTimeout(10000, () => { npmReq.destroy(); resolve(false); });
+            npmReq.end();
+          });
+          if (npmAvailable) {
+            targetVersion = githubVersion;
+            console.log('[UPDATE] Pinned target version:', targetVersion);
+          } else {
+            console.warn('[UPDATE] Version', githubVersion, 'found on GitHub but not yet on npm, deferring update');
+            return res.status(503).json({
+              error: 'Update available but not yet on npm. Try again in a few minutes.',
+              localVersion: currentPkg.version,
+              remoteVersion: githubVersion
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('[UPDATE] Could not resolve version from GitHub, falling back to @latest:', e.message);
+      }
+
       // Write update marker to indicate update in progress
       const updateMarker = path.join(dataDir, UPDATE_MARKER_FILE);
       let oldVersion = 'unknown';
@@ -254,7 +323,8 @@ function registerSystemEndpoints(app, io) {
         fs.mkdirSync(dataDir, { recursive: true });
         fs.writeFileSync(updateMarker, JSON.stringify({
           startTime: Date.now(),
-          oldVersion: pkg.version
+          oldVersion: pkg.version,
+          targetVersion
         }));
       } catch (e) {
         console.error('[UPDATE] Failed to write update marker:', e.message);
@@ -383,12 +453,14 @@ function registerSystemEndpoints(app, io) {
       res.json({ message: 'Update started. Server will restart automatically.' });
 
       if (platform === 'win32') {
+        const psTargetSpec = targetVersion !== 'latest' ? `@${targetVersion}` : '@latest';
         const sshiftCmd = sshiftBinPath.includes(' ') ? `& '${sshiftBinPath}'` : `sshift`;
         const psScript = `$ErrorActionPreference = 'Continue'
 $MarkerPath = '${updateMarker}'
 $LogPath = '${updateLogPath}'
 $NodeExe = '${nodeExe}'
 $SshiftBin = '${sshiftBinPath}'
+$TargetSpec = '${psTargetSpec}'
 
 # Check if running under Task Scheduler
 $TaskName = "sshift"
@@ -410,8 +482,8 @@ try {
   $NpmSuccess = $false
   while ($NpmAttempts -lt $NpmMaxAttempts) {
     $NpmAttempts++
-    Write-Output "$(Get-Date): npm install attempt $NpmAttempts of $NpmMaxAttempts" | Out-File -FilePath $LogPath -Append
-    & npm install -g @lethevimlet/sshift@latest 2>&1 | Out-File -FilePath $LogPath -Append
+    Write-Output "$(Get-Date): npm install attempt $NpmAttempts of $NpmMaxAttempts (target: @lethevimlet/sshift$TargetSpec)" | Out-File -FilePath $LogPath -Append
+    & npm install -g "@lethevimlet/sshift$TargetSpec" 2>&1 | Out-File -FilePath $LogPath -Append
     if ($LASTEXITCODE -eq 0) {
       $NpmSuccess = $true
       break
@@ -462,11 +534,13 @@ NPM_BIN="${npmBinPath}"
 SSHIFT_FALLBACK="${sshiftBinPath}"
 NODE_BIN="${nodeExe}"
 OLD_VERSION="${oldVersion}"
+TARGET_VERSION="${targetVersion}"
 SERVICE_MANAGED="${isServiceManaged ? '1' : '0'}"
 SERVICE_MANAGER="${serviceManager}"
 SERVICE_UNIT="${serviceUnit}"
 
-echo "$(date): Starting sshift update (from v${oldVersion})..." > "$LOG"
+INSTALL_SPEC="@lethevimlet/sshift@${targetVersion}"
+echo "$(date): Starting sshift update (from v${oldVersion} to ${targetVersion})..." > "$LOG"
 echo "$(date): npm path: $NPM_BIN" >> "$LOG"
 echo "$(date): node path: $NODE_BIN" >> "$LOG"
 echo "$(date): sshift fallback: $SSHIFT_FALLBACK" >> "$LOG"
@@ -476,7 +550,7 @@ echo "$(date): service_managed: $SERVICE_MANAGED manager: $SERVICE_MANAGER unit:
 CURRENT_SSHIFT="$(command -v sshift 2>/dev/null || which sshift 2>/dev/null || echo "$SSHIFT_FALLBACK")"
 
 # Run npm install (with retry for registry propagation delay)
-echo "$(date): Running npm install..." >> "$LOG"
+echo "$(date): Running npm install $INSTALL_SPEC ..." >> "$LOG"
 NPM_ATTEMPTS=0
 NPM_MAX_ATTEMPTS=3
 NPM_DELAY=30
@@ -484,7 +558,7 @@ NPM_SUCCESS=false
 while [ $NPM_ATTEMPTS -lt $NPM_MAX_ATTEMPTS ]; do
   NPM_ATTEMPTS=$((NPM_ATTEMPTS + 1))
   echo "$(date): npm install attempt $NPM_ATTEMPTS of $NPM_MAX_ATTEMPTS" >> "$LOG"
-  if "$NPM_BIN" install -g @lethevimlet/sshift@latest >> "$LOG" 2>&1; then
+  if "$NPM_BIN" install -g "$INSTALL_SPEC" >> "$LOG" 2>&1; then
     NPM_SUCCESS=true
     break
   fi
@@ -552,7 +626,7 @@ fi
       let spawnCommand, spawnArgs;
       if (platform === 'win32') {
         spawnCommand = 'powershell';
-        spawnArgs = ['-ExecutionPolicy', 'Bypass', '-File', updateScriptPath.replace('.sh', '.ps1')];
+        spawnArgs = ['-ExecutionPolicy', 'RemoteSigned', '-File', updateScriptPath.replace('.sh', '.ps1')];
       } else {
         spawnCommand = '/bin/sh';
         spawnArgs = [updateScriptPath];

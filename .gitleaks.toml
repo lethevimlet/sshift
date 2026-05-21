@@ -1,0 +1,23 @@
+title = "sshift gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Allow self-signed SSL cert/key filenames in gitignore and references"
+paths = [
+    '''\.gitignore$''',
+    '''AGENTS\.md$''',
+    '''README\.md$''',
+]
+
+[[allowlists]]
+description = "Allow test fixture passwords and tokens"
+regexes = [
+    '''password.*test''',
+    '''password.*example''',
+    '''password.*dummy''',
+    '''token.*test''',
+    '''token.*example''',
+    '''token.*dummy''',
+]

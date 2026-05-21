@@ -1,0 +1,13 @@
+packages:
+  - .
+  - plugins/*
+
+minimumReleaseAge: 10080
+minimumReleaseAgeExclude:
+  - "@lethevimlet/sshift"
+minimumReleaseAgeStrict: true
+minimumReleaseAgeIgnoreMissingTime: false
+trustPolicy: no-downgrade
+trustPolicyExclude:
+  - "@lethevimlet/sshift"
+ignoreScripts: true
