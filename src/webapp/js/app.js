@@ -3986,15 +3986,56 @@ const wheelHandler = (e) => {
 
     this.socket.on('sftp-error', (data) => {
       this.showToast(data.message, 'error');
+      if (this._activeDownload) {
+        this.hideTransferProgress(this._activeDownload.sessionId);
+        this._activeDownload = null;
+      }
     });
 
-    this.socket.on('sftp-download-result', (data) => {
-      this.downloadFile(data.path, data.data);
+    this.socket.on('sftp-download-start', (data) => {
+      this._activeDownload = {
+        sessionId: data.sessionId,
+        path: data.path,
+        fileName: data.fileName,
+        totalBytes: data.size,
+        bytesDownloaded: 0,
+        chunks: []
+      };
+      this.showTransferProgress(data.sessionId, data.fileName, 0, 0, data.size, 0, 0, false);
     });
 
-    this.socket.on('sftp-upload-result', (data) => {
-      this.showToast(`File uploaded: ${data.path}`, 'success');
-      this.refreshSFTP();
+    this.socket.on('sftp-download-chunk', (data) => {
+      const dl = this._activeDownload;
+      if (dl && dl.path === data.path) {
+        const binaryStr = atob(data.data);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+        dl.chunks.push(bytes);
+        dl.bytesDownloaded = data.bytesDownloaded;
+        dl.totalBytes = data.totalBytes;
+        const percent = data.totalBytes > 0 ? Math.round((data.bytesDownloaded / data.totalBytes) * 100) : 0;
+        this.showTransferProgress(dl.sessionId, dl.fileName, percent, data.bytesDownloaded, data.totalBytes, 0, 0, false);
+      }
+    });
+
+    this.socket.on('sftp-download-end', (data) => {
+      const dl = this._activeDownload;
+      if (dl && dl.path === data.path) {
+        if (data.success) {
+          const blob = new Blob(dl.chunks, { type: 'application/octet-stream' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = dl.fileName;
+          a.click();
+          URL.revokeObjectURL(url);
+          this.showToast(`Downloaded: ${dl.fileName}`, 'success');
+        }
+        this.hideTransferProgress(dl.sessionId);
+        this._activeDownload = null;
+      }
     });
 
     // Bookmark sync events
@@ -7382,6 +7423,38 @@ const wheelHandler = (e) => {
       this.uploadFile(sessionId);
     });
 
+    const fileList = container.querySelector('.sftp-file-list');
+    fileList.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      container.classList.add('drag-over');
+    });
+
+    fileList.addEventListener('dragenter', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      container.classList.add('drag-over');
+    });
+
+    fileList.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!container.contains(e.relatedTarget)) {
+        container.classList.remove('drag-over');
+      }
+    });
+
+    fileList.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      container.classList.remove('drag-over');
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length === 0) return;
+      const pathInput2 = container.querySelector('.sftp-path-input');
+      if (!pathInput2) return;
+      this.uploadFiles(sessionId, files, pathInput2.value);
+    });
+
     wrapper.appendChild(container);
     return wrapper;
   }
@@ -7583,38 +7656,186 @@ const wheelHandler = (e) => {
   uploadFile(sessionId) {
     const input = document.createElement('input');
     input.type = 'file';
+    input.multiple = true;
     input.onchange = (e) => {
-      const file = e.target.files[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          const pathInput = document.querySelector(`#sftp-${sessionId} .sftp-path-input`);
-          
-          if (pathInput) {
-            const path = pathInput.value;
-            const remotePath = path === '/' ? `/${file.name}` : `${path}/${file.name}`;
-            this.socket.emit('sftp-upload', {
-              sessionId,
-              path: remotePath,
-              data: btoa(event.target.result)
-            });
-          }
-        };
-        reader.readAsBinaryString(file);
-      }
+      const files = Array.from(e.target.files);
+      if (files.length === 0) return;
+      const pathInput = document.querySelector(`#sftp-${sessionId} .sftp-path-input`);
+      if (!pathInput) return;
+      const dirPath = pathInput.value;
+      this.uploadFiles(sessionId, files, dirPath);
     };
     input.click();
   }
 
-  downloadFile(path, data) {
-    const filename = path.split('/').pop();
-    const blob = new Blob([atob(data)], { type: 'application/octet-stream' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
+  async uploadFiles(sessionId, files, dirPath) {
+    if (!this._activeUploads) this._activeUploads = new Map();
+
+    for (let i = 0; i < files.length; i++) {
+      try {
+        await this.uploadSingleFile(sessionId, files[i], dirPath, i + 1, files.length);
+      } catch (err) {
+        if (err.message === 'cancelled') {
+          return;
+        }
+        this.showToast(`Upload failed: ${files[i].name} - ${err.message}`, 'error');
+        this.hideTransferProgress(sessionId);
+        break;
+      }
+    }
+  }
+
+  async uploadSingleFile(sessionId, file, dirPath, fileIndex, totalFiles) {
+    const CHUNK_SIZE = 1024 * 1024;
+    const remotePath = dirPath === '/' ? `/${file.name}` : `${dirPath}/${file.name}`;
+
+    this.showTransferProgress(sessionId, file.name, 0, 0, file.size, fileIndex, totalFiles, true);
+
+    try {
+      const uploadId = await new Promise((resolve, reject) => {
+        this.socket.emit('sftp-upload-start', {
+          sessionId,
+          path: remotePath,
+          fileName: file.name,
+          fileSize: file.size
+        }, (response) => {
+          if (response.error) reject(new Error(response.error));
+          else resolve(response.uploadId);
+        });
+      });
+
+      this._activeUploads.set(sessionId, { uploadId, cancelled: false });
+
+      let offset = 0;
+      while (offset < file.size) {
+        const upload = this._activeUploads.get(sessionId);
+        if (!upload || upload.cancelled) {
+          throw new Error('cancelled');
+        }
+
+        const end = Math.min(offset + CHUNK_SIZE, file.size);
+        const slice = file.slice(offset, end);
+        const chunkData = await this.readFileAsBase64(slice);
+
+        const result = await new Promise((resolve, reject) => {
+          this.socket.emit('sftp-upload-chunk', {
+            sessionId,
+            uploadId,
+            data: chunkData
+          }, (response) => {
+            if (response.error) reject(new Error(response.error));
+            else resolve(response);
+          });
+        });
+
+        offset = end;
+        const percent = file.size > 0 ? Math.round((offset / file.size) * 100) : 100;
+        this.showTransferProgress(sessionId, file.name, percent, offset, file.size, fileIndex, totalFiles, true);
+      }
+
+      const upload = this._activeUploads.get(sessionId);
+      if (!upload || upload.cancelled) {
+        throw new Error('cancelled');
+      }
+
+      await new Promise((resolve, reject) => {
+        this.socket.emit('sftp-upload-end', {
+          sessionId,
+          uploadId
+        }, (response) => {
+          if (response.error) reject(new Error(response.error));
+          else resolve(response);
+        });
+      });
+
+      this._activeUploads.delete(sessionId);
+      this.hideTransferProgress(sessionId);
+      this.showToast(`Uploaded: ${file.name}`, 'success');
+      this.refreshSFTP(sessionId);
+    } catch (err) {
+      this._activeUploads.delete(sessionId);
+      this.hideTransferProgress(sessionId);
+      throw err;
+    }
+  }
+
+  readFileAsBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = btoa(new Uint8Array(reader.result).reduce((data, byte) => data + String.fromCharCode(byte), ''));
+        resolve(base64);
+      };
+      reader.onerror = reject;
+      reader.readAsArrayBuffer(blob);
+    });
+  }
+
+  showTransferProgress(sessionId, fileName, percent, transferred, total, fileIndex, totalFiles, isUpload) {
+    let progressEl = document.querySelector(`#sftp-${sessionId} .sftp-transfer-progress`);
+    const container = document.querySelector(`#sftp-${sessionId}`);
+
+    if (!container) return;
+
+    if (!progressEl) {
+      progressEl = document.createElement('div');
+      progressEl.className = 'sftp-transfer-progress';
+      progressEl.innerHTML = `
+        <div class="sftp-transfer-info">
+          <span class="sftp-transfer-icon"><i class="fas fa-${isUpload ? 'upload' : 'download'}"></i></span>
+          <span class="sftp-transfer-filename"></span>
+          <span class="sftp-transfer-count"></span>
+          <span class="sftp-transfer-size"></span>
+          <span class="sftp-transfer-percent"></span>
+          <button class="sftp-transfer-cancel" title="Cancel"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="sftp-transfer-bar">
+          <div class="sftp-transfer-bar-fill"></div>
+        </div>
+      `;
+      const fileList = container.querySelector('.sftp-file-list');
+      if (fileList) {
+        container.insertBefore(progressEl, fileList);
+      }
+      const cancelBtn = progressEl.querySelector('.sftp-transfer-cancel');
+      cancelBtn.addEventListener('click', () => {
+        this.cancelTransfer(sessionId);
+      });
+    }
+
+    progressEl.querySelector('.sftp-transfer-icon').innerHTML = `<i class="fas fa-${isUpload ? 'upload' : 'download'}"></i>`;
+    progressEl.querySelector('.sftp-transfer-filename').textContent = fileName;
+    progressEl.querySelector('.sftp-transfer-filename').title = fileName;
+    progressEl.querySelector('.sftp-transfer-count').textContent = totalFiles > 1 ? `${fileIndex} / ${totalFiles}` : '';
+    const sizeText = total > 0 ? `${this.formatSize(transferred)} / ${this.formatSize(total)}` : this.formatSize(transferred);
+    progressEl.querySelector('.sftp-transfer-size').textContent = sizeText;
+    progressEl.querySelector('.sftp-transfer-percent').textContent = `${percent}%`;
+    progressEl.querySelector('.sftp-transfer-bar-fill').style.width = `${percent}%`;
+    progressEl.style.display = '';
+  }
+
+  cancelTransfer(sessionId) {
+    const upload = this._activeUploads && this._activeUploads.get(sessionId);
+    if (upload) {
+      upload.cancelled = true;
+      this._activeUploads.delete(sessionId);
+      this.socket.emit('sftp-upload-cancel', { sessionId, uploadId: upload.uploadId });
+    }
+
+    const download = this._activeDownload;
+    if (download && download.sessionId === sessionId) {
+      this._activeDownload = null;
+    }
+
+    this.hideTransferProgress(sessionId);
+    this.showToast('Transfer cancelled', 'error');
+  }
+
+  hideTransferProgress(sessionId) {
+    const progressEl = document.querySelector(`#sftp-${sessionId} .sftp-transfer-progress`);
+    if (progressEl) {
+      progressEl.remove();
+    }
   }
 
 // Tab Management

@@ -6,6 +6,12 @@
  * - endpoints: REST and WebSocket handlers
  */
 
+// Polyfill: util.isDate was removed in Node.js 24+ but ssh2 still depends on it
+const util = require('util');
+if (typeof util.isDate !== 'function') {
+  util.isDate = (d) => d instanceof Date;
+}
+
 // Load environment variables from .env files
 require('./utils/env-loader');
 
@@ -252,7 +258,8 @@ async function initializeServer() {
       methods: ["GET", "POST"]
     },
     pingTimeout: 60000,
-    pingInterval: 25000
+    pingInterval: 25000,
+    maxHttpBufferSize: 5e6
   });
 
   // Socket.IO auth middleware

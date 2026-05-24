@@ -73,24 +73,109 @@ function registerSFTPHandlers(socket, io) {
     }
   });
 
-  // SFTP download
+  // SFTP download (streamed)
   socket.on('sftp-download', async (data) => {
     try {
-      const fileData = await sftpManager.download(data.sessionId, data.path);
-      socket.emit('sftp-download-result', { path: data.path, data: fileData.toString('base64') });
+      const { sessionId, path } = data;
+      const stats = await sftpManager.stat(sessionId, path);
+
+      if (stats.isDirectory()) {
+        socket.emit('sftp-error', { message: 'Cannot download a directory' });
+        return;
+      }
+
+      const fileName = path.split('/').pop();
+
+      socket.emit('sftp-download-start', {
+        sessionId,
+        path,
+        fileName,
+        size: stats.size
+      });
+
+      const stream = sftpManager.getReadStream(sessionId, path);
+      const FLUSH_SIZE = 1024 * 1024;
+      let buffer = Buffer.alloc(0);
+      let bytesDownloaded = 0;
+
+      stream.on('data', (chunk) => {
+        buffer = Buffer.concat([buffer, chunk]);
+        bytesDownloaded += chunk.length;
+
+        if (buffer.length >= FLUSH_SIZE) {
+          socket.emit('sftp-download-chunk', {
+            sessionId,
+            path,
+            data: buffer.toString('base64'),
+            bytesDownloaded,
+            totalBytes: stats.size
+          });
+          buffer = Buffer.alloc(0);
+        }
+      });
+
+      stream.on('end', () => {
+        if (buffer.length > 0) {
+          socket.emit('sftp-download-chunk', {
+            sessionId,
+            path,
+            data: buffer.toString('base64'),
+            bytesDownloaded,
+            totalBytes: stats.size
+          });
+        }
+        socket.emit('sftp-download-end', {
+          sessionId,
+          path,
+          fileName,
+          success: true
+        });
+      });
+
+      stream.on('error', (err) => {
+        socket.emit('sftp-error', { message: `Download failed: ${err.message}` });
+      });
     } catch (err) {
       socket.emit('sftp-error', { message: err.message });
     }
   });
 
-  // SFTP upload
-  socket.on('sftp-upload', async (data) => {
+  // SFTP upload (chunked)
+  socket.on('sftp-upload-start', async (data, callback) => {
     try {
-      await sftpManager.upload(data.sessionId, data.path, Buffer.from(data.data, 'base64'));
-      socket.emit('sftp-upload-result', { path: data.path, success: true });
+      const uploadId = sftpManager.uploadStart(
+        data.sessionId,
+        data.path,
+        data.fileName,
+        data.fileSize
+      );
+      callback({ uploadId });
     } catch (err) {
-      socket.emit('sftp-error', { message: err.message });
+      callback({ error: err.message });
     }
+  });
+
+  socket.on('sftp-upload-chunk', async (data, callback) => {
+    try {
+      const result = await sftpManager.uploadChunk(data.uploadId, data.data);
+      callback(result);
+    } catch (err) {
+      callback({ error: err.message });
+    }
+  });
+
+  socket.on('sftp-upload-end', async (data, callback) => {
+    try {
+      const result = await sftpManager.uploadEnd(data.uploadId);
+      callback(result);
+    } catch (err) {
+      callback({ error: err.message });
+    }
+  });
+
+  // SFTP upload cancel
+  socket.on('sftp-upload-cancel', (data) => {
+    sftpManager.uploadCancel(data.uploadId);
   });
 
   // SFTP mkdir

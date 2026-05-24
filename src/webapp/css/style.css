@@ -3026,6 +3026,7 @@ body.dragging-tabs .tabs-container {
   border-radius: var(--radius-md);
   overflow-y: auto;
   margin-top: 12px;
+  position: relative;
 }
 
 .sftp-file-item {
@@ -3072,6 +3073,117 @@ body.dragging-tabs .tabs-container {
   color: var(--text-secondary);
   font-size: 12px;
   margin-left: 12px;
+}
+
+.sftp-transfer-progress {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.sftp-transfer-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.sftp-transfer-icon {
+  color: var(--accent-primary);
+  width: 16px;
+  text-align: center;
+}
+
+.sftp-transfer-filename {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-primary);
+  min-width: 0;
+}
+
+.sftp-transfer-count {
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.sftp-transfer-size {
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.sftp-transfer-percent {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 13px;
+  min-width: 40px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.sftp-transfer-cancel {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.7;
+  transition: opacity 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.sftp-transfer-cancel:hover {
+  opacity: 1;
+  color: var(--accent-danger, #e74c3c);
+}
+
+.sftp-transfer-bar {
+  height: 4px;
+  background: var(--bg-secondary);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.sftp-transfer-bar-fill {
+  height: 100%;
+  background: var(--accent-primary);
+  border-radius: 2px;
+  transition: width 0.2s ease;
+}
+
+.sftp-container.drag-over .sftp-file-list {
+  border-color: var(--accent-primary) !important;
+  background: rgba(0, 123, 255, 0.05) !important;
+}
+
+.sftp-container.drag-over .sftp-file-list::after {
+  content: 'Drop files here to upload';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--text-secondary);
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.sftp-file-list.drag-over::after {
+  content: 'Drop files here to upload';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--text-secondary);
+  font-size: 14px;
+  pointer-events: none;
 }
 
 /* Toast Notifications */
@@ -3331,6 +3443,16 @@ body.dragging-tabs .tabs-container {
 
   .sftp-actions {
     justify-content: center;
+  }
+
+  .sftp-transfer-info {
+    flex-wrap: wrap;
+  }
+
+  .sftp-transfer-cancel {
+    font-size: 16px;
+    padding: 4px 6px;
+    margin-left: 4px;
   }
 
   .special-keys-grid {

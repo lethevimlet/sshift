@@ -3,6 +3,8 @@ const { Client } = require('ssh2');
 class SFTPManager {
   constructor() {
     this.sessions = new Map();
+    this.activeUploads = new Map();
+    this.nextUploadId = 1;
   }
 
   connect(socket, options) {
@@ -135,6 +137,133 @@ class SFTPManager {
         resolve(files);
       });
     });
+  }
+
+  stat(sessionId, path) {
+    return new Promise((resolve, reject) => {
+      const session = this.sessions.get(sessionId);
+      if (!session) {
+        reject(new Error('Session not found'));
+        return;
+      }
+
+      session.sftp.stat(path, (err, stats) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        resolve({
+          size: stats.size,
+          modifyTime: stats.mtime * 1000,
+          isDirectory: stats.isDirectory(),
+          isFile: stats.isFile()
+        });
+      });
+    });
+  }
+
+  getReadStream(sessionId, path) {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      throw new Error('Session not found');
+    }
+    return session.sftp.createReadStream(path);
+  }
+
+  uploadStart(sessionId, path, fileName, fileSize) {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      throw new Error('Session not found');
+    }
+
+    const uploadId = String(this.nextUploadId++);
+    const stream = session.sftp.createWriteStream(path);
+
+    const upload = {
+      id: uploadId,
+      stream,
+      bytesWritten: 0,
+      totalBytes: fileSize,
+      fileName,
+      path,
+      error: null,
+      resolveEnd: null,
+      rejectEnd: null
+    };
+
+    stream.on('error', (err) => {
+      upload.error = err;
+      if (upload.rejectEnd) {
+        upload.rejectEnd(err);
+        upload.rejectEnd = null;
+        upload.resolveEnd = null;
+      }
+      this.activeUploads.delete(uploadId);
+    });
+
+    stream.on('close', () => {
+      if (upload.resolveEnd) {
+        upload.resolveEnd({ path: upload.path, fileName: upload.fileName });
+        upload.resolveEnd = null;
+        upload.rejectEnd = null;
+      }
+      this.activeUploads.delete(uploadId);
+    });
+
+    this.activeUploads.set(uploadId, upload);
+    return uploadId;
+  }
+
+  uploadChunk(uploadId, chunkBase64) {
+    return new Promise((resolve, reject) => {
+      const upload = this.activeUploads.get(uploadId);
+      if (!upload) {
+        reject(new Error('Upload not found'));
+        return;
+      }
+      if (upload.error) {
+        reject(upload.error);
+        return;
+      }
+
+      const chunkData = Buffer.from(chunkBase64, 'base64');
+
+      upload.stream.write(chunkData, () => {
+        upload.bytesWritten += chunkData.length;
+        resolve({
+          bytesWritten: upload.bytesWritten,
+          totalBytes: upload.totalBytes
+        });
+      });
+    });
+  }
+
+  uploadEnd(uploadId) {
+    return new Promise((resolve, reject) => {
+      const upload = this.activeUploads.get(uploadId);
+      if (!upload) {
+        reject(new Error('Upload not found'));
+        return;
+      }
+      if (upload.error) {
+        this.activeUploads.delete(uploadId);
+        reject(upload.error);
+        return;
+      }
+
+      upload.resolveEnd = resolve;
+      upload.rejectEnd = reject;
+      upload.stream.end();
+    });
+  }
+
+  uploadCancel(uploadId) {
+    const upload = this.activeUploads.get(uploadId);
+    if (upload) {
+      upload.stream.destroy();
+      this.activeUploads.delete(uploadId);
+    }
   }
 
   download(sessionId, path) {
