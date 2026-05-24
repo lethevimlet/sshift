@@ -56,6 +56,7 @@ class MobileTerminalHandler {
     this.hiddenTextarea = null;
     this._isComposing = false;
     this._compositionText = '';
+    this._compositionEndTs = 0;
     this.contextMenuUserPositioned = false; // Track if user has manually positioned the menu
     
     // Configuration
@@ -471,6 +472,15 @@ class MobileTerminalHandler {
         return;
       }
 
+      // Guard against double-sending after compositionend.
+      // On some browsers/IMEs, an input event fires right after compositionend
+      // with the same text. We debounce this by tracking the last composition
+      // end time and skipping input events that arrive within a short window.
+      if (this._compositionEndTs && (Date.now() - this._compositionEndTs) < 300) {
+        this.hiddenTextarea.value = '';
+        return;
+      }
+
       if (e.data && !this.touchState.isDragging) {
         this._sendToTerminal(e.data);
         this.hiddenTextarea.value = '';
@@ -485,6 +495,7 @@ class MobileTerminalHandler {
       }
 
       if (this._isComposing) {
+        e.preventDefault();
         return;
       }
 
@@ -525,7 +536,8 @@ class MobileTerminalHandler {
 
     this.hiddenTextarea.addEventListener('compositionend', (e) => {
       this._isComposing = false;
-      const composed = this.hiddenTextarea.value;
+      this._compositionEndTs = Date.now();
+      const composed = e.data || this.hiddenTextarea.value;
       if (composed && !this.touchState.isDragging) {
         this._sendToTerminal(composed);
       }

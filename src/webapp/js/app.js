@@ -6763,6 +6763,14 @@ const wheelHandler = (e) => {
         }
       });
 
+      // Handle binary input (control characters, etc.) that onData may not capture
+      terminal.onBinary((data) => {
+        const sess = this.sessions.get(sessionId);
+        if (sess && sess.connected && sess.isController) {
+          this.socket.emit('ssh-data', { sessionId, data: data });
+        }
+      });
+
       // Handle resize
       terminal.onResize(({ cols, rows }) => {
         const sess = this.sessions.get(sessionId);
