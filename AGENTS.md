@@ -181,6 +181,6 @@ The project includes installation scripts for easy setup:
 # Linux/macOS
 curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/sshift-install.sh | bash
 
-# Windows (PowerShell)
+# Windows PowerShell (Admin)
 Invoke-Expression (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/lethevimlet/sshift/main/sshift-install.ps1" -UseBasicParsing).Content
 ```

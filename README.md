@@ -2,6 +2,7 @@
 
 # SSHIFT - Web-based SSH/SFTP Terminal Client for the AI Stack
 
+[![Website](https://img.shields.io/badge/website-getsshift.dev-blue.svg)](https://getsshift.dev)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://lethevimlet.github.io/sshift/)
 [![npm version](https://img.shields.io/npm/v/@lethevimlet/sshift.svg)](https://www.npmjs.com/package/@lethevimlet/sshift)
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io/lethevimlet/sshift-blue.svg)](https://github.com/lethevimlet/sshift/pkgs/container/sshift)
@@ -40,9 +41,8 @@ A modern, responsive web-based SSH and SFTP terminal client built with Node.js, 
 curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/sshift-install.sh | bash
 ```
 
-**Windows (PowerShell):**
+**Windows PowerShell (Admin):**
 ```powershell
-Set-ExecutionPolicy Bypass -Scope Process
 Invoke-Expression (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/lethevimlet/sshift/main/sshift-install.ps1" -UseBasicParsing).Content
 ```
 
@@ -80,10 +80,9 @@ The recommended way to install sshift - automatically handles updates and autost
 curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/sshift-install.sh | bash
 ```
 
-**Windows (PowerShell):**
+**Windows PowerShell (Admin):**
 
 ```powershell
-Set-ExecutionPolicy Bypass -Scope Process
 Invoke-Expression (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/lethevimlet/sshift/main/sshift-install.ps1" -UseBasicParsing).Content
 ```
 

@@ -24,10 +24,9 @@ Or with wget:
 wget -qO- https://raw.githubusercontent.com/lethevimlet/sshift/main/sshift-install.sh | bash
 ```
 
-### Windows (PowerShell)
+### Windows PowerShell (Admin)
 
 ```powershell
-Set-ExecutionPolicy Bypass -Scope Process
 Invoke-Expression (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/lethevimlet/sshift/main/sshift-install.ps1" -UseBasicParsing).Content
 ```
 
@@ -54,7 +53,7 @@ curl -fsSL https://raw.githubusercontent.com/lethevimlet/sshift/main/sshift-inst
 ./sshift-install.sh --help
 ```
 
-#### Windows (PowerShell)
+#### Windows PowerShell (Admin)
 
 ```powershell
 # Install with custom port
