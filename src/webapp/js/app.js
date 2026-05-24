@@ -7657,14 +7657,20 @@ const wheelHandler = (e) => {
     const input = document.createElement('input');
     input.type = 'file';
     input.multiple = true;
-    input.onchange = (e) => {
+    input.style.display = 'none';
+    document.body.appendChild(input);
+    input.addEventListener('change', (e) => {
       const files = Array.from(e.target.files);
+      document.body.removeChild(input);
       if (files.length === 0) return;
       const pathInput = document.querySelector(`#sftp-${sessionId} .sftp-path-input`);
       if (!pathInput) return;
       const dirPath = pathInput.value;
       this.uploadFiles(sessionId, files, dirPath);
-    };
+    });
+    input.addEventListener('cancel', () => {
+      document.body.removeChild(input);
+    });
     input.click();
   }
 
@@ -7763,11 +7769,12 @@ const wheelHandler = (e) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => {
-        const base64 = btoa(new Uint8Array(reader.result).reduce((data, byte) => data + String.fromCharCode(byte), ''));
+        const dataUrl = reader.result;
+        const base64 = dataUrl.substring(dataUrl.indexOf(',') + 1);
         resolve(base64);
       };
       reader.onerror = reject;
-      reader.readAsArrayBuffer(blob);
+      reader.readAsDataURL(blob);
     });
   }
 
