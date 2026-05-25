@@ -15,14 +15,14 @@ function registerUtilsEndpoints(app, io) {
   });
 
   app.post('/api/utils/convert-key', async (req, res) => {
-    const { content } = req.body;
+    const { content, passphrase } = req.body;
     if (!content || !content.trim()) {
       return res.status(400).json({ error: 'No key content provided' });
     }
     const info = detectKeyFormat(content);
     if (info.format === 'ppk') {
       try {
-        const converted = await convertPPKToOpenSSH(content);
+        const converted = await convertPPKToOpenSSH(content, passphrase);
         res.json({ success: true, key: converted, format: 'openssh' });
       } catch (e) {
         res.status(400).json({ error: e.message });

@@ -2,6 +2,7 @@ const { Client } = require('ssh2');
 const { Terminal } = require('@xterm/headless');
 const { SerializeAddon } = require('@xterm/addon-serialize');
 const pluginManager = require('../plugins/plugin-manager');
+const { convertKeyIfNeeded } = require('../utils/key-converter');
 
 class SSHManager {
   constructor() {
@@ -18,7 +19,23 @@ class SSHManager {
     this.io = io;
   }
 
-  connect(socket, options) {
+  async connect(socket, options) {
+    // Pre-process private key (auto-convert PPK to OpenSSH format)
+    if (options.privateKey && options.privateKey.length > 0) {
+      try {
+        let keyContent = options.privateKey;
+        if (!keyContent.includes('BEGIN')) {
+          keyContent = Buffer.from(keyContent, 'base64').toString('utf8');
+        }
+        options = {
+          ...options,
+          privateKey: await convertKeyIfNeeded(keyContent, options.passphrase)
+        };
+      } catch (e) {
+        console.error('[SSH] Key conversion failed:', e.message);
+      }
+    }
+
     return new Promise((resolve, reject) => {
       const conn = new Client();
       const sessionId = options.sessionId || require('uuid').v4();
@@ -78,22 +95,12 @@ class SSHManager {
         keepaliveCountMax: options.sshKeepaliveCountMax || 1000
       };
 
-      // Authentication method
+      // Authentication method (key already pre-processed above)
       if (options.password && options.password.length > 0) {
         config.password = options.password;
         console.log('[SSH] Using password authentication');
       } else if (options.privateKey && options.privateKey.length > 0) {
-        // Handle private key - supports OpenSSH, PEM, PKCS8, and base64-encoded formats
-        try {
-          if (options.privateKey.includes('BEGIN')) {
-            config.privateKey = options.privateKey;
-          } else {
-            const decoded = Buffer.from(options.privateKey, 'base64').toString('utf8');
-            config.privateKey = decoded;
-          }
-        } catch (e) {
-          config.privateKey = options.privateKey;
-        }
+        config.privateKey = options.privateKey;
         if (options.passphrase && options.passphrase.length > 0) {
           config.passphrase = options.passphrase;
         }

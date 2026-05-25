@@ -51,7 +51,7 @@ function detectKeyFormat(keyContent) {
   return { format: 'unknown', type: 'unknown' };
 }
 
-function convertPPKViaPuttygen(ppkContent) {
+function convertPPKViaPuttygen(ppkContent, passphrase) {
   return new Promise((resolve, reject) => {
     const tmpDir = os.tmpdir();
     const inputFile = path.join(tmpDir, `sshift-ppk-${Date.now()}-${Math.random().toString(36).slice(2)}.ppk`);
@@ -63,14 +63,19 @@ function convertPPKViaPuttygen(ppkContent) {
         return reject(new Error('Failed to write temporary PPK file: ' + writeErr.message));
       }
 
-      execFile('puttygen', [inputFile, '-O', 'private-openssh-new', '-o', outputFile], (err, stdout, stderr) => {
+      const args = [inputFile, '-O', 'private-openssh-new', '-o', outputFile];
+      if (passphrase) {
+        args.splice(1, 0, '--old-passphrase', passphrase);
+      }
+
+      execFile('puttygen', args, (err, stdout, stderr) => {
         try { fs.unlinkSync(inputFile); } catch (e) { /* ignore */ }
 
         if (err) {
           try { fs.unlinkSync(outputFile); } catch (e) { /* ignore */ }
           return reject(new Error(
             'puttygen conversion failed: ' + (stderr || err.message) +
-            '. If the PPK file is encrypted, decrypt it first using PuTTYgen.'
+            '. If the PPK file is encrypted, provide the correct passphrase.'
           ));
         }
 
@@ -324,31 +329,37 @@ function encodeOpenSSHPrivateKey(keyParts) {
   return `-----BEGIN OPENSSH PRIVATE KEY-----\n${lines.join('\n')}\n-----END OPENSSH PRIVATE KEY-----\n`;
 }
 
-async function convertPPKToOpenSSH(ppkContent) {
+async function convertPPKToOpenSSH(ppkContent, passphrase) {
   const info = detectKeyFormat(ppkContent);
 
   if (info.format !== 'ppk') {
     throw new Error('Not a PPK key');
   }
 
-  if (info.encrypted) {
+  if (info.encrypted && !passphrase) {
     throw new Error(
-      'This PPK key is encrypted. Please decrypt it first using PuTTYgen: ' +
-      'load the PPK, enter the passphrase, then export as OpenSSH key.'
+      'This PPK key is encrypted. Provide a passphrase or decrypt it first using PuTTYgen.'
     );
   }
 
-  // Try puttygen first (handles all PPK versions including v3)
+  // Try puttygen first (handles all PPK versions including v3 and encrypted)
   try {
-    const result = await convertPPKViaPuttygen(ppkContent);
-    if (result && result.includes('BEGIN OPENSSH PRIVATE KEY')) {
+    const result = await convertPPKViaPuttygen(ppkContent, passphrase);
+    if (result && result.includes('BEGIN')) {
       return result;
     }
   } catch (e) {
-    // puttygen not available or failed, try built-in v2 parser
+    // If puttygen failed and key is encrypted, don't try built-in (it can't handle encryption)
+    if (info.encrypted) {
+      throw new Error(
+        'Could not convert encrypted PPK key: ' + e.message +
+        '. Ensure puttygen is installed and the passphrase is correct.'
+      );
+    }
+    // puttygen not available, try built-in v2 parser for unencrypted keys
   }
 
-  // Fall back to built-in PPK v2 converter
+  // Fall back to built-in PPK v2 converter (unencrypted only)
   try {
     return convertPPKV2ToOpenSSH(ppkContent);
   } catch (e) {
@@ -360,4 +371,22 @@ async function convertPPKToOpenSSH(ppkContent) {
   }
 }
 
-module.exports = { detectKeyFormat, convertPPKToOpenSSH };
+async function convertKeyIfNeeded(keyContent, passphrase) {
+  if (!keyContent || !keyContent.trim()) {
+    return keyContent;
+  }
+
+  const info = detectKeyFormat(keyContent);
+  if (info.format !== 'ppk') {
+    return keyContent;
+  }
+
+  try {
+    const converted = await convertPPKToOpenSSH(keyContent, passphrase);
+    return converted;
+  } catch (e) {
+    throw new Error('PPK key conversion failed: ' + e.message);
+  }
+}
+
+module.exports = { detectKeyFormat, convertPPKToOpenSSH, convertKeyIfNeeded };

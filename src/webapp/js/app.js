@@ -5819,6 +5819,11 @@ const wheelHandler = (e) => {
     const clearBtn = document.getElementById(clearBtnId);
     const textarea = document.getElementById(textareaId);
 
+    // Derive passphrase field ID from textarea ID
+    const passphraseId = textareaId === 'connPrivateKey' ? 'connPassphrase' : 'bookmarkPassphrase';
+    const passphraseEl = document.getElementById(passphraseId);
+    const passphrase = passphraseEl ? passphraseEl.value : '';
+
     badge.style.display = 'inline-flex';
     badge.textContent = 'Reading...';
     badge.className = 'key-format-badge';
@@ -5832,7 +5837,7 @@ const wheelHandler = (e) => {
         return;
       }
 
-      const detectResult = await this.detectAndConvertKey(content);
+      const detectResult = await this.detectAndConvertKey(content, passphrase);
       if (detectResult.error) {
         badge.textContent = detectResult.format || 'Error';
         badge.classList.add('format-error');
@@ -5891,7 +5896,7 @@ const wheelHandler = (e) => {
     event.target.value = '';
   }
 
-  async detectAndConvertKey(content) {
+  async detectAndConvertKey(content, passphrase) {
     try {
       const response = await fetch('/api/utils/detect-key', {
         method: 'POST',
@@ -5910,7 +5915,7 @@ const wheelHandler = (e) => {
           const convertResponse = await fetch('/api/utils/convert-key', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content })
+            body: JSON.stringify({ content, passphrase: passphrase || '' })
           });
 
           if (!convertResponse.ok) {
@@ -5963,7 +5968,7 @@ const wheelHandler = (e) => {
         encrypted: info.encrypted || false
       };
     } catch (e) {
-      if (content.includes('PuTTY-user-key-file')) {
+      if (/PuTTY-User-Key-File-/i.test(content)) {
         return {
           format: 'PPK',
           key: content,
@@ -5987,7 +5992,7 @@ const wheelHandler = (e) => {
     if (content.includes('BEGIN DSA PRIVATE KEY')) return 'pem-dsa';
     if (content.includes('BEGIN PRIVATE KEY')) return 'pkcs8';
     if (content.includes('BEGIN ENCRYPTED PRIVATE KEY')) return 'pkcs8-encrypted';
-    if (content.includes('PuTTY-user-key-file')) return 'ppk';
+    if (/PuTTY-User-Key-File-/i.test(content)) return 'ppk';
     return 'unknown';
   }
 
@@ -10001,7 +10006,7 @@ async syncTabsFromServer(tabs) {
     }
   }
 
-  connectFromBookmark(bookmark) {
+  async connectFromBookmark(bookmark) {
     // Close sidebar on mobile when connecting
     const isMobile = window.innerWidth <= 768;
     if (isMobile) {
@@ -10019,7 +10024,7 @@ async syncTabsFromServer(tabs) {
       return;
     }
 
-    // Connect directly using bookmark credentials
+    // Build connection data from bookmark
     const connectionData = {
       name: bookmark.name,
       host: bookmark.host,
@@ -10029,6 +10034,23 @@ async syncTabsFromServer(tabs) {
       privateKey: bookmark.privateKey || '',
       passphrase: bookmark.passphrase || ''
     };
+
+    // Auto-convert PPK keys to OpenSSH format before connecting
+    if (connectionData.privateKey && /PuTTY-User-Key-File-/i.test(connectionData.privateKey)) {
+      try {
+        const convertResult = await this.detectAndConvertKey(connectionData.privateKey);
+        if (convertResult.key && !convertResult.error) {
+          connectionData.privateKey = convertResult.key;
+          this.showToast('PPK key converted to OpenSSH format', 'success');
+        } else if (convertResult.error) {
+          this.showToast('PPK key conversion failed: ' + convertResult.error, 'error');
+          return;
+        }
+      } catch (e) {
+        this.showToast('PPK key conversion failed: ' + e.message, 'error');
+        return;
+      }
+    }
 
     // Show connecting status
     this.showToast(`Connecting to ${bookmark.name}...`, 'info');
@@ -10042,7 +10064,7 @@ async syncTabsFromServer(tabs) {
     }
   }
 
-  openSFTPFromBookmark(bookmark) {
+  async openSFTPFromBookmark(bookmark) {
     // Close sidebar on mobile when opening SFTP
     const isMobile = window.innerWidth <= 768;
     if (isMobile) {
@@ -10052,7 +10074,7 @@ async syncTabsFromServer(tabs) {
       if (sidebarOverlay) sidebarOverlay.classList.remove('active');
     }
     
-    // Open SFTP connection using SSH bookmark credentials
+    // Build connection data from bookmark
     const connectionData = {
       name: `${bookmark.name} (SFTP)`,
       host: bookmark.host,
@@ -10062,6 +10084,23 @@ async syncTabsFromServer(tabs) {
       privateKey: bookmark.privateKey || '',
       passphrase: bookmark.passphrase || ''
     };
+
+    // Auto-convert PPK keys to OpenSSH format before connecting
+    if (connectionData.privateKey && /PuTTY-User-Key-File-/i.test(connectionData.privateKey)) {
+      try {
+        const convertResult = await this.detectAndConvertKey(connectionData.privateKey);
+        if (convertResult.key && !convertResult.error) {
+          connectionData.privateKey = convertResult.key;
+          this.showToast('PPK key converted to OpenSSH format', 'success');
+        } else if (convertResult.error) {
+          this.showToast('PPK key conversion failed: ' + convertResult.error, 'error');
+          return;
+        }
+      } catch (e) {
+        this.showToast('PPK key conversion failed: ' + e.message, 'error');
+        return;
+      }
+    }
 
     // Show connecting status
     this.showToast(`Opening SFTP for ${bookmark.name}...`, 'info');
