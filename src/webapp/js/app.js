@@ -3358,14 +3358,17 @@ const wheelHandler = (e) => {
   setupSocketListeners() {
     this.socket.on('connect', () => {
       console.log('[SSHIFT] Connected to server, socket ID:', this.socket.id);
-      this.showToast('Connected to server', 'success');
-      // Reload bookmarks to sync any changes that happened while disconnected
+      if (!this.isUpdating) {
+        this.showToast('Connected to server', 'success');
+      }
       this.loadBookmarks();
     });
 
     this.socket.on('disconnect', (reason) => {
       console.log('[SSHIFT] Disconnected from server:', reason);
-      this.showToast('Disconnected from server: ' + reason, 'error');
+      if (!this.isUpdating) {
+        this.showToast('Disconnected from server: ' + reason, 'error');
+      }
     });
 
     this.socket.on('connect_error', (error) => {
@@ -3374,7 +3377,7 @@ const wheelHandler = (e) => {
         this.authToken = null;
         localStorage.removeItem('sshift_auth_token');
         this.showLockScreen();
-      } else {
+      } else if (!this.isUpdating) {
         this.showToast('Connection error: ' + error.message, 'error');
       }
     });
@@ -6760,14 +6763,6 @@ const wheelHandler = (e) => {
           // Buffer input while connecting (optional)
         } else {
           console.warn('[SSHIFT] Input received but session not connected! Session:', sess);
-        }
-      });
-
-      // Handle binary input (control characters, etc.) that onData may not capture
-      terminal.onBinary((data) => {
-        const sess = this.sessions.get(sessionId);
-        if (sess && sess.connected && sess.isController) {
-          this.socket.emit('ssh-data', { sessionId, data: data });
         }
       });
 
@@ -10401,7 +10396,20 @@ async syncTabsFromServer(tabs) {
 
   // Toast Notifications
   showToast(message, type = 'info') {
+    const MAX_TOASTS = 5;
+    const DEDUP_INTERVAL = 3000;
     const container = document.getElementById('toastContainer');
+
+    if (!this._toastDedup) this._toastDedup = new Map();
+    const dedupKey = `${type}:${message}`;
+    const lastShown = this._toastDedup.get(dedupKey);
+    if (lastShown && Date.now() - lastShown < DEDUP_INTERVAL) return;
+    this._toastDedup.set(dedupKey, Date.now());
+
+    while (container.children.length >= MAX_TOASTS) {
+      container.firstChild.remove();
+    }
+
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
     
@@ -10564,6 +10572,7 @@ async syncTabsFromServer(tabs) {
   }
 
   async executeUpdate() {
+    this.isUpdating = true;
     const updateBtn = document.getElementById('updateBtn');
     const updateOverlay = document.getElementById('updateOverlay');
     const updateMessage = document.getElementById('updateMessage');
@@ -10624,6 +10633,7 @@ async syncTabsFromServer(tabs) {
       }
     } catch (error) {
       console.error('Failed to execute update:', error);
+      this.isUpdating = false;
       
       // Hide overlay on error
       if (updateOverlay) {
@@ -10765,6 +10775,7 @@ async syncTabsFromServer(tabs) {
   }
   
   handleUpdateError(message) {
+    this.isUpdating = false;
     const updateOverlay = document.getElementById('updateOverlay');
     const updateBtn = document.getElementById('updateBtn');
     

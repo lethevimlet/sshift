@@ -57,6 +57,8 @@ class MobileTerminalHandler {
     this._isComposing = false;
     this._compositionText = '';
     this._compositionEndTs = 0;
+    this._lastSentInput = '';
+    this._lastSentInputTs = 0;
     this.contextMenuUserPositioned = false; // Track if user has manually positioned the menu
     
     // Configuration
@@ -468,7 +470,21 @@ class MobileTerminalHandler {
         return;
       }
 
+      // Skip composition-related input events - they are handled by compositionend.
+      // e.isComposing is true when the event is part of an active composition.
+      // e.inputType checks catch 'insertCompositionText' and 'insertReplacementText'
+      // which some browsers fire instead of or alongside composition events.
+      if (e.isComposing) {
+        return;
+      }
+
       if (this._isComposing) {
+        this.hiddenTextarea.value = '';
+        return;
+      }
+
+      if (e.inputType === 'insertCompositionText' || e.inputType === 'insertReplacementText') {
+        this.hiddenTextarea.value = '';
         return;
       }
 
@@ -483,6 +499,8 @@ class MobileTerminalHandler {
 
       if (e.data && !this.touchState.isDragging) {
         this._sendToTerminal(e.data);
+        this._lastSentInput = e.data;
+        this._lastSentInputTs = Date.now();
         this.hiddenTextarea.value = '';
       }
     });
@@ -537,11 +555,28 @@ class MobileTerminalHandler {
     this.hiddenTextarea.addEventListener('compositionend', (e) => {
       this._isComposing = false;
       this._compositionEndTs = Date.now();
-      const composed = e.data || this.hiddenTextarea.value;
+      const composed = e.data || this._compositionText;
       if (composed && !this.touchState.isDragging) {
-        this._sendToTerminal(composed);
+        // Avoid re-sending text that was already sent via an input event
+        // that fired before compositionstart (Gboard timing quirk).
+        if (this._lastSentInput && (Date.now() - this._lastSentInputTs) < 500) {
+          if (composed === this._lastSentInput) {
+            this._lastSentInput = '';
+            this._lastSentInputTs = 0;
+          } else if (composed.startsWith(this._lastSentInput)) {
+            this._sendToTerminal(composed.substring(this._lastSentInput.length));
+            this._lastSentInput = '';
+            this._lastSentInputTs = 0;
+          } else {
+            this._sendToTerminal(composed);
+          }
+        } else {
+          this._sendToTerminal(composed);
+        }
       }
       this._compositionText = '';
+      this._lastSentInput = '';
+      this._lastSentInputTs = 0;
       this.hiddenTextarea.value = '';
     });
   }
