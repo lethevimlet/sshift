@@ -33,6 +33,7 @@ class SSHManager {
         };
       } catch (e) {
         console.error('[SSH] Key conversion failed:', e.message);
+        return Promise.reject(new Error(e.message));
       }
     }
 

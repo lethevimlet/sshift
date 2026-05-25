@@ -22,6 +22,7 @@ class SFTPManager {
         };
       } catch (e) {
         console.error('[SFTP] Key conversion failed:', e.message);
+        return Promise.reject(new Error(e.message));
       }
     }
 

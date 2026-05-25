@@ -307,7 +307,7 @@ class SSHIFTClient {
     }
   }
 
-  _showPasswordModal(options, onSubmit) {
+  _showPasswordModal(options, onSubmit, onCancel) {
     const modal = document.getElementById('passwordModal');
     const title = document.getElementById('passwordModalTitle');
     const label = document.getElementById('passwordModalLabel');
@@ -357,8 +357,8 @@ class SSHIFTClient {
       await onSubmit(password);
     };
 
-    const handleCancel = () => cleanup();
-    const handleBackdrop = (e) => { if (e.target === modal) cleanup(); };
+    const handleCancel = () => { cleanup(); if (onCancel) onCancel(); };
+    const handleBackdrop = (e) => { if (e.target === modal) { cleanup(); if (onCancel) onCancel(); } };
     const handleKeydown = (e) => { if (e.key === 'Enter') handleSubmit(); };
 
     submitBtn.addEventListener('click', handleSubmit);
@@ -5819,10 +5819,8 @@ const wheelHandler = (e) => {
     const clearBtn = document.getElementById(clearBtnId);
     const textarea = document.getElementById(textareaId);
 
-    // Derive passphrase field ID from textarea ID
     const passphraseId = textareaId === 'connPrivateKey' ? 'connPassphrase' : 'bookmarkPassphrase';
     const passphraseEl = document.getElementById(passphraseId);
-    const passphrase = passphraseEl ? passphraseEl.value : '';
 
     badge.style.display = 'inline-flex';
     badge.textContent = 'Reading...';
@@ -5837,8 +5835,43 @@ const wheelHandler = (e) => {
         return;
       }
 
+      let passphrase = passphraseEl ? passphraseEl.value : '';
+
+      if (!passphrase) {
+        const needsPassphrase = this._keyNeedsPassphrase(content);
+        if (needsPassphrase) {
+          const promptedPassphrase = await this._promptForKeyPassphrase();
+          if (promptedPassphrase === null) {
+            badge.textContent = 'Encrypted key';
+            badge.classList.add('format-warning');
+            badge.style.display = 'inline-flex';
+            textarea.value = content;
+            clearBtn.style.display = 'inline-flex';
+            this.showToast('Encrypted key requires a passphrase', 'info');
+            event.target.value = '';
+            return;
+          }
+          passphrase = promptedPassphrase;
+          if (passphraseEl) passphraseEl.value = passphrase;
+        }
+      }
+
       const detectResult = await this.detectAndConvertKey(content, passphrase);
       if (detectResult.error) {
+        if (this._isPassphraseError(detectResult.error) && !passphrase) {
+          const promptedPassphrase = await this._promptForKeyPassphrase();
+          if (promptedPassphrase !== null) {
+            passphrase = promptedPassphrase;
+            if (passphraseEl) passphraseEl.value = passphrase;
+            const retryResult = await this.detectAndConvertKey(content, passphrase);
+            if (!retryResult.error) {
+              this._applyKeyResult(textarea, badge, clearBtn, retryResult);
+              event.target.value = '';
+              return;
+            }
+            this.showToast(retryResult.error, 'error');
+          }
+        }
         badge.textContent = detectResult.format || 'Error';
         badge.classList.add('format-error');
         badge.style.display = 'inline-flex';
@@ -5848,44 +5881,7 @@ const wheelHandler = (e) => {
         return;
       }
 
-      textarea.value = detectResult.key;
-
-      let formatLabel = detectResult.format;
-      if (detectResult.wasConverted) {
-        formatLabel = `PPK → OpenSSH`;
-      } else if (detectResult.format === 'openssh') {
-        formatLabel = 'OpenSSH';
-      } else if (detectResult.format === 'pem-rsa') {
-        formatLabel = 'PEM (RSA)';
-      } else if (detectResult.format === 'pem-ec') {
-        formatLabel = 'PEM (EC)';
-      } else if (detectResult.format === 'pem-dsa') {
-        formatLabel = 'PEM (DSA)';
-      } else if (detectResult.format === 'pkcs8') {
-        formatLabel = 'PKCS8';
-      } else if (detectResult.format === 'pkcs8-encrypted') {
-        formatLabel = 'PKCS8 (Encrypted)';
-      }
-
-      badge.textContent = formatLabel;
-      badge.className = 'key-format-badge';
-      if (detectResult.encrypted) {
-        badge.classList.add('format-warning');
-      }
-      badge.style.display = 'inline-flex';
-      clearBtn.style.display = 'inline-flex';
-
-      if (detectResult.wasConverted) {
-        this.showToast('PPK key converted to OpenSSH format', 'success');
-      } else if (detectResult.format === 'openssh') {
-        this.showToast('OpenSSH key loaded', 'success');
-      } else if (detectResult.format === 'pem-rsa' || detectResult.format === 'pem-ec' || detectResult.format === 'pem-dsa') {
-        this.showToast('PEM key loaded', 'success');
-      } else if (detectResult.format === 'pkcs8') {
-        this.showToast('PKCS8 key loaded', 'success');
-      } else if (detectResult.format === 'pkcs8-encrypted') {
-        this.showToast('Encrypted PKCS8 key loaded - passphrase required', 'info');
-      }
+      this._applyKeyResult(textarea, badge, clearBtn, detectResult);
     } catch (err) {
       badge.textContent = 'Error';
       badge.classList.add('format-error');
@@ -5894,6 +5890,85 @@ const wheelHandler = (e) => {
     }
 
     event.target.value = '';
+  }
+
+  _keyNeedsPassphrase(content) {
+    const trimmed = (content || '').trim();
+    if (/^PuTTY-User-Key-File-/im.test(trimmed)) {
+      const lines = trimmed.split('\n');
+      for (const line of lines) {
+        const colonIdx = line.indexOf(':');
+        if (colonIdx !== -1) {
+          const key = line.substring(0, colonIdx).trim();
+          const value = line.substring(colonIdx + 1).trim();
+          if (key === 'Encryption' && value !== 'none') return true;
+        }
+      }
+    }
+    if (trimmed.includes('-----BEGIN ENCRYPTED PRIVATE KEY-----')) return true;
+    if (trimmed.includes('ENCRYPTED') && trimmed.includes('-----BEGIN')) return true;
+    return false;
+  }
+
+  _promptForKeyPassphrase() {
+    return new Promise((resolve) => {
+      this._showPasswordModal(
+        {
+          title: 'Encrypted Key',
+          label: 'Enter the key passphrase',
+          confirmText: 'Decrypt'
+        },
+        (passphrase) => { resolve(passphrase); },
+        () => { resolve(null); }
+      );
+    });
+  }
+
+  _isPassphraseError(errorMessage) {
+    if (!errorMessage) return false;
+    const lower = errorMessage.toLowerCase();
+    return lower.includes('encrypted') || lower.includes('passphrase') || lower.includes('password');
+  }
+
+  _applyKeyResult(textarea, badge, clearBtn, detectResult) {
+    textarea.value = detectResult.key;
+
+    let formatLabel = detectResult.format;
+    if (detectResult.wasConverted) {
+      formatLabel = `PPK → OpenSSH`;
+    } else if (detectResult.format === 'openssh') {
+      formatLabel = 'OpenSSH';
+    } else if (detectResult.format === 'pem-rsa') {
+      formatLabel = 'PEM (RSA)';
+    } else if (detectResult.format === 'pem-ec') {
+      formatLabel = 'PEM (EC)';
+    } else if (detectResult.format === 'pem-dsa') {
+      formatLabel = 'PEM (DSA)';
+    } else if (detectResult.format === 'pkcs8') {
+      formatLabel = 'PKCS8';
+    } else if (detectResult.format === 'pkcs8-encrypted') {
+      formatLabel = 'PKCS8 (Encrypted)';
+    }
+
+    badge.textContent = formatLabel;
+    badge.className = 'key-format-badge';
+    if (detectResult.encrypted) {
+      badge.classList.add('format-warning');
+    }
+    badge.style.display = 'inline-flex';
+    clearBtn.style.display = 'inline-flex';
+
+    if (detectResult.wasConverted) {
+      this.showToast('PPK key converted to OpenSSH format', 'success');
+    } else if (detectResult.format === 'openssh') {
+      this.showToast('OpenSSH key loaded', 'success');
+    } else if (detectResult.format === 'pem-rsa' || detectResult.format === 'pem-ec' || detectResult.format === 'pem-dsa') {
+      this.showToast('PEM key loaded', 'success');
+    } else if (detectResult.format === 'pkcs8') {
+      this.showToast('PKCS8 key loaded', 'success');
+    } else if (detectResult.format === 'pkcs8-encrypted') {
+      this.showToast('Encrypted PKCS8 key loaded - passphrase required for connection', 'info');
+    }
   }
 
   async detectAndConvertKey(content, passphrase) {
