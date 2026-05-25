@@ -22,7 +22,7 @@ function registerUtilsEndpoints(app, io) {
     const info = detectKeyFormat(content);
     if (info.format === 'ppk') {
       try {
-        const converted = await convertPPKToOpenSSH(content, passphrase);
+        const converted = await convertPPKToOpenSSH(content, passphrase || undefined);
         res.json({ success: true, key: converted, format: 'openssh' });
       } catch (e) {
         res.status(400).json({ error: e.message });

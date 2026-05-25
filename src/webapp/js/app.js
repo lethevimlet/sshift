@@ -5858,7 +5858,7 @@ const wheelHandler = (e) => {
 
       const detectResult = await this.detectAndConvertKey(content, passphrase);
       if (detectResult.error) {
-        if (this._isPassphraseError(detectResult.error)) {
+        if (this._isPassphraseError(detectResult.error) && !passphrase) {
           const promptedPassphrase = await this._promptForKeyPassphrase();
           if (promptedPassphrase !== null) {
             passphrase = promptedPassphrase;
