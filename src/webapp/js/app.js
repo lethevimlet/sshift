@@ -6113,6 +6113,9 @@ const wheelHandler = (e) => {
     }
 
     // Build connection data - only include auth if provided
+    // Use actual terminal dimensions when available (falls back to 80x24
+    // for the initial connection, then immediately resized via ssh-resize
+    // after terminal is fitted)
     const connectionData = {
       host,
       port,
@@ -6630,6 +6633,25 @@ const wheelHandler = (e) => {
 
       console.log('[SSHIFT] Loading FitAddon...');
       terminal.loadAddon(fitAddon);
+
+      // Load Unicode11 addon for correct wide/ambiguous character width handling.
+      // Without this, xterm.js uses its built-in width table (Unicode 6),
+      // which mis-calculates many characters — causing cursor positioning
+      // and erase-line operations to desync from the remote PTY's layout.
+      // This is the primary fix for "dropped characters" in TUI apps
+      // like OpenCode whose input line repaints depend on exact cell widths.
+      if (typeof window.Unicode11Addon === 'function') {
+        try {
+          const unicode11Addon = new window.Unicode11Addon();
+          terminal.loadAddon(unicode11Addon);
+          terminal.unicode.activeVersion = '11';
+          console.log('[SSHIFT] Unicode11 addon loaded, activeVersion set to 11');
+        } catch (e) {
+          console.warn('[SSHIFT] Failed to load Unicode11 addon:', e.message);
+        }
+      } else {
+        console.warn('[SSHIFT] Unicode11 addon not available (window.Unicode11Addon type:', typeof window.Unicode11Addon, ')');
+      }
 
       console.log('[SSHIFT] Opening terminal in container...');
       
@@ -7371,8 +7393,27 @@ const wheelHandler = (e) => {
     const MAX_WRITE_PER_FRAME = 32768;
 
     if (combined.length > MAX_WRITE_PER_FRAME) {
-      terminal.write(combined.substring(0, MAX_WRITE_PER_FRAME));
-      session.flushRemaining = combined.substring(MAX_WRITE_PER_FRAME);
+      // Find a safe split point that doesn't break in the middle of an
+      // escape sequence. Scan backwards from the cap limit for a character
+      // that is NOT part of a multi-byte UTF-16 surrogate or an escape
+      // sequence body. A bare ESC (\x1b) or CSI introducer (\x1b[)
+      // always starts a new sequence, so splitting just before ESC is safe.
+      let splitAt = MAX_WRITE_PER_FRAME;
+      for (let i = MAX_WRITE_PER_FRAME - 1; i > MAX_WRITE_PER_FRAME - 4096 && i > 0; i--) {
+        const code = combined.charCodeAt(i);
+        // ESC (\x1b) always begins a new control sequence
+        if (code === 0x1b) {
+          splitAt = i;
+          break;
+        }
+        // Don't split inside a UTF-16 surrogate pair
+        if (code >= 0xDC00 && code <= 0xDFFF) {
+          splitAt = i;
+          break;
+        }
+      }
+      terminal.write(combined.substring(0, splitAt));
+      session.flushRemaining = combined.substring(splitAt);
       session.writeRAF = requestAnimationFrame(() => {
         this._flushWriteChunks(sessionId);
       });

@@ -1,6 +1,7 @@
 const { Client } = require('ssh2');
 const { Terminal } = require('@xterm/headless');
 const { SerializeAddon } = require('@xterm/addon-serialize');
+const { Unicode11Addon } = require('@xterm/addon-unicode11');
 const pluginManager = require('../plugins/plugin-manager');
 const { convertKeyIfNeeded } = require('../utils/key-converter');
 
@@ -56,6 +57,15 @@ class SSHManager {
         logLevel: 'off'
       });
       
+      // Use Unicode 11 width rules so the headless terminal's character-width
+      // calculations match the remote PTY. Without this, wide/ambiguous-width
+      // characters (CJK, emojis, box-drawing) would be sized differently,
+      // causing the serialized screen state to be misaligned when sent to
+      // clients that also use Unicode 11.
+      const unicode11Addon = new Unicode11Addon();
+      terminal.loadAddon(unicode11Addon);
+      terminal.unicode.activeVersion = '11';
+      
       // Create serialize addon for terminal state
       const serializeAddon = new SerializeAddon();
       terminal.loadAddon(serializeAddon);
@@ -77,10 +87,17 @@ class SSHManager {
         username: options.username,
         connectedAt: Date.now(),
         // Data batching state
-        dataChunks: [], // Array of chunks for outgoing data (avoids O(n^2) string concat)
-        dataBufferSize: 0, // Running total of chunk lengths for fast size checks
+        dataChunks: [], // Array of raw Buffers for outgoing data
+        dataBufferSize: 0, // Running total of chunk byte lengths for size checks
         batchTimer: null, // Timer for batched sends
         lastDataTime: 0, // Timestamp of last data received
+        // Streaming UTF-8 decoder that carries incomplete bytes across
+        // flushes. If a multi-byte character is split between two SSH
+        // data events and the first half is flushed before the second
+        // arrives, toString('utf8') would replace the partial byte with
+        // \uFFFD. The streaming decoder instead carries the partial byte
+        // forward until the character is complete.
+        decoder: new TextDecoder('utf-8'),
         writeQueue: null, // Queue for writes when stream is congested
         drainListener: false // Whether a drain listener is active
       };
@@ -156,20 +173,17 @@ class SSHManager {
           });
 
           // Handle stream data with batching to reduce socket events
-          // This prevents performance issues when multiple clients are connected
+          // This prevents performance issues when multiple clients are connected.
+          // Buffer raw bytes rather than converting to strings immediately —
+          // this avoids corrupting multi-byte UTF-8 characters that span
+          // chunk boundaries (each .toString('utf8') would replace the
+          // incomplete halves with U+FFFD).
           stream.on('data', (data) => {
-            const dataStr = data.toString('utf8');
-            
-            // Buffer data for batched broadcast (headless terminal write
-            // is also batched inside bufferData to avoid per-chunk writes)
-            this.bufferData(sessionId, dataStr);
+            this.bufferData(sessionId, data);
           });
 
           stream.stderr.on('data', (data) => {
-            const dataStr = data.toString('utf8');
-            
-            // Buffer data for batched broadcast
-            this.bufferData(sessionId, dataStr);
+            this.bufferData(sessionId, data);
           });
 
           stream.on('close', () => {
@@ -232,13 +246,16 @@ class SSHManager {
 
   // Buffer data for batched broadcast to reduce socket events
   // This improves performance when multiple clients are connected
-  bufferData(sessionId, dataStr) {
+  bufferData(sessionId, data) {
     const session = this.sessions.get(sessionId);
     if (!session) return;
     
+    // Track byte length for size-based flush threshold
+    const byteLen = Buffer.isBuffer(data) ? data.length : data.length;
+    
     // Add data to chunk array (avoids O(n^2) string concatenation)
-    session.dataChunks.push(dataStr);
-    session.dataBufferSize += dataStr.length;
+    session.dataChunks.push(data);
+    session.dataBufferSize += byteLen;
     session.lastDataTime = Date.now();
     
     // If buffer exceeds max size, flush immediately
@@ -268,7 +285,18 @@ class SSHManager {
     
     // If there's data to send, broadcast it
     if (session.dataChunks.length > 0) {
-      const joinedData = session.dataChunks.join('');
+      // Concatenate raw Buffers first, then decode with the streaming
+      // TextDecoder. Using { stream: true } carries any incomplete
+      // trailing UTF-8 bytes forward to the next flush instead of
+      // replacing them with U+FFFD. This is critical for TUI apps
+      // whose escape sequences and wide characters span multiple SSH
+      // data events that may be flushed separately.
+      const combined = Buffer.concat(
+        session.dataChunks.map(c => Buffer.isBuffer(c) ? c : Buffer.from(c, 'utf8'))
+      );
+      const joinedData = session.decoder.decode(combined, { stream: true });
+      session.dataChunks = [];
+      session.dataBufferSize = 0;
       
       // Write to headless terminal for state sync (batched write)
       if (session.terminal) {
@@ -282,8 +310,6 @@ class SSHManager {
         sessionId, 
         data: joinedData
       });
-      session.dataChunks = [];
-      session.dataBufferSize = 0;
     }
   }
 
@@ -580,6 +606,12 @@ class SSHManager {
         clearTimeout(session.batchTimer);
         session.batchTimer = null;
       }
+      // Flush any remaining incomplete UTF-8 bytes from the streaming
+      // decoder. Passing { stream: false } (or no option) signals the
+      // decoder that the stream has ended, emitting any buffered bytes
+      // as replacement characters — there should be none in a clean
+      // disconnect, but this prevents a memory leak.
+      try { session.decoder.decode(new Uint8Array(0)); } catch (_) {}
       if (session.stream) {
         session.stream.end();
       }
