@@ -63,14 +63,21 @@ function convertPPKViaPuttygen(ppkContent, passphrase) {
         return reject(new Error('Failed to write temporary PPK file: ' + writeErr.message));
       }
 
-      const args = [inputFile, '-O', 'private-openssh-new', '-o', outputFile];
-      if (passphrase) {
-        args.splice(1, 0, `--old-passphrase=${passphrase}`);
-      }
+      const args = passphrase
+        ? [inputFile, '--old-passphrase=' + passphrase, '-O', 'private-openssh-new', '-o', outputFile]
+        : [inputFile, '-O', 'private-openssh-new', '-o', outputFile];
 
       execFile('puttygen', args, (err, stdout, stderr) => {
         if (err && passphrase) {
-          tryConvertPPKWithPassphraseFile(inputFile, outputFile, passphrase, resolve, reject);
+          const errStr = (stderr || err.message || '').toLowerCase();
+          if (!errStr.includes('no such option')) {
+            cleanupAndResolve(err, stdout, stderr, inputFile, outputFile, reject, resolve);
+            return;
+          }
+          const argsAlt = [inputFile, '--old-passphrase', passphrase, '-O', 'private-openssh-new', '-o', outputFile];
+          execFile('puttygen', argsAlt, (err2, stdout2, stderr2) => {
+            cleanupAndResolve(err2, stdout2, stderr2, inputFile, outputFile, reject, resolve);
+          });
           return;
         }
 
@@ -80,58 +87,30 @@ function convertPPKViaPuttygen(ppkContent, passphrase) {
   });
 }
 
-function tryConvertPPKWithPassphraseFile(inputFile, outputFile, passphrase, resolve, reject) {
-  const tmpDir = os.tmpdir();
-  const passphraseFile = path.join(tmpDir, `sshift-ppk-pass-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`);
-
-  fs.writeFile(passphraseFile, passphrase, { mode: 0o600 }, (writeErr) => {
-    if (writeErr) {
-      cleanupTempFiles([inputFile, outputFile]);
-      return reject(new Error(
-        'Failed to write passphrase file for PPK conversion: ' + writeErr.message
-      ));
-    }
-
-    const args = [inputFile, '-O', 'private-openssh-new', '-o', outputFile, `--old-passphrase-file=${passphraseFile}`];
-
-    execFile('puttygen', args, (err, stdout, stderr) => {
-      try { fs.unlinkSync(passphraseFile); } catch (e) { /* ignore */ }
-
-      if (err) {
-        cleanupTempFiles([inputFile, outputFile]);
-        return reject(new Error(
-          'puttygen conversion failed: ' + (stderr || err.message) +
-          '. Ensure puttygen is installed and the passphrase is correct.'
-        ));
-      }
-
-      fs.readFile(outputFile, 'utf8', (readErr, data) => {
-        try { fs.unlinkSync(inputFile); } catch (e) { /* ignore */ }
-        try { fs.unlinkSync(outputFile); } catch (e) { /* ignore */ }
-        if (readErr) {
-          return reject(new Error('Failed to read converted key: ' + readErr.message));
-        }
-        resolve(data);
-      });
-    });
-  });
-}
-
-function cleanupTempFiles(files) {
-  for (const f of files) {
-    try { fs.unlinkSync(f); } catch (e) { /* ignore */ }
-  }
-}
-
 function cleanupAndResolve(err, stdout, stderr, inputFile, outputFile, reject, resolve) {
   try { fs.unlinkSync(inputFile); } catch (e) { /* ignore */ }
 
   if (err) {
     try { fs.unlinkSync(outputFile); } catch (e) { /* ignore */ }
-    return reject(new Error(
-      'puttygen conversion failed: ' + (stderr || err.message) +
-      '. If the PPK file is encrypted, provide the correct passphrase.'
-    ));
+    const stderrStr = (stderr || '').trim();
+    const errMsg = stderrStr || err.message;
+
+    if (stderrStr.includes('no such option') && stderrStr.includes('--old-passphrase')) {
+      return reject(new Error(
+        'puttygen on this system does not support the --old-passphrase option. ' +
+        'Please upgrade puttygen (PuTTY 0.71+) or decrypt the PPK key manually: ' +
+        'run "puttygen key.ppk -O private-openssh-new -o key.pem" with the passphrase entered interactively.'
+      ));
+    }
+
+    if (stderrStr.toLowerCase().includes('wrong passphrase') || stderrStr.toLowerCase().includes('unable to read')) {
+      return reject(new Error(
+        'PPK passphrase is incorrect. Please check the passphrase and try again. ' +
+        '(puttygen error: ' + stderrStr + ')'
+      ));
+    }
+
+    return reject(new Error('puttygen conversion failed: ' + errMsg));
   }
 
   fs.readFile(outputFile, 'utf8', (readErr, data) => {
