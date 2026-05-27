@@ -4,6 +4,7 @@ const { SerializeAddon } = require('@xterm/addon-serialize');
 const { Unicode11Addon } = require('@xterm/addon-unicode11');
 const pluginManager = require('../plugins/plugin-manager');
 const { convertKeyIfNeeded } = require('../utils/key-converter');
+const { removeTab } = require('../utils/tab-manager');
 
 class SSHManager {
   constructor() {
@@ -191,7 +192,11 @@ class SSHManager {
             this.flushData(sessionId);
             this.broadcastToSession(sessionId, 'ssh-disconnected', { sessionId });
             this.disconnect(sessionId);
-            if (this.io) this.io.emit('sessions-updated');
+            removeTab(sessionId);
+            if (this.io) {
+              this.io.emit('tab-closed', { sessionId });
+              this.io.emit('sessions-updated');
+            }
           });
 
           stream.on('exit', (code, signal) => {
@@ -212,7 +217,11 @@ class SSHManager {
         console.error(`[SSH] Connection error: ${err.message}`);
         socket.emit('ssh-error', { sessionId, message: err.message });
         this.sessions.delete(sessionId);
-        if (this.io) this.io.emit('sessions-updated');
+        removeTab(sessionId);
+        if (this.io) {
+          this.io.emit('tab-closed', { sessionId });
+          this.io.emit('sessions-updated');
+        }
         reject(err);
       });
 
@@ -220,7 +229,11 @@ class SSHManager {
         console.log(`[SSH] Connection closed: ${sessionId}`);
         this.broadcastToSession(sessionId, 'ssh-disconnected', { sessionId });
         this.sessions.delete(sessionId);
-        if (this.io) this.io.emit('sessions-updated');
+        removeTab(sessionId);
+        if (this.io) {
+          this.io.emit('tab-closed', { sessionId });
+          this.io.emit('sessions-updated');
+        }
       });
 
       try {
@@ -623,6 +636,7 @@ class SSHManager {
         session.terminal.dispose();
       }
       this.sessions.delete(sessionId);
+      removeTab(sessionId);
       // Notify plugins about disconnect
       pluginManager.onSessionDisconnect(sessionId);
     }

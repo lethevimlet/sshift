@@ -1,5 +1,6 @@
 const { Client } = require('ssh2');
 const { convertKeyIfNeeded } = require('../utils/key-converter');
+const { removeTab } = require('../utils/tab-manager');
 
 class SFTPManager {
   constructor() {
@@ -102,6 +103,7 @@ class SFTPManager {
         console.error(`[SFTP] Connection error: ${err.message}`);
         socket.emit('sftp-error', { sessionId, message: err.message });
         this.sessions.delete(sessionId);
+        removeTab(sessionId);
         reject(err);
       });
 
@@ -109,6 +111,7 @@ class SFTPManager {
         console.log(`[SFTP] Connection closed: ${sessionId}`);
         socket.emit('sftp-disconnected', { sessionId });
         this.sessions.delete(sessionId);
+        removeTab(sessionId);
       });
 
       try {
@@ -386,6 +389,7 @@ class SFTPManager {
         session.conn.end();
       }
       this.sessions.delete(sessionId);
+      removeTab(sessionId);
     }
   }
 

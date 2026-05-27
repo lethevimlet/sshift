@@ -2371,6 +2371,10 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
   async init() {
     console.log('[SSHIFT] Setting up listeners...');
     
+    // Register socket listeners FIRST, before any async operations,
+    // so we don't miss the open-tabs event on initial connection.
+    this.setupSocketListeners();
+    
     await this.checkAuthStatus();
     
     // Fix mobile viewport height issues
@@ -2385,7 +2389,6 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     // Initialize layout system (must be before setupEventListeners)
     await this.initLayoutSystem();
     
-    this.setupSocketListeners();
     this.setupEventListeners();
     this.loadBookmarks(); // This will also load folders
     this.applySidebarState();
