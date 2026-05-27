@@ -2,7 +2,7 @@
  * SSH WebSocket handlers
  */
 
-const { loadConfig, getStickySetting } = require('../../utils/config');
+const { loadConfig, getStickySetting, getScrollback } = require('../../utils/config');
 const { addTab, getTab, addSocketToTab, removeSocketFromTab, removeTab, getTabOrder, setCloseTimer, clearCloseTimer, getCloseTimer } = require('../../utils/tab-manager');
 const { sshManager } = require('../../services');
 
@@ -28,12 +28,14 @@ function registerSSHHandlers(socket, io) {
       const config = loadConfig();
       const sshKeepaliveInterval = config.sshKeepaliveInterval || 10000;
       const sshKeepaliveCountMax = config.sshKeepaliveCountMax || 1000;
+      const scrollback = getScrollback();
       
-      // Pass keepalive settings to SSH manager
+      // Pass keepalive and scrollback settings to SSH manager
       const connectionData = {
         ...data,
         sshKeepaliveInterval,
-        sshKeepaliveCountMax
+        sshKeepaliveCountMax,
+        scrollback
       };
       
       const sessionId = await sshManager.connect(socket, connectionData);

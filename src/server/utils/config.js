@@ -39,6 +39,7 @@ const defaultConfig = {
   bookmarks: [],
   folders: [],
   passwordHash: null,
+  scrollback: 10000,
   webglRenderer: true,
   imageAddonEnabled: true
 };
@@ -212,6 +213,11 @@ function getMobileKeysBarEnabled() {
  * Get WebGL renderer setting from config
  * @returns {boolean} WebGL renderer setting
  */
+function getScrollback() {
+  const config = loadConfig();
+  return config.scrollback || defaultConfig.scrollback;
+}
+
 function getWebglRenderer() {
   const config = loadConfig();
   return config.webglRenderer !== false; // Default to true
@@ -343,6 +349,7 @@ module.exports = {
   getMobileKeysBarEnabled,
   getWebglRenderer,
   getImageAddonEnabled,
+  getScrollback,
   getLayouts,
   getEnableHttps,
   getHttpRedirect,

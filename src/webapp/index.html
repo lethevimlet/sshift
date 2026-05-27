@@ -736,204 +736,234 @@
 
   <!-- Settings Modal -->
   <div class="modal" id="settingsModal">
-    <div class="modal-content">
+    <div class="modal-content modal-settings">
       <div class="modal-header">
         <h2><i class="fas fa-cog"></i> Settings</h2>
         <button class="modal-close" id="closeSettingsModal">
           <i class="fas fa-times"></i>
         </button>
       </div>
-      <div class="modal-body">
-        <!-- Sticky Sessions Setting -->
-        <div class="setting-group">
-          <div class="setting-item">
-            <label class="setting-label">
-              <i class="fas fa-link"></i> Sticky Sessions
-            </label>
-            <div class="setting-description">
-              When enabled, sessions and tabs are synchronized across browser windows. When disabled, each browser tab works independently with its own session.
-            </div>
-            <div class="setting-control">
-              <label class="toggle-switch">
-                <input type="checkbox" id="stickyToggle" checked>
-                <span class="toggle-slider"></span>
+      <div class="modal-settings-layout">
+        <nav class="settings-nav" id="settingsNav">
+          <button class="settings-nav-item active" data-category="sessions">
+            <i class="fas fa-layer-group"></i> <span>Sessions</span>
+          </button>
+          <button class="settings-nav-item" data-category="terminal">
+            <i class="fas fa-terminal"></i> <span>Terminal</span>
+          </button>
+          <button class="settings-nav-item" data-category="ssh">
+            <i class="fas fa-network-wired"></i> <span>SSH</span>
+          </button>
+          <button class="settings-nav-item" data-category="mobile">
+            <i class="fas fa-mobile-alt"></i> <span>Mobile</span>
+          </button>
+          <button class="settings-nav-item" data-category="security">
+            <i class="fas fa-shield-alt"></i> <span>Security</span>
+          </button>
+          <button class="settings-nav-item" data-category="system">
+            <i class="fas fa-server"></i> <span>System</span>
+          </button>
+          <button class="settings-nav-item" data-category="plugins">
+            <i class="fas fa-puzzle-piece"></i> <span>Plugins</span>
+          </button>
+        </nav>
+        <div class="settings-panel" id="settingsPanel">
+          <select class="settings-mobile-category" id="settingsCategorySelect">
+            <option value="sessions">Sessions</option>
+            <option value="terminal">Terminal</option>
+            <option value="ssh">SSH</option>
+            <option value="mobile">Mobile</option>
+            <option value="security">Security</option>
+            <option value="system">System</option>
+            <option value="plugins">Plugins</option>
+          </select>
+          <div class="settings-category" id="settings-category-sessions">
+            <h3 class="settings-category-title"><i class="fas fa-layer-group"></i> Sessions</h3>
+            <div class="setting-item">
+              <label class="setting-label">
+                <i class="fas fa-link"></i> Sticky Sessions
               </label>
+              <div class="setting-description">
+                When enabled, sessions and tabs are synchronized across browser windows. When disabled, each browser tab works independently with its own session.
+              </div>
+              <div class="setting-control">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="stickyToggle" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
             </div>
-          </div>
-          
-          <div class="setting-item">
-            <label class="setting-label">
-              <i class="fas fa-hand-paper"></i> Take Control by Default
-            </label>
-            <div class="setting-description">
-              When enabled, automatically take control of existing sessions when you open the app. When disabled, you'll need to click "Take Control" to interact with sessions.
-            </div>
-            <div class="setting-control">
-              <label class="toggle-switch">
-                <input type="checkbox" id="takeControlDefaultToggle" checked>
-                <span class="toggle-slider"></span>
+            <div class="setting-item">
+              <label class="setting-label">
+                <i class="fas fa-hand-paper"></i> Take Control by Default
               </label>
+              <div class="setting-description">
+                When enabled, automatically take control of existing sessions when you open the app. When disabled, you'll need to click "Take Control" to interact with sessions.
+              </div>
+              <div class="setting-control">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="takeControlDefaultToggle" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
             </div>
           </div>
-        </div>
-        
-        <!-- SSH Keepalive Settings -->
-        <div class="setting-group">
-          <div class="setting-item">
-            <label class="setting-label">
-              <i class="fas fa-heartbeat"></i> SSH Keepalive Interval (ms)
-            </label>
-            <div class="setting-description">
-              How often to send keepalive packets to maintain SSH connections. Default: 10000ms (10 seconds).
-            </div>
-            <div class="setting-control">
-              <input type="number" id="sshKeepaliveInterval" class="setting-input" min="1000" max="60000" step="1000" value="10000">
-            </div>
-          </div>
-          
-          <div class="setting-item">
-            <label class="setting-label">
-              <i class="fas fa-exclamation-triangle"></i> SSH Keepalive Count Max
-            </label>
-            <div class="setting-description">
-              Maximum number of missed keepalive responses before disconnecting. Higher values allow longer connection persistence. Default: 1000 (~2.7 hours).
-            </div>
-            <div class="setting-control">
-              <input type="number" id="sshKeepaliveCountMax" class="setting-input" min="1" max="10000" step="1" value="1000">
-            </div>
-          </div>
-        </div>
-        
-        <!-- Mobile Keys Bar Setting -->
-        <div class="setting-group">
-          <div class="setting-item">
-            <label class="setting-label">
-              <i class="fas fa-keyboard"></i> Mobile Keys Bar
-            </label>
-            <div class="setting-description">
-              Show a fixed keyboard bar at the bottom on mobile devices with special keys like ESC, Tab, Ctrl, Alt, and arrow keys for easier terminal input.
-            </div>
-            <div class="setting-control">
-              <label class="toggle-switch">
-                <input type="checkbox" id="mobileKeysBarToggle" checked>
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-          </div>
-        </div>
-        
-        <!-- WebGL Renderer Setting -->
-        <div class="setting-group">
-          <div class="setting-item">
-            <label class="setting-label">
-              <i class="fas fa-microchip"></i> WebGL Renderer
-            </label>
-            <div class="setting-description">
-              Use GPU-accelerated WebGL rendering for the terminal. Improves performance and reduces CPU usage, especially on large terminals. Disable if you experience rendering issues or graphics driver problems.
-            </div>
-            <div class="setting-control">
-              <label class="toggle-switch">
-                <input type="checkbox" id="webglRendererToggle" checked>
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-          </div>
-        </div>
-        
-        <!-- Image Protocol Setting -->
-        <div class="setting-group">
-          <div class="setting-item">
-            <label class="setting-label">
-              <i class="fas fa-image"></i> Image Protocol
-            </label>
-            <div class="setting-description">
-              Enable Sixel, iTerm2, and Kitty image protocol support in the terminal. Required for programs like notcurses-demo that render graphics inline. Disabling may slightly improve performance for text-only workloads.
-            </div>
-            <div class="setting-control">
-              <label class="toggle-switch">
-                <input type="checkbox" id="imageAddonToggle" checked>
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-          </div>
-        </div>
 
-        <!-- Trusted Connection -->
-        <div class="setting-group">
-          <div class="setting-item">
-            <label class="setting-label">
-              <i class="fas fa-shield-alt"></i> Trusted Connection
-            </label>
-            <div class="setting-description">
-              View service worker status and download the SSL certificate for trusted access over LAN.
+          <div class="settings-category" id="settings-category-terminal" style="display:none;">
+            <h3 class="settings-category-title"><i class="fas fa-terminal"></i> Terminal</h3>
+            <div class="setting-item">
+              <label class="setting-label">
+                <i class="fas fa-scroll"></i> Scrollback Lines
+              </label>
+              <div class="setting-description">
+                Number of lines kept in terminal history for scrolling back. Higher values use more memory but preserve more output. Default: 10000. Changes apply to new sessions only.
+              </div>
+              <div class="setting-control">
+                <input type="number" id="scrollbackLines" class="setting-input" min="0" max="100000" step="1000" value="10000">
+              </div>
             </div>
-            <div class="setting-control">
-              <button class="btn btn-secondary" id="showSecurityInfoBtn">
-                <i class="fas fa-info-circle"></i> Security Info
-              </button>
+            <div class="setting-item">
+              <label class="setting-label">
+                <i class="fas fa-microchip"></i> WebGL Renderer
+              </label>
+              <div class="setting-description">
+                Use GPU-accelerated WebGL rendering for the terminal. Improves performance and reduces CPU usage, especially on large terminals. Disable if you experience rendering issues or graphics driver problems.
+              </div>
+              <div class="setting-control">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="webglRendererToggle" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="setting-item">
+              <label class="setting-label">
+                <i class="fas fa-image"></i> Image Protocol
+              </label>
+              <div class="setting-description">
+                Enable Sixel, iTerm2, and Kitty image protocol support in the terminal. Required for programs like notcurses-demo that render graphics inline. Disabling may slightly improve performance for text-only workloads.
+              </div>
+              <div class="setting-control">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="imageAddonToggle" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
             </div>
           </div>
-        </div>
 
-        <!-- Password Protection -->
-        <div class="setting-group">
-          <div class="setting-item">
-            <label class="setting-label">
-              <i class="fas fa-lock"></i> Password Protection
-            </label>
-            <div class="setting-description">
-              Require a password to access the application. When enabled, all endpoints are blocked until the correct password is provided.
+          <div class="settings-category" id="settings-category-ssh" style="display:none;">
+            <h3 class="settings-category-title"><i class="fas fa-network-wired"></i> SSH</h3>
+            <div class="setting-item">
+              <label class="setting-label">
+                <i class="fas fa-heartbeat"></i> Keepalive Interval (ms)
+              </label>
+              <div class="setting-description">
+                How often to send keepalive packets to maintain SSH connections. Default: 10000ms (10 seconds).
+              </div>
+              <div class="setting-control">
+                <input type="number" id="sshKeepaliveInterval" class="setting-input" min="1000" max="60000" step="1000" value="10000">
+              </div>
             </div>
-            <div class="setting-description password-disclaimer">
-              <i class="fas fa-exclamation-triangle"></i> <strong>Disclaimer:</strong> This is a basic access restriction, not a substitute for proper authentication. If you expose sshift to a public network, you should use additional security measures such as a reverse proxy with authentication, a VPN, or firewall rules.
-            </div>
-            <div class="setting-control">
-              <button class="btn btn-secondary" id="togglePasswordBtn">
-                <i class="fas fa-lock-open"></i> <span id="togglePasswordLabel">Enable Password</span>
-              </button>
-            </div>
-          </div>
-        </div>
-        
-        <!-- Manage Sessions -->
-        <div class="setting-group">
-          <div class="setting-item">
-            <label class="setting-label">
-              <i class="fas fa-tasks"></i> Active Sessions
-            </label>
-            <div class="setting-description">
-              View and manage active SSH and SFTP sessions on the server.
-            </div>
-            <div class="setting-control">
-              <button class="btn btn-secondary" id="manageSessionsBtn">
-                <i class="fas fa-list"></i> Manage Sessions
-              </button>
+            <div class="setting-item">
+              <label class="setting-label">
+                <i class="fas fa-exclamation-triangle"></i> Keepalive Count Max
+              </label>
+              <div class="setting-description">
+                Maximum number of missed keepalive responses before disconnecting. Higher values allow longer connection persistence. Default: 1000 (~2.7 hours).
+              </div>
+              <div class="setting-control">
+                <input type="number" id="sshKeepaliveCountMax" class="setting-input" min="1" max="10000" step="1" value="1000">
+              </div>
             </div>
           </div>
-        </div>
-        
-        <!-- Debug Info -->
-        <div class="setting-group">
-          <div class="setting-item">
-            <label class="setting-label">
-              <i class="fas fa-bug"></i> Debug Info
-            </label>
-            <div class="setting-description">
-              Show certificate and configuration file paths currently in use.
-            </div>
-            <div class="setting-control">
-              <button class="btn btn-secondary" id="showDebugInfoBtn">
-                <i class="fas fa-info-circle"></i> View Paths
-              </button>
+
+          <div class="settings-category" id="settings-category-mobile" style="display:none;">
+            <h3 class="settings-category-title"><i class="fas fa-mobile-alt"></i> Mobile</h3>
+            <div class="setting-item">
+              <label class="setting-label">
+                <i class="fas fa-keyboard"></i> Mobile Keys Bar
+              </label>
+              <div class="setting-description">
+                Show a fixed keyboard bar at the bottom on mobile devices with special keys like ESC, Tab, Ctrl, Alt, and arrow keys for easier terminal input.
+              </div>
+              <div class="setting-control">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="mobileKeysBarToggle" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
             </div>
           </div>
-        </div>
-        
-        <!-- Plugins -->
-        <div class="setting-group">
-          <h3 class="setting-group-title"><i class="fas fa-puzzle-piece"></i> Plugins</h3>
-          <div id="pluginsList" class="plugins-list">
-            <div class="plugins-loading">Loading plugins...</div>
+
+          <div class="settings-category" id="settings-category-security" style="display:none;">
+            <h3 class="settings-category-title"><i class="fas fa-shield-alt"></i> Security</h3>
+            <div class="setting-item">
+              <label class="setting-label">
+                <i class="fas fa-shield-alt"></i> Trusted Connection
+              </label>
+              <div class="setting-description">
+                View service worker status and download the SSL certificate for trusted access over LAN.
+              </div>
+              <div class="setting-control">
+                <button class="btn btn-secondary" id="showSecurityInfoBtn">
+                  <i class="fas fa-info-circle"></i> Security Info
+                </button>
+              </div>
+            </div>
+            <div class="setting-item">
+              <label class="setting-label">
+                <i class="fas fa-lock"></i> Password Protection
+              </label>
+              <div class="setting-description">
+                Require a password to access the application. When enabled, all endpoints are blocked until the correct password is provided.
+              </div>
+              <div class="setting-description password-disclaimer">
+                <i class="fas fa-exclamation-triangle"></i> <strong>Disclaimer:</strong> This is a basic access restriction, not a substitute for proper authentication. If you expose sshift to a public network, you should use additional security measures such as a reverse proxy with authentication, a VPN, or firewall rules.
+              </div>
+              <div class="setting-control">
+                <button class="btn btn-secondary" id="togglePasswordBtn">
+                  <i class="fas fa-lock-open"></i> <span id="togglePasswordLabel">Enable Password</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-category" id="settings-category-system" style="display:none;">
+            <h3 class="settings-category-title"><i class="fas fa-server"></i> System</h3>
+            <div class="setting-item">
+              <label class="setting-label">
+                <i class="fas fa-tasks"></i> Active Sessions
+              </label>
+              <div class="setting-description">
+                View and manage active SSH and SFTP sessions on the server.
+              </div>
+              <div class="setting-control">
+                <button class="btn btn-secondary" id="manageSessionsBtn">
+                  <i class="fas fa-list"></i> Manage Sessions
+                </button>
+              </div>
+            </div>
+            <div class="setting-item">
+              <label class="setting-label">
+                <i class="fas fa-bug"></i> Debug Info
+              </label>
+              <div class="setting-description">
+                Show certificate and configuration file paths currently in use.
+              </div>
+              <div class="setting-control">
+                <button class="btn btn-secondary" id="showDebugInfoBtn">
+                  <i class="fas fa-info-circle"></i> View Paths
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-category" id="settings-category-plugins" style="display:none;">
+            <h3 class="settings-category-title"><i class="fas fa-puzzle-piece"></i> Plugins</h3>
+            <div id="pluginsList" class="plugins-list">
+              <div class="plugins-loading">Loading plugins...</div>
+            </div>
           </div>
         </div>
       </div>

@@ -17,6 +17,7 @@ function registerConfigEndpoints(app, io) {
       takeControlDefault: config.takeControlDefault !== false,
       sshKeepaliveInterval: config.sshKeepaliveInterval || 10000,
       sshKeepaliveCountMax: config.sshKeepaliveCountMax || 1000,
+      scrollback: config.scrollback || 10000,
       mobileKeysBarEnabled: config.mobileKeysBarEnabled !== false,
       webglRenderer: config.webglRenderer !== false,
       imageAddonEnabled: config.imageAddonEnabled !== false,
@@ -63,6 +64,11 @@ function registerConfigEndpoints(app, io) {
       config.imageAddonEnabled = req.body.imageAddonEnabled;
     }
     
+    if (req.body.hasOwnProperty('scrollback')) {
+      const val = parseInt(req.body.scrollback);
+      config.scrollback = (val >= 0 && val <= 100000) ? val : 10000;
+    }
+    
     // Save config
     const saved = saveConfig(config);
     if (saved) {
@@ -72,6 +78,7 @@ function registerConfigEndpoints(app, io) {
         takeControlDefault: config.takeControlDefault !== false,
         sshKeepaliveInterval: config.sshKeepaliveInterval || 10000,
         sshKeepaliveCountMax: config.sshKeepaliveCountMax || 1000,
+        scrollback: config.scrollback || 10000,
         mobileKeysBarEnabled: config.mobileKeysBarEnabled !== false,
         webglRenderer: config.webglRenderer !== false,
         imageAddonEnabled: config.imageAddonEnabled !== false

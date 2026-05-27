@@ -48,11 +48,11 @@ class SSHManager {
       const rows = options.rows || 24;
       
       // Create a headless terminal to maintain state
-      // Use scrollback 5000 to preserve full history for screen sync on reload
+      const scrollback = options.scrollback || 10000;
       const terminal = new Terminal({
         cols: cols,
         rows: rows,
-        scrollback: 2000,
+        scrollback: scrollback,
         allowProposedApi: true,
         logLevel: 'off'
       });
@@ -337,7 +337,7 @@ class SSHManager {
         }
         
         // If full state is too large, fall back to viewport-only
-        const fullMaxSize = 256 * 1024; // 256KB for full scrollback
+        const fullMaxSize = 512 * 1024; // 512KB for full scrollback
         const viewportMaxSize = 50 * 1024; // 50KB fallback for viewport only
         
         if (serializedState.length > fullMaxSize) {

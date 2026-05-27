@@ -97,6 +97,7 @@ class SSHIFTClient {
     const localMobileKeysBar = localStorage.getItem('mobileKeysBarEnabled');
     const localWebglRenderer = localStorage.getItem('webglRenderer');
     const localImageAddonEnabled = localStorage.getItem('imageAddonEnabled');
+    const localScrollback = localStorage.getItem('scrollback');
     
     // If we have localStorage values, use them
     if (localSticky !== null) {
@@ -107,13 +108,15 @@ class SSHIFTClient {
       this.mobileKeysBarEnabled = localMobileKeysBar !== null ? JSON.parse(localMobileKeysBar) : true;
       this.webglRenderer = localWebglRenderer !== null ? JSON.parse(localWebglRenderer) : true;
       this.imageAddonEnabled = localImageAddonEnabled !== null ? JSON.parse(localImageAddonEnabled) : true;
+      this.scrollback = localScrollback !== null ? parseInt(localScrollback) : 10000;
       console.log('[SSHIFT] Loaded from localStorage - Sticky:', this.sticky ? 'enabled' : 'disabled',
                   'Take Control Default:', this.takeControlDefault ? 'enabled' : 'disabled',
                   'Keepalive Interval:', this.sshKeepaliveInterval,
                   'Keepalive Count Max:', this.sshKeepaliveCountMax,
                   'Mobile Keys Bar:', this.mobileKeysBarEnabled ? 'enabled' : 'disabled',
                   'WebGL Renderer:', this.webglRenderer ? 'enabled' : 'disabled',
-                  'Image Addon:', this.imageAddonEnabled ? 'enabled' : 'disabled');
+                  'Image Addon:', this.imageAddonEnabled ? 'enabled' : 'disabled',
+                  'Scrollback:', this.scrollback);
       return;
     }
     
@@ -132,6 +135,7 @@ class SSHIFTClient {
       this.mobileKeysBarEnabled = config.mobileKeysBarEnabled !== undefined ? config.mobileKeysBarEnabled : true;
       this.webglRenderer = config.webglRenderer !== undefined ? config.webglRenderer : true;
       this.imageAddonEnabled = config.imageAddonEnabled !== undefined ? config.imageAddonEnabled : true;
+      this.scrollback = config.scrollback || 10000;
       this.passwordEnabled = config.passwordEnabled || false;
       console.log('[SSHIFT] Loaded from server - Sticky:', this.sticky ? 'enabled' : 'disabled',
                   'Take Control Default:', this.takeControlDefault ? 'enabled' : 'disabled',
@@ -139,7 +143,8 @@ class SSHIFTClient {
                   'Keepalive Count Max:', this.sshKeepaliveCountMax,
                   'Mobile Keys Bar:', this.mobileKeysBarEnabled ? 'enabled' : 'disabled',
                   'WebGL Renderer:', this.webglRenderer ? 'enabled' : 'disabled',
-                  'Image Addon:', this.imageAddonEnabled ? 'enabled' : 'disabled');
+                  'Image Addon:', this.imageAddonEnabled ? 'enabled' : 'disabled',
+                  'Scrollback:', this.scrollback);
     } catch (err) {
       console.error('[SSHIFT] Failed to load config:', err);
       this.sticky = true; // Default to true
@@ -149,6 +154,7 @@ class SSHIFTClient {
       this.mobileKeysBarEnabled = true; // Default to true
       this.webglRenderer = true; // Default to true
       this.imageAddonEnabled = true; // Default to true
+      this.scrollback = 10000;
     }
   }
 
@@ -4746,6 +4752,23 @@ const wheelHandler = (e) => {
   }
 
   // Settings Modal
+  switchSettingsCategory(category) {
+    const categories = document.querySelectorAll('.settings-category');
+    const navItems = document.querySelectorAll('.settings-nav-item');
+    const select = document.getElementById('settingsCategorySelect');
+    
+    categories.forEach(el => {
+      el.style.display = 'none';
+    });
+    navItems.forEach(item => {
+      item.classList.toggle('active', item.dataset.category === category);
+    });
+    if (select) select.value = category;
+    
+    const target = document.getElementById('settings-category-' + category);
+    if (target) target.style.display = 'block';
+  }
+
   openSettingsModal() {
     // Load current sticky setting
     const stickyToggle = document.getElementById('stickyToggle');
@@ -4795,10 +4818,28 @@ const wheelHandler = (e) => {
     // Load plugins
     this.loadPlugins();
     
+    // Reset to first category
+    this.switchSettingsCategory('sessions');
+    
     this.openModal('settingsModal');
   }
 
   initSettingsModalHandlers() {
+    // Settings category navigation (sidebar + mobile dropdown)
+    const navItems = document.querySelectorAll('.settings-nav-item');
+    navItems.forEach(item => {
+      item.addEventListener('click', () => {
+        this.switchSettingsCategory(item.dataset.category);
+      });
+    });
+    
+    const categorySelect = document.getElementById('settingsCategorySelect');
+    if (categorySelect) {
+      categorySelect.addEventListener('change', (e) => {
+        this.switchSettingsCategory(e.target.value);
+      });
+    }
+
     // Close button
     const closeBtn = document.getElementById('closeSettingsModal');
     if (closeBtn) {
@@ -4831,8 +4872,13 @@ const wheelHandler = (e) => {
           keepaliveIntervalInput.value = this.sshKeepaliveInterval;
         }
         
-        if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
+if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
           keepaliveCountMaxInput.value = this.sshKeepaliveCountMax;
+        }
+        
+        const scrollbackInput = document.getElementById('scrollbackLines');
+        if (scrollbackInput && this.scrollback) {
+          scrollbackInput.value = this.scrollback;
         }
         
         // Revert mobile keys bar setting
@@ -4886,6 +4932,11 @@ const wheelHandler = (e) => {
           this.sshKeepaliveCountMax = parseInt(keepaliveCountMaxInput.value) || 1000;
         }
         
+        const scrollbackInput = document.getElementById('scrollbackLines');
+        if (scrollbackInput) {
+          this.scrollback = Math.max(0, Math.min(100000, parseInt(scrollbackInput.value) || 10000));
+        }
+        
         // Save mobile keys bar setting
         if (mobileKeysBarToggle) {
           this.mobileKeysBarEnabled = mobileKeysBarToggle.checked;
@@ -4909,6 +4960,7 @@ const wheelHandler = (e) => {
                     'takeControlDefault:', this.takeControlDefault,
                     'keepaliveInterval:', this.sshKeepaliveInterval,
                     'keepaliveCountMax:', this.sshKeepaliveCountMax,
+                    'scrollback:', this.scrollback,
                     'mobileKeysBarEnabled:', this.mobileKeysBarEnabled,
                     'webglRenderer:', this.webglRenderer,
                     'imageAddonEnabled:', this.imageAddonEnabled);
@@ -5752,6 +5804,7 @@ const wheelHandler = (e) => {
     localStorage.setItem('mobileKeysBarEnabled', JSON.stringify(this.mobileKeysBarEnabled));
     localStorage.setItem('webglRenderer', JSON.stringify(this.webglRenderer));
     localStorage.setItem('imageAddonEnabled', JSON.stringify(this.imageAddonEnabled));
+    localStorage.setItem('scrollback', this.scrollback || 10000);
     
     // Save to server config
     const headers = { 'Content-Type': 'application/json' };
@@ -5766,7 +5819,8 @@ const wheelHandler = (e) => {
         sshKeepaliveCountMax: this.sshKeepaliveCountMax || 1000,
         mobileKeysBarEnabled: this.mobileKeysBarEnabled,
         webglRenderer: this.webglRenderer,
-        imageAddonEnabled: this.imageAddonEnabled
+        imageAddonEnabled: this.imageAddonEnabled,
+        scrollback: this.scrollback || 10000
       })
     }).then(response => {
       if (!response.ok) {
@@ -6704,7 +6758,7 @@ const wheelHandler = (e) => {
         lineHeight: 1.0,
         cursorBlink: false,
         cursorStyle: 'block',
-        scrollback: 2000,
+        scrollback: this.scrollback || 10000,
         allowProposedApi: true,
         convertEol: true,
         allowTransparency: false,
