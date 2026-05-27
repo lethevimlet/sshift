@@ -1124,8 +1124,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
         foreground: '#e6edf3',
         cursor: '#c10059',
         cursorAccent: '#0d1117',
-        selectionBackground: 'rgba(193, 0, 89, 0.3)',
-        selectionForeground: '#e6edf3'
+        selectionBackground: 'rgba(193, 0, 89, 0.3)'
         // Don't set ANSI colors - let terminal use its defaults for colored output
       };
       console.log('[SSHIFT] getTerminalTheme (override disabled):', defaultTheme);
@@ -1139,7 +1138,6 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       cursor: '#c10059',
       cursorAccent: this.terminalBgColor || '#0d1117',
       selectionBackground: this.hexToRgba(this.terminalSelectionColor || '#264f78', 0.5),
-      selectionForeground: this.terminalFgColor || '#e6edf3',
       black: isDark ? '#484f58' : '#6e7681',
       red: '#f85149',
       green: '#3fb950',
