@@ -19,7 +19,10 @@ class SSHIFTClient {
     this.sessions = new Map();
     this.activeSessionId = null; // Global active session (for backwards compatibility)
     this.activeSessionsByPanel = new Map(); // Per-panel active sessions: Map<panelId, sessionId>
-    this._wasDisconnected = false;
+    this._wasDisconnected = false; // Track reconnection state for toast messages
+    this._initReady = false; // Set true once init() completes
+    this._pendingOpenTabs = null; // Deferred open-tabs data
+    this._pendingOpenTabsIsInitial = false;
     this.bookmarks = [];
     this.folders = [];
     this.currentConnectionType = 'ssh';
@@ -2426,8 +2429,24 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     
     this.handleResize();
     console.log('[SSHIFT] Client initialized');
+    
+    // Mark init as complete and process any deferred open-tabs
+    this._initReady = true;
+    if (this._pendingOpenTabs) {
+      console.log('[SSHIFT] Processing deferred open-tabs');
+      const pendingData = this._pendingOpenTabs;
+      const isInitialSync = this._pendingOpenTabsIsInitial;
+      this._pendingOpenTabs = null;
+      this._pendingOpenTabsIsInitial = null;
+      
+      if (pendingData.tabs.length > 0) {
+        this.syncTabsFromServer(pendingData.tabs, isInitialSync);
+      } else {
+        this.restoreTabs();
+      }
+    }
   }
-  
+
   // Fix mobile viewport height issues caused by address/navigation bars
   fixMobileViewport() {
     // Set CSS custom property for actual viewport height
@@ -3319,9 +3338,9 @@ const wheelHandler = (e) => {
       
       let sessionId;
       
-      // If sticky is enabled, try to join existing session
-      // Otherwise, create a new session with the same connection data
-      const restoreSessionId = this.sticky ? savedTab.sessionId : null;
+      // restoreTabs() is only called when the server has no active sessions
+      // (e.g. server restart), so we must create new connections, not join.
+      const restoreSessionId = null;
       
       if (savedTab.type === 'ssh') {
         sessionId = this.createSSHTab(savedTab.name, savedTab.connectionData, restoreSessionId);
@@ -3464,12 +3483,16 @@ const wheelHandler = (e) => {
         }
       }
       
-      // Only sync if sticky is enabled
-      // Server is the single source of truth for tabs in sticky mode.
-      // On initial sync, reconcile local state to match server state.
-      // On reconnection, only add missing tabs to avoid disrupting locally-created tabs.
+      // Only sync if sticky is enabled and init has completed.
+      // If init hasn't finished yet (DOM not ready), defer processing
+      // until init completes and the open-tabs event queue is flushed.
       if (this.sticky) {
-        if (data.tabs.length > 0) {
+        if (!this._initReady) {
+          console.log('[SSHIFT] Deferring open-tabs processing until init completes');
+          this._pendingOpenTabs = data;
+          this._pendingOpenTabsIsInitial = !this._initialSyncDone;
+          this._initialSyncDone = true;
+        } else if (data.tabs.length > 0) {
           const isInitialSync = !this._initialSyncDone;
           this.syncTabsFromServer(data.tabs, isInitialSync);
         } else if (!this._initialSyncDone) {
