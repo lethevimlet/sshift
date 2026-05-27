@@ -400,6 +400,24 @@ class SFTPManager {
   getActiveSessions() {
     return this.sessions;
   }
+
+  // Join an existing SFTP session (for multi-client viewing)
+  joinSession(socket, sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      console.log(`[SFTP] Cannot join session ${sessionId}: session not found`);
+      return false;
+    }
+
+    return true;
+  }
+
+  // Leave an SFTP session (just removes the socket, doesn't disconnect)
+  leaveSession(socket, sessionId) {
+    // SFTP sessions don't track per-socket membership like SSH does
+    // The session stays alive as long as the SSH connection is active
+    console.log(`[SFTP] Socket ${socket.id} left session ${sessionId}`);
+  }
 }
 
 module.exports = new SFTPManager();

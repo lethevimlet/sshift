@@ -60,6 +60,19 @@ function registerSFTPHandlers(socket, io) {
     }
   });
 
+  // SFTP join existing session
+  socket.on('sftp-join', (data) => {
+    console.log('[SFTP] sftp-join event received for session:', data.sessionId);
+    const success = sftpManager.joinSession(socket, data.sessionId);
+    if (success) {
+      // Add this socket to the tab's active sockets
+      addSocketToTab(data.sessionId, socket.id);
+      socket.emit('sftp-joined', { sessionId: data.sessionId });
+    } else {
+      socket.emit('sftp-error', { message: 'Session not found', sessionId: data.sessionId });
+    }
+  });
+
   // SFTP list directory
   socket.on('sftp-list', async (data) => {
     try {

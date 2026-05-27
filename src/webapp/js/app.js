@@ -3968,7 +3968,6 @@ const wheelHandler = (e) => {
 
     this.socket.on('ssh-error', (data) => {
       console.error('[SSHIFT] SSH Error:', data.message, 'sessionId:', data.sessionId);
-      this.showToast(data.message, 'error');
       
       // If session not found and we're restoring, try to reconnect
       if (data.sessionId && data.message === 'Session not found') {
@@ -3976,28 +3975,61 @@ const wheelHandler = (e) => {
         console.log('[SSHIFT] Session found:', !!session, 'isRestoring:', session?.isRestoring);
         
         if (session && session.isRestoring && session.connectionData) {
-          console.log('[SSHIFT] Session not found on server, reconnecting with new connection...');
-          session.isRestoring = false;
-          session.connecting = true;
-          session.connected = false;
-          
-          // Clear the terminal and show reconnecting message
-          if (session.terminal) {
-            session.terminal.clear();
-            session.terminal.writeln('\x1b[33m⚠ Session expired, reconnecting...\x1b[0m');
-            session.terminal.writeln('');
+          // Only attempt reconnection if we have auth credentials.
+          // When syncing from the server, password/privateKey are stripped,
+          // so reconnecting without them would fail with a misleading auth error.
+          const hasCredentials = session.connectionData.password || session.connectionData.privateKey;
+          if (hasCredentials) {
+            console.log('[SSHIFT] Session not found on server, reconnecting with new connection...');
+            this.showToast('Session expired, reconnecting...', 'warning');
+            session.isRestoring = false;
+            session.connecting = true;
+            session.connected = false;
+            
+            // Clear the terminal and show reconnecting message
+            if (session.terminal) {
+              session.terminal.clear();
+              session.terminal.writeln('\x1b[33m⚠ Session expired, reconnecting...\x1b[0m');
+              session.terminal.writeln('');
+            }
+            
+            // Emit ssh-connect to create a new connection
+            console.log('[SSHIFT] Emitting ssh-connect for reconnection with sessionId:', data.sessionId);
+            this.socket.emit('ssh-connect', { ...session.connectionData, sessionId: data.sessionId });
+            return; // Don't close the tab
+          } else {
+            // No credentials available - show a user-friendly message
+            console.log('[SSHIFT] Session expired and no credentials available for reconnection');
+            this.showToast('Session expired. Please reconnect manually.', 'warning');
+            if (session.terminal) {
+              session.terminal.writeln('\x1b[33m⚠ Session expired. Please close this tab and reconnect.\x1b[0m');
+            }
+            // Don't close the tab - let the user see the message
+            if (session.terminal) {
+              session.connecting = false;
+            }
+            return;
           }
-          
-          // Emit ssh-connect to create a new connection
-          console.log('[SSHIFT] Emitting ssh-connect for reconnection with sessionId:', data.sessionId);
-          this.socket.emit('ssh-connect', { ...session.connectionData, sessionId: data.sessionId });
-          return; // Don't close the tab
         } else {
           console.log('[SSHIFT] Session not eligible for reconnection, closing tab');
         }
       }
       
-      if (data.sessionId) {
+      // Show error toast for genuine errors (not auth failures from stripped credentials)
+      const isStrippedAuthError = data.message && data.message.includes('authentication methods failed');
+      if (isStrippedAuthError) {
+        const session = data.sessionId ? this.sessions.get(data.sessionId) : null;
+        // Suppress the auth error toast if this is a restoring/joined session without credentials
+        if (session && session.isRestoring) {
+          console.log('[SSHIFT] Suppressing auth error toast for restoring session without credentials');
+        } else {
+          this.showToast(data.message, 'error');
+        }
+      } else {
+        this.showToast(data.message, 'error');
+      }
+      
+      if (data.sessionId && data.message !== 'Session not found') {
         this.closeTab(data.sessionId);
       }
     });
@@ -4018,6 +4050,18 @@ const wheelHandler = (e) => {
       this.onSFTPConnected(data);
     });
 
+    this.socket.on('sftp-joined', (data) => {
+      console.log('[SSHIFT] SFTP Joined session:', data.sessionId);
+      const session = this.sftpSessions.get(data.sessionId);
+      if (session) {
+        session.connecting = false;
+        session.isRestoring = false;
+        // Navigate to the stored path or root to show the session is active
+        const path = session.currentPath || '/';
+        this.socket.emit('sftp-list', { sessionId: data.sessionId, path });
+      }
+    });
+
     this.socket.on('sftp-list-result', (data) => {
       console.log('[SSHIFT] sftp-list-result received:', data);
       console.log('[SSHIFT] sessionId from server:', data.sessionId);
@@ -4027,7 +4071,45 @@ const wheelHandler = (e) => {
     });
 
     this.socket.on('sftp-error', (data) => {
-      this.showToast(data.message, 'error');
+      console.error('[SSHIFT] SFTP Error:', data.message, 'sessionId:', data?.sessionId);
+
+      // If session not found and we're restoring, try to reconnect
+      if (data?.sessionId && data.message === 'Session not found') {
+        const session = this.sftpSessions.get(data.sessionId);
+        
+        if (session && session.isRestoring && session.connectionData) {
+          // Only attempt reconnection if we have auth credentials
+          const hasCredentials = session.connectionData.password || session.connectionData.privateKey;
+          if (hasCredentials) {
+            console.log('[SFTP] Session not found on server, reconnecting...');
+            this.showToast('SFTP session expired, reconnecting...', 'warning');
+            session.isRestoring = false;
+            session.connecting = true;
+            this.socket.emit('sftp-connect', { ...session.connectionData, sessionId: data.sessionId });
+            return;
+          } else {
+            // No credentials available - show a user-friendly message
+            console.log('[SFTP] Session expired and no credentials available for reconnection');
+            this.showToast('SFTP session expired. Please reconnect manually.', 'warning');
+            session.connecting = false;
+            return;
+          }
+        }
+      }
+
+      // Suppress auth error toast for restoring sessions without credentials
+      const isStrippedAuthError = data.message && data.message.includes('authentication methods failed');
+      if (isStrippedAuthError) {
+        const session = data?.sessionId ? this.sftpSessions.get(data.sessionId) : null;
+        if (session && session.isRestoring) {
+          console.log('[SSHIFT] Suppressing auth error toast for restoring SFTP session without credentials');
+        } else {
+          this.showToast(data.message, 'error');
+        }
+      } else {
+        this.showToast(data.message, 'error');
+      }
+
       if (this._activeDownload) {
         this.hideTransferProgress(this._activeDownload.sessionId);
         this._activeDownload = null;
@@ -7495,7 +7577,9 @@ const wheelHandler = (e) => {
       type: 'sftp',
       currentPath: '/',
       connectionData, // Store for sticky sessions
-      fontSize: this.terminalFontSize // Initialize with default font size
+      fontSize: this.terminalFontSize, // Initialize with default font size
+      isRestoring: !!restoreSessionId, // Flag to indicate if this is a restored session
+      connecting: !restoreSessionId, // Only show connecting state for new connections
     });
 
     console.log('[SSHIFT] Switching to SFTP tab:', sessionId);
@@ -7512,9 +7596,15 @@ const wheelHandler = (e) => {
     const sftpContainer = document.getElementById(`sftp-${sessionId}`);
     console.log('[SSHIFT] SFTP container found:', !!sftpContainer);
 
-    // Connect via socket
-    console.log('[SSHIFT] Emitting sftp-connect for session:', sessionId);
-    this.socket.emit('sftp-connect', { ...connectionData, sessionId });
+    // If restoring a session, try to join it first (no new SSH connection needed)
+    if (restoreSessionId) {
+      console.log('[SSHIFT] Attempting to join existing SFTP session:', restoreSessionId);
+      this.socket.emit('sftp-join', { sessionId: restoreSessionId });
+    } else {
+      // Connect via socket for new sessions
+      console.log('[SSHIFT] Emitting sftp-connect for session:', sessionId);
+      this.socket.emit('sftp-connect', { ...connectionData, sessionId });
+    }
     
     // Save tabs
     this.saveTabs();
