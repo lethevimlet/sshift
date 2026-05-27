@@ -31,6 +31,8 @@ class SSHIFTClient {
     this.savedTabs = []; // Store tab information
     this.isRestoring = false; // Flag to prevent saving during restoration
     this.isSyncingTabs = false; // Flag to prevent saveTabs emission during tabs-sync
+    this._initialSyncDone = false; // Whether initial open-tabs sync from server has completed
+    this._serverSyncTimeout = null; // Timeout for fallback to localStorage restore
     this.sftpClipboard = null; // For cut/copy/paste: { action: 'cut'|'copy', path: string, name: string, sessionId: string }
     this.terminalClipboardContent = null; // Pre-read clipboard content for context menu paste
     this.osc52Buffer = null; // Buffered OSC 52 clipboard content pending write
@@ -2389,9 +2391,16 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     // Update terminal color UI to reflect loaded settings
     this.updateTerminalColorOverrideUI();
     
-    // Restore tabs if sticky is enabled
+    // In sticky mode, the server is the single source of truth for tabs.
+    // Wait for the open-tabs event from the server instead of restoring from localStorage.
+    // Set a fallback timeout in case the server is unreachable.
     if (this.sticky) {
-      await this.restoreTabs();
+      this._serverSyncTimeout = setTimeout(() => {
+        if (!this._initialSyncDone) {
+          console.log('[SSHIFT] Server tabs not received within timeout, falling back to localStorage');
+          this.restoreTabs();
+        }
+      }, 3000);
     }
     
     // Initialize mobile tabs dropdown
@@ -3255,6 +3264,13 @@ const wheelHandler = (e) => {
   }
 
   async restoreTabs() {
+    // If server tabs have already been synced, skip localStorage restore
+    // This prevents duplication when the server responded before the fallback timeout
+    if (this._initialSyncDone) {
+      console.log('[SSHIFT] Server tabs already synced, skipping localStorage restore');
+      return;
+    }
+
     const savedData = this.loadTabs();
     
     // Handle both old format (array) and new format (object with tabs and layout)
@@ -3284,6 +3300,12 @@ const wheelHandler = (e) => {
     
     // Restore each session
     for (const savedTab of savedTabs) {
+      // Stop restoring if server tabs have been synced (open-tabs arrived while we were restoring)
+      if (this._initialSyncDone) {
+        console.log('[SSHIFT] Server tabs received during restore, stopping localStorage restore');
+        break;
+      }
+
       console.log('[SSHIFT] Restoring tab:', savedTab.name, savedTab.type);
       
       let sessionId;
@@ -3385,6 +3407,12 @@ const wheelHandler = (e) => {
     // Handle receiving open tabs from server (for cross-tab sync)
     this.socket.on('open-tabs', (data) => {
       console.log('[SSHIFT] Received open tabs from server:', data.tabs.length);
+
+      // Clear fallback timeout - server has responded
+      if (this._serverSyncTimeout) {
+        clearTimeout(this._serverSyncTimeout);
+        this._serverSyncTimeout = null;
+      }
       
       // Sync theme and accent from server
       if (data.theme) {
@@ -3411,8 +3439,19 @@ const wheelHandler = (e) => {
       }
       
       // Only sync if sticky is enabled
-      if (this.sticky && data.tabs.length > 0) {
-        this.syncTabsFromServer(data.tabs);
+      // Server is the single source of truth for tabs in sticky mode.
+      // On initial sync, reconcile local state to match server state.
+      // On reconnection, only add missing tabs to avoid disrupting locally-created tabs.
+      if (this.sticky) {
+        if (data.tabs.length > 0) {
+          const isInitialSync = !this._initialSyncDone;
+          this.syncTabsFromServer(data.tabs, isInitialSync);
+        } else if (!this._initialSyncDone) {
+          // Server has no tabs and this is the first sync (e.g. server restart).
+          // Fall back to localStorage restore to reconnect sessions.
+          this.restoreTabs();
+        }
+        this._initialSyncDone = true;
       }
       // Sync layout if provided (but not on mobile - mobile always uses single panel)
       if (data.layout && this.sticky && !this.isMobile) {
@@ -8276,6 +8315,84 @@ const wheelHandler = (e) => {
     this.saveTabs();
   }
 
+  // Remove a tab locally without notifying the server.
+  // Used during initial sync to remove stale tabs from localStorage
+  // that don't exist on the server (prevents cross-device duplication).
+  removeTabLocally(sessionId) {
+    const session = this.sessions.get(sessionId) || this.sftpSessions.get(sessionId);
+    if (!session) return;
+
+    console.log('[SSHIFT] Removing tab locally:', sessionId);
+
+    const panelId = this.getPanelForSession(sessionId);
+
+    // Disconnect from server session (without emitting tab-close)
+    if (session.type === 'ssh') {
+      this.socket.emit('ssh-disconnect', { sessionId });
+      if (session.writeRAF) cancelAnimationFrame(session.writeRAF);
+      if (session.scrollbackRestoreTimer) clearTimeout(session.scrollbackRestoreTimer);
+      if (session.originalScrollback && session.terminal) {
+        session.terminal.options.scrollback = session.originalScrollback;
+      }
+      if (session.resizeObserver) {
+        session.resizeObserver.disconnect();
+        session.resizeObserver = null;
+      }
+      if (session.resizeTimeout) {
+        clearTimeout(session.resizeTimeout);
+        session.resizeTimeout = null;
+      }
+      if (session.wheelHandler && session.wheelElement) {
+        session.wheelElement.removeEventListener('wheel', session.wheelHandler);
+      }
+      if (session.osc52FlushListener) {
+        document.removeEventListener('click', session.osc52FlushListener, true);
+        document.removeEventListener('keydown', session.osc52FlushListener, true);
+        document.removeEventListener('touchstart', session.osc52FlushListener, true);
+      }
+      if (session.terminal) session.terminal.dispose();
+      if (session.mobileHandler) {
+        session.mobileHandler.destroy();
+        session.mobileHandler = null;
+      }
+      this.sessions.delete(sessionId);
+    } else {
+      this.socket.emit('sftp-disconnect', { sessionId });
+      this.sftpSessions.delete(sessionId);
+    }
+
+    // Remove from DOM
+    const tab = document.querySelector(`.tab[data-session-id="${sessionId}"]`);
+    const wrapper = document.getElementById(`terminal-wrapper-${sessionId}`);
+    if (tab) tab.remove();
+    if (wrapper) wrapper.remove();
+
+    // Update scroll arrows
+    this.updateTabsScrollArrows();
+
+    // Check if this was the active session
+    if (this.activeSessionId === sessionId) {
+      const remainingSessions = [...Array.from(this.sessions.keys()), ...Array.from(this.sftpSessions.keys())];
+      if (remainingSessions.length > 0) {
+        this.switchTab(remainingSessions[0]);
+      } else {
+        this.activeSessionId = null;
+        this.updateMobileKeysBar();
+      }
+    }
+
+    // Check if this was the active session in its panel
+    const activeInPanel = this.activeSessionsByPanel.get(panelId);
+    if (activeInPanel === sessionId) {
+      this.activeSessionsByPanel.delete(panelId);
+      const tabsContainer = this.getTabsContainer(panelId);
+      const remainingInPanel = tabsContainer ? Array.from(tabsContainer.children) : [];
+      if (remainingInPanel.length === 0) {
+        this.showEmptyState(panelId);
+      }
+    }
+  }
+
   // Handle tab opened by another client
   handleTabOpened(data) {
     // Check if we already have this session
@@ -8376,7 +8493,7 @@ const wheelHandler = (e) => {
   }
 
   // Sync tabs from server (called on connect when sticky is enabled)
-async syncTabsFromServer(tabs) {
+async syncTabsFromServer(tabs, isInitialSync = false) {
     // Wait for any in-progress restoration to complete before syncing
     // This prevents the race condition where restoreTabs starts first,
     // sets isRestoring=true, and then this function returns early, missing
@@ -8387,8 +8504,26 @@ async syncTabsFromServer(tabs) {
       waitCount++;
     }
     
-    console.log('[SSHIFT] Syncing tabs from server:', tabs.length);
+    console.log('[SSHIFT] Syncing tabs from server:', tabs.length, 'isInitialSync:', isInitialSync);
     this.isRestoring = true;
+
+    // On initial sync, remove any client-side tabs that don't exist on the server.
+    // This ensures the server is the single source of truth and prevents duplicates
+    // from stale localStorage caches (e.g. when switching between devices).
+    if (isInitialSync) {
+      const serverSessionIds = new Set(tabs.map(t => t.sessionId));
+      const clientSessionIds = [
+        ...Array.from(this.sessions.keys()),
+        ...Array.from(this.sftpSessions.keys())
+      ];
+
+      for (const sessionId of clientSessionIds) {
+        if (!serverSessionIds.has(sessionId)) {
+          console.log('[SSHIFT] Removing local tab not on server during initial sync:', sessionId);
+          this.removeTabLocally(sessionId);
+        }
+      }
+    }
 
     for (const tab of tabs) {
       // Check if we already have this session
@@ -8426,6 +8561,9 @@ async syncTabsFromServer(tabs) {
     this.applyFlashStates();
 
     this.isRestoring = false;
+
+    // Save the final tab state to localStorage after sync completes
+    this.saveTabs();
   }
 
   // Special Keys
