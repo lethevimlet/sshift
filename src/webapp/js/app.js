@@ -8686,11 +8686,30 @@ async syncTabsFromServer(tabs, isInitialSync = false) {
       }
     }
 
+    // Merge credentials from localStorage into server tab data.
+    // The server strips password/privateKey from open-tabs for security,
+    // but we need them locally for auto-reconnection if ssh-join fails
+    // (e.g. server restarted while sessions were active).
+    const localTabsData = this.loadTabs();
+    const localTabs = Array.isArray(localTabsData) ? localTabsData : (localTabsData?.tabs || []);
+    const localTabsBySessionId = new Map();
+    for (const lt of localTabs) {
+      if (lt.sessionId && lt.connectionData) {
+        localTabsBySessionId.set(lt.sessionId, lt.connectionData);
+      }
+    }
+
     for (const tab of tabs) {
       // Check if we already have this session
       if (this.sessions.has(tab.sessionId) || this.sftpSessions.has(tab.sessionId)) {
         console.log('[SSHIFT] Already have session:', tab.sessionId);
         continue;
+      }
+
+      // Merge saved credentials into the server's stripped connectionData
+      const localConnData = localTabsBySessionId.get(tab.sessionId);
+      if (localConnData && (localConnData.password || localConnData.privateKey)) {
+        tab.connectionData = { ...tab.connectionData, ...localConnData };
       }
 
       console.log('[SSHIFT] Creating tab from server sync:', tab.name, tab.type);
