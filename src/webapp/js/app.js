@@ -7,8 +7,9 @@ class SSHIFTClient {
       this.socket = io({
         transports: ['websocket', 'polling'],
         reconnection: true,
-        reconnectionAttempts: 5,
+        reconnectionAttempts: Infinity,
         reconnectionDelay: 1000,
+        reconnectionDelayMax: 30000,
         auth: authToken ? { token: authToken } : {}
       });
       console.log('[SSHIFT] Socket created');
@@ -18,6 +19,7 @@ class SSHIFTClient {
     this.sessions = new Map();
     this.activeSessionId = null; // Global active session (for backwards compatibility)
     this.activeSessionsByPanel = new Map(); // Per-panel active sessions: Map<panelId, sessionId>
+    this._wasDisconnected = false;
     this.bookmarks = [];
     this.folders = [];
     this.currentConnectionType = 'ssh';
@@ -3384,7 +3386,11 @@ const wheelHandler = (e) => {
   setupSocketListeners() {
     this.socket.on('connect', () => {
       console.log('[SSHIFT] Connected to server, socket ID:', this.socket.id);
-      if (!this.isUpdating) {
+      const wasDisconnected = this._wasDisconnected;
+      this._wasDisconnected = false;
+      if (wasDisconnected && !this.isUpdating) {
+        this.showToast('Reconnected to server', 'success');
+      } else if (!this.isUpdating) {
         this.showToast('Connected to server', 'success');
       }
       this.loadBookmarks();
@@ -3392,8 +3398,20 @@ const wheelHandler = (e) => {
 
     this.socket.on('disconnect', (reason) => {
       console.log('[SSHIFT] Disconnected from server:', reason);
-      if (!this.isUpdating) {
-        this.showToast('Disconnected from server: ' + reason, 'error');
+      this._wasDisconnected = true;
+      if (reason === 'io server disconnect') {
+        // Server intentionally disconnected us (e.g. auth failure) — don't auto-reconnect
+        // Socket.IO won't retry after server-initiated disconnect anyway
+      } else if (!this.isUpdating) {
+        this.showToast('Disconnected from server — will reconnect automatically', 'warning');
+      }
+    });
+
+    // When the tab becomes visible again, immediately try to reconnect if disconnected
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && !this.socket.connected) {
+        console.log('[SSHIFT] Tab visible and socket disconnected, triggering reconnect');
+        this.socket.connect();
       }
     });
 
@@ -3403,9 +3421,10 @@ const wheelHandler = (e) => {
         this.authToken = null;
         localStorage.removeItem('sshift_auth_token');
         this.showLockScreen();
-      } else if (!this.isUpdating) {
-        this.showToast('Connection error: ' + error.message, 'error');
       }
+      // Don't show generic connection error toasts during reconnection —
+      // the user already sees "Disconnected" and the auto-reconnect handles it.
+      // Only show for explicit user actions (not isUpdating suppresses during update).
     });
 
     // Handle receiving open tabs from server (for cross-tab sync)
