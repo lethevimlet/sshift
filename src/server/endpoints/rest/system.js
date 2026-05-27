@@ -241,10 +241,6 @@ function registerSystemEndpoints(app, io) {
   // API: Trigger update
   app.post('/api/update', async (req, res) => {
     try {
-      const isLocalhost = req.hostname === 'localhost' || req.hostname === '127.0.0.1' || req.hostname === '::1';
-      if (!isLocalhost && !req.headers.authorization && !req.query.token) {
-        return res.status(403).json({ error: 'Remote update requires authentication. Set a password or use localhost.' });
-      }
 
       const { spawn, execSync } = require('child_process');
       const platform = process.platform;
