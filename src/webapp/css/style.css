@@ -1222,7 +1222,6 @@ body {
 .version-info {
   font-size: 12px;
   color: var(--text-secondary);
-  margin-bottom: 8px;
 }
 
 .version-label {
@@ -1236,10 +1235,10 @@ body {
 
 .update-info {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: center;
+  gap: 4px;
+  margin-bottom: 4px;
 }
 
 .check-updates {
@@ -1278,7 +1277,6 @@ body {
 }
 
 .sidebar.collapsed .update-info {
-  flex-direction: column;
   gap: 4px;
 }
 
