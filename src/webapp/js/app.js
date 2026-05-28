@@ -6761,8 +6761,10 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
         setTimeout(() => this.initTerminal(sessionId, retryCount + 1), 100);
         return;
       } else {
-        console.error('[SSHIFT] Container failed to become visible after 10 attempts');
-        this.showToast('Failed to initialize terminal - container not visible', 'error');
+        console.error('[SSHIFT] Container failed to become visible after 10 attempts, retrying...');
+        // Don't show a toast — the terminal will initialize on the next resize
+        // or when the tab becomes active. Showing a toast is disruptive and confusing.
+        setTimeout(() => this.initTerminal(sessionId, 0), 500);
         return;
       }
     }
@@ -8279,8 +8281,18 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
   }
 
   switchTab(sessionId, panelId = null) {
-    // During sync, skip switchTab calls — we'll activate the correct tab at the end
-    if (this._suppressTabSwitch) return;
+    // During sync, skip switchTab calls — we'll activate the correct tab at the end.
+    // But we still need to ensure the terminal wrapper is visible for initTerminal,
+    // so we temporarily show the wrapper without updating active state.
+    if (this._suppressTabSwitch) {
+      const targetPanelId = panelId || this.getPanelForSession(sessionId);
+      const wrapperId = `terminal-wrapper-${sessionId}`;
+      const wrapper = document.getElementById(wrapperId);
+      if (wrapper) {
+        wrapper.classList.add('active');
+      }
+      return;
+    }
     
     console.log('[SSHIFT] switchTab called for session:', sessionId, 'panel:', panelId);
     
@@ -8786,7 +8798,7 @@ async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null) 
       if (firstActive) {
         this.switchTab(firstActive);
       }
-    } else if (tabs.length > 0) {
+} else if (tabs.length > 0) {
       // No active tab info from server — default to first tab
       const firstTab = tabs[0];
       if (this.sessions.has(firstTab.sessionId) || this.sftpSessions.has(firstTab.sessionId)) {
