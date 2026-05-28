@@ -390,13 +390,20 @@ async function initializeServer() {
     const currentLayout = getCurrentLayout();
     const currentTheme = getCurrentTheme();
     const currentAccent = getCurrentAccent();
-    const activeTabsByPanel = Object.fromEntries(getActiveTabsByPanel());
+    const activeTabsByPanelMap = getActiveTabsByPanel();
+    const activeTabsByPanel = Object.fromEntries(activeTabsByPanelMap);
     
-    // Exclude activeSockets (Set object) to avoid Socket.IO serialization issues
+    // Build ordered tabs and default active tab per panel if not tracked yet.
+    // When a panel has no recorded active tab (e.g. server restart), the first
+    // tab in that panel becomes active.
+    const tabsByPanel = {};
     const orderedTabs = tabOrder
       .filter(sessionId => openTabs.has(sessionId))
       .map(sessionId => {
         const tab = openTabs.get(sessionId);
+        const panelId = tab.panelId || 'panel-0';
+        if (!tabsByPanel[panelId]) tabsByPanel[panelId] = [];
+        tabsByPanel[panelId].push(sessionId);
         return {
           sessionId,
           name: tab.name,
@@ -408,10 +415,22 @@ async function initializeServer() {
             name: tab.connectionData?.name
           },
           sticky: tab.sticky,
-          panelId: tab.panelId || 'panel-0',
-          active: activeTabsByPanel[tab.panelId || 'panel-0'] === sessionId
+          panelId,
+          active: false // set below
         };
       });
+    
+    // Determine active tab per panel: use tracked active, or default to first tab
+    for (const [panelId, sessionIds] of Object.entries(tabsByPanel)) {
+      const tracked = activeTabsByPanelMap.get(panelId);
+      const activeId = (tracked && sessionIds.includes(tracked)) ? tracked : sessionIds[0];
+      if (activeId) activeTabsByPanel[panelId] = activeId;
+    }
+    
+    // Mark active tab in orderedTabs
+    orderedTabs.forEach(tab => {
+      tab.active = activeTabsByPanel[tab.panelId] === tab.sessionId;
+    });
     
     socket.emit('open-tabs', { 
       tabs: orderedTabs,
