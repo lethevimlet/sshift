@@ -225,14 +225,6 @@ async function initializeServer() {
           key: sslCredentials.key,
           cert: sslCredentials.cert
         }, app);
-        server.on('request', (req, res) => {
-          if (!req.socket.encrypted) {
-            const host = req.headers.host ? req.headers.host.split(':')[0] : 'localhost';
-            const port = getPort();
-            res.writeHead(301, { Location: `https://${host}:${port}${req.url}` });
-            res.end();
-          }
-        });
         actuallyHttps = true;
         console.log('[HTTPS] HTTPS server created with HTTP redirect enabled (dual-protocol)');
       } else {
@@ -281,6 +273,18 @@ async function initializeServer() {
     tabManager,
     config,
   });
+
+  // HTTP to HTTPS redirect middleware (for dual-protocol httpolyglot server)
+  if (enableHttpRedirect) {
+    app.use((req, res, next) => {
+      if (!req.socket.encrypted) {
+        const host = req.headers.host ? req.headers.host.split(':')[0] : 'localhost';
+        const port = getPort();
+        return res.redirect(301, `https://${host}:${port}${req.url}`);
+      }
+      next();
+    });
+  }
 
   // Middleware
   app.use(express.json());
