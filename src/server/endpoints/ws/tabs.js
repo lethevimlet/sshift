@@ -9,11 +9,12 @@ const {
   getTabOrder, 
   addToTabOrder, 
   setTabOrder, 
-  setCloseTimer, 
+  setCloseTimer,
   clearCloseTimer,
   getCloseTimer,
   updateTabName,
   updateTabPanel,
+  setActiveTab,
   getOpenTabs,
   getCurrentTheme,
   setCurrentTheme,
@@ -96,16 +97,23 @@ function registerTabHandlers(socket, io) {
     console.log('[TAB] Tabs save:', data.tabs?.length || 0, 'tabs, layout:', data.layout);
     
     // Update tab order with panel assignments
-    if (data.tabs && Array.isArray(data.tabs)) {
+    if (data.tabs && Array.isArray(data.tabs) && data.tabs.length > 0) {
       setTabOrder(data.tabs.map(t => typeof t === 'string' ? t : t.sessionId));
       
-      // Update panel assignments in openTabs
+      // Update panel assignments and active tabs in openTabs
       data.tabs.forEach(tabData => {
         if (typeof tabData === 'object' && tabData.sessionId && tabData.panelId) {
           updateTabPanel(tabData.sessionId, tabData.panelId);
+          // Track which tab is active per panel
+          if (tabData.active) {
+            setActiveTab(tabData.panelId, tabData.sessionId);
+          }
         }
       });
     }
+    // Don't update tab order for empty tab lists — a new client syncing
+    // before receiving server tabs would wipe the server-side tab order.
+    // The server is the single source of truth for tab order.
     
     // Broadcast to all other clients
     socket.broadcast.emit('tabs-sync', { 

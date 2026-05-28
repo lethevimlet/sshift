@@ -10,7 +10,10 @@ const openTabs = new Map();
 // Array of sessionIds in order
 let tabOrder = [];
 
-// Current active layout for sync
+// Active tab per panel: Map<panelId, sessionId>
+const activeTabsByPanel = new Map();
+
+// Current layout for sync
 let currentLayout = 'single';
 
 // Theme and accent for cross-device sync
@@ -95,6 +98,12 @@ function getTab(sessionId) {
 function removeTab(sessionId) {
   openTabs.delete(sessionId);
   tabOrder = tabOrder.filter(id => id !== sessionId);
+  // Clean up active tab references
+  for (const [panelId, activeId] of activeTabsByPanel) {
+    if (activeId === sessionId) {
+      activeTabsByPanel.delete(panelId);
+    }
+  }
 }
 
 /**
@@ -200,6 +209,34 @@ function updateTabPanel(sessionId, panelId) {
 }
 
 /**
+ * Set active tab for a panel
+ * @param {string} panelId - Panel ID
+ * @param {string} sessionId - Session ID that is active
+ */
+function setActiveTab(panelId, sessionId) {
+  if (sessionId && openTabs.has(sessionId)) {
+    activeTabsByPanel.set(panelId, sessionId);
+  }
+}
+
+/**
+ * Get active tab for a panel
+ * @param {string} panelId - Panel ID
+ * @returns {string|undefined} Session ID of active tab
+ */
+function getActiveTab(panelId) {
+  return activeTabsByPanel.get(panelId);
+}
+
+/**
+ * Get all active tabs by panel
+ * @returns {Map} Map of panelId -> sessionId
+ */
+function getActiveTabsByPanel() {
+  return activeTabsByPanel;
+}
+
+/**
  * Get current theme
  * @returns {string} Current theme
  */
@@ -258,6 +295,9 @@ module.exports = {
   getCloseTimer,
   updateTabName,
   updateTabPanel,
+  setActiveTab,
+  getActiveTab,
+  getActiveTabsByPanel,
   getCurrentTheme,
   setCurrentTheme,
   getCurrentAccent,

@@ -23,6 +23,7 @@ class SSHIFTClient {
     this._initReady = false; // Set true once init() completes
     this._pendingOpenTabs = null; // Deferred open-tabs data
     this._pendingOpenTabsIsInitial = false;
+    this._suppressTabSwitch = false; // Suppress switchTab during sync
     this.bookmarks = [];
     this.folders = [];
     this.currentConnectionType = 'ssh';
@@ -2440,7 +2441,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       this._pendingOpenTabsIsInitial = null;
       
       if (pendingData.tabs.length > 0) {
-        this.syncTabsFromServer(pendingData.tabs, isInitialSync);
+        this.syncTabsFromServer(pendingData.tabs, isInitialSync, pendingData.activeTabsByPanel);
       } else {
         this.restoreTabs();
       }
@@ -3494,7 +3495,7 @@ const wheelHandler = (e) => {
           this._initialSyncDone = true;
         } else if (data.tabs.length > 0) {
           const isInitialSync = !this._initialSyncDone;
-          this.syncTabsFromServer(data.tabs, isInitialSync);
+          this.syncTabsFromServer(data.tabs, isInitialSync, data.activeTabsByPanel);
         } else if (!this._initialSyncDone) {
           // Server has no tabs and this is the first sync (e.g. server restart).
           // Fall back to localStorage restore to reconnect sessions.
@@ -8278,6 +8279,9 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
   }
 
   switchTab(sessionId, panelId = null) {
+    // During sync, skip switchTab calls — we'll activate the correct tab at the end
+    if (this._suppressTabSwitch) return;
+    
     console.log('[SSHIFT] switchTab called for session:', sessionId, 'panel:', panelId);
     
     // Stop any active flash on this tab since user is viewing it
@@ -8680,7 +8684,7 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
   }
 
   // Sync tabs from server (called on connect when sticky is enabled)
-async syncTabsFromServer(tabs, isInitialSync = false) {
+async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null) {
     // Wait for any in-progress restoration to complete before syncing
     // This prevents the race condition where restoreTabs starts first,
     // sets isRestoring=true, and then this function returns early, missing
@@ -8693,6 +8697,9 @@ async syncTabsFromServer(tabs, isInitialSync = false) {
     
     console.log('[SSHIFT] Syncing tabs from server:', tabs.length, 'isInitialSync:', isInitialSync);
     this.isRestoring = true;
+
+    // Suppress switchTab during creation so we can activate the correct tab at the end
+    this._suppressTabSwitch = true;
 
     // On initial sync, remove any client-side tabs that don't exist on the server.
     // This ensures the server is the single source of truth and prevents duplicates
@@ -8760,13 +8767,35 @@ async syncTabsFromServer(tabs, isInitialSync = false) {
       this.distributeTabsToPanels(tabs);
     }
 
-    // Update mobile tabs dropdown after syncing
-    this.updateMobileTabsDropdown();
-
     // Apply any flash states that arrived before DOM elements existed
     this.applyFlashStates();
 
     this.isRestoring = false;
+    this._suppressTabSwitch = false;
+
+    // Activate the correct tab per panel based on server state
+    if (activeTabsByPanel && !this.isMobile) {
+      for (const [panelId, sessionId] of Object.entries(activeTabsByPanel)) {
+        if (this.sessions.has(sessionId) || this.sftpSessions.has(sessionId)) {
+          this.switchTab(sessionId, panelId);
+        }
+      }
+    } else if (activeTabsByPanel) {
+      // Mobile: use the first active tab from any panel
+      const firstActive = Object.values(activeTabsByPanel).find(id => this.sessions.has(id) || this.sftpSessions.has(id));
+      if (firstActive) {
+        this.switchTab(firstActive);
+      }
+    } else if (tabs.length > 0) {
+      // No active tab info from server — default to first tab
+      const firstTab = tabs[0];
+      if (this.sessions.has(firstTab.sessionId) || this.sftpSessions.has(firstTab.sessionId)) {
+        this.switchTab(firstTab.sessionId, firstTab.panelId);
+      }
+    }
+
+    // Update mobile tabs dropdown after activating the correct tab
+    this.updateMobileTabsDropdown();
 
     // Save the final tab state to localStorage after sync completes
     this.saveTabs();

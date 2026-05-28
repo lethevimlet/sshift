@@ -382,7 +382,7 @@ async function initializeServer() {
     console.log('Client connected:', socket.id);
 
     // Send current open tabs to new client
-    const { getOpenTabs, getTabOrder, getCurrentTheme, getCurrentAccent } = require('./utils/tab-manager');
+    const { getOpenTabs, getTabOrder, getCurrentTheme, getCurrentAccent, getActiveTabsByPanel } = require('./utils/tab-manager');
     const { getCurrentLayout } = require('./endpoints/ws/layout');
     
     const openTabs = getOpenTabs();
@@ -390,6 +390,7 @@ async function initializeServer() {
     const currentLayout = getCurrentLayout();
     const currentTheme = getCurrentTheme();
     const currentAccent = getCurrentAccent();
+    const activeTabsByPanel = Object.fromEntries(getActiveTabsByPanel());
     
     // Exclude activeSockets (Set object) to avoid Socket.IO serialization issues
     const orderedTabs = tabOrder
@@ -405,17 +406,17 @@ async function initializeServer() {
             port: tab.connectionData?.port,
             username: tab.connectionData?.username,
             name: tab.connectionData?.name
-            // Exclude password, privateKey, and other sensitive data
           },
           sticky: tab.sticky,
-          panelId: tab.panelId || 'panel-0' // Include panel assignment
-          // Exclude activeSockets (Set) to avoid serialization issues
+          panelId: tab.panelId || 'panel-0',
+          active: activeTabsByPanel[tab.panelId || 'panel-0'] === sessionId
         };
       });
     
     socket.emit('open-tabs', { 
       tabs: orderedTabs,
       layout: currentLayout,
+      activeTabsByPanel,
       theme: currentTheme,
       accent: currentAccent
     });
