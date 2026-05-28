@@ -596,6 +596,18 @@ body {
   text-overflow: ellipsis;
 }
 
+.mobile-tab-option .tab-panel-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+  white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 1.2;
+}
+
 .mobile-tab-option .tab-close {
   display: flex;
   align-items: center;

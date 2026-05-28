@@ -115,11 +115,14 @@ function registerTabHandlers(socket, io) {
     // before receiving server tabs would wipe the server-side tab order.
     // The server is the single source of truth for tab order.
     
-    // Broadcast to all other clients
-    socket.broadcast.emit('tabs-sync', { 
-      tabs: data.tabs,
-      layout: data.layout
-    });
+    // Broadcast to all other clients only if there are tabs to sync.
+    // Empty tab lists during initial sync should not disrupt other clients.
+    if (data.tabs && data.tabs.length > 0) {
+      socket.broadcast.emit('tabs-sync', { 
+        tabs: data.tabs,
+        layout: data.layout
+      });
+    }
   });
 
   // Tab rename - sync across all sessions

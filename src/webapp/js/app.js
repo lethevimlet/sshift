@@ -37,6 +37,8 @@ class SSHIFTClient {
     this.savedTabs = []; // Store tab information
     this.isRestoring = false; // Flag to prevent saving during restoration
     this.isSyncingTabs = false; // Flag to prevent saveTabs emission during tabs-sync
+    this._serverPanelMap = new Map(); // sessionId -> panelId from server (preserved for mobile)
+    this._serverLayout = null; // Layout from server (preserved for mobile saves)
     this._initialSyncDone = false; // Whether initial open-tabs sync from server has completed
     this._serverSyncTimeout = null; // Timeout for fallback to localStorage restore
     this.sftpClipboard = null; // For cut/copy/paste: { action: 'cut'|'copy', path: string, name: string, sessionId: string }
@@ -463,22 +465,31 @@ class SSHIFTClient {
         const session = this.sessions.get(sessionId) || this.sftpSessions.get(sessionId);
         
         if (session) {
+          // On mobile (single panel), preserve the server-assigned panel instead of panel-0
+          const effectivePanelId = this.isMobile
+            ? (this._serverPanelMap.get(sessionId) || panelId)
+            : panelId;
+          // Keep server panel map in sync with desktop reality
+          this._serverPanelMap.set(sessionId, effectivePanelId);
           tabs.push({
             sessionId,
             name: session.name,
             type: session.type,
             connectionData: session.connectionData,
             active: sessionId === activeInThisPanel, // Active in this specific panel
-            panelId: panelId
+            panelId: effectivePanelId
           });
         }
       });
     });
     
-    // Save tabs with current layout
+    // Save tabs with current layout (mobile saves server layout, not 'single')
+    const savedLayout = this.isMobile
+      ? (this._serverLayout || 'single')
+      : (this.currentLayout?.id || 'single');
     const tabsData = {
       tabs,
-      layout: this.currentLayout?.id || 'single'
+      layout: savedLayout
     };
     
     localStorage.setItem('openTabs', JSON.stringify(tabsData));
@@ -514,6 +525,44 @@ class SSHIFTClient {
     if (panels.length === 0) return ['panel-0'];
     
     return Array.from(panels).map(p => p.id);
+  }
+
+  getClockwisePanels() {
+    const panels = this.getAllPanels();
+    if (panels.length <= 1) return panels;
+    
+    // Parse panel IDs: 'panel-0' (single) or 'panel-{col}-{row}' (multi)
+    const parsed = panels.map(id => {
+      const parts = id.replace('panel-', '').split('-');
+      if (parts.length === 1) return { id, col: 0, row: 0 };
+      return { id, col: parseInt(parts[0]), row: parseInt(parts[1]) };
+    });
+    
+    // Group panels by row
+    const rows = {};
+    parsed.forEach(p => {
+      if (!rows[p.row]) rows[p.row] = [];
+      rows[p.row].push(p);
+    });
+    
+    // Sort rows numerically
+    const sortedRowKeys = Object.keys(rows).map(Number).sort((a, b) => a - b);
+    
+    // Clockwise from top-left: row 0 left→right, row 1 right→left (snake/boustrophedon)
+    // This gives: top-left, top-right, bottom-right, bottom-left for a 2x2 grid
+    const result = [];
+    sortedRowKeys.forEach((rowKey, rowIndex) => {
+      const rowPanels = rows[rowKey].sort((a, b) => a.col - b.col);
+      if (rowIndex % 2 === 0) {
+        // Even rows: left to right
+        result.push(...rowPanels);
+      } else {
+        // Odd rows: right to left
+        result.push(...rowPanels.reverse());
+      }
+    });
+    
+    return result.map(p => p.id);
   }
 
   // Get tabs container for a panel
@@ -557,14 +606,15 @@ class SSHIFTClient {
     
     const panels = this.getAllPanels();
     const panelCount = panels.length;
+    const clockwisePanels = this.getClockwisePanels();
     
-    console.log('[SSHIFT] Distributing', allSessions.length, 'tabs across', panelCount, 'panels');
+    console.log('[SSHIFT] Distributing', allSessions.length, 'tabs across', panelCount, 'panels (clockwise order:', clockwisePanels.join(', '), ')');
     
     // Store current active sessions before redistribution
     const previousActiveSessions = new Map(this.activeSessionsByPanel);
     
     // If we have synced tabs from another browser tab, use them
-    if (syncedTabs && Array.isArray(syncedTabs)) {
+    if (syncedTabs && Array.isArray(syncedTabs) && syncedTabs.length > 0) {
       // Group tabs by panelId
       const tabsByPanel = {};
       panels.forEach(p => tabsByPanel[p] = []);
@@ -572,7 +622,7 @@ class SSHIFTClient {
       syncedTabs.forEach(tabData => {
         const targetPanel = tabData.panelId && panels.includes(tabData.panelId) 
           ? tabData.panelId 
-          : panels[0];
+          : clockwisePanels[0];
         tabsByPanel[targetPanel].push(tabData);
       });
       
@@ -592,10 +642,9 @@ class SSHIFTClient {
         }
       });
     } else {
-      // No synced data - distribute evenly across panels
-      // First, collect all existing tabs in order
+      // No synced data - collect all existing tabs in clockwise panel order
       const existingTabs = [];
-      panels.forEach(panelId => {
+      clockwisePanels.forEach(panelId => {
         const tabsContainer = this.getTabsContainer(panelId);
         if (tabsContainer) {
           Array.from(tabsContainer.children).forEach(tab => {
@@ -607,41 +656,35 @@ class SSHIFTClient {
         }
       });
       
-      // If we have more panels than tabs, put all in first panel
-      // If we have more tabs than panels, distribute evenly
       if (panelCount === 1) {
-        // Single panel - all tabs go there
         existingTabs.forEach(tabData => {
           this.moveTabToPanel(tabData.sessionId, 'panel-0');
         });
       } else {
-        // Multi-panel - distribute evenly
+        // Distribute in clockwise order: tab 1→first panel, tab 2→second panel, etc.
         existingTabs.forEach((tabData, index) => {
-          const targetPanel = panels[index % panelCount];
+          const targetPanel = clockwisePanels[index % panelCount];
           this.moveTabToPanel(tabData.sessionId, targetPanel);
         });
       }
       
-      // Activate tabs in each panel
+      // Build tabsByPanel for activation
       const tabsByPanel = {};
       panels.forEach(p => tabsByPanel[p] = []);
       
       existingTabs.forEach((tabData, index) => {
-        const targetPanel = panelCount === 1 ? 'panel-0' : panels[index % panelCount];
+        const targetPanel = panelCount === 1 ? 'panel-0' : clockwisePanels[index % panelCount];
         tabsByPanel[targetPanel].push(tabData.sessionId);
       });
       
       // Restore active sessions or activate first tab in each panel
       Object.entries(tabsByPanel).forEach(([panelId, sessionIds]) => {
         if (sessionIds.length > 0) {
-          // Check if we had a previously active session in this panel
           const previousActive = previousActiveSessions.get(panelId);
           
-          // If the previous active session is still in this panel, restore it
           if (previousActive && sessionIds.includes(previousActive)) {
             this.switchTab(previousActive, panelId);
           } else {
-            // Otherwise, activate the first tab
             this.switchTab(sessionIds[0], panelId);
           }
         }
@@ -708,6 +751,9 @@ class SSHIFTClient {
     }
     
     console.log('[SSHIFT] Moved tab', sessionId, 'from', currentPanelId, 'to', targetPanelId);
+    
+    // Update server panel map for mobile preservation
+    this._serverPanelMap.set(sessionId, targetPanelId);
   }
 
   // Hide empty state for a specific panel
@@ -2440,10 +2486,27 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       this._pendingOpenTabs = null;
       this._pendingOpenTabsIsInitial = null;
       
-      if (pendingData.tabs.length > 0) {
-        this.syncTabsFromServer(pendingData.tabs, isInitialSync, pendingData.activeTabsByPanel);
-      } else {
-        this.restoreTabs();
+      // Store server layout for mobile preservation
+      if (pendingData.layout) {
+        this._serverLayout = pendingData.layout;
+      }
+      
+      // Prevent saveTabs from emitting to server during deferred sync
+      const wasSyncingTabs = this.isSyncingTabs;
+      this.isSyncingTabs = true;
+      
+      try {
+        if (pendingData.tabs.length > 0) {
+          // Sync layout BEFORE tabs so panels exist before distribution
+          if (pendingData.layout && !this.isMobile) {
+            this.setLayoutFromServer(pendingData.layout);
+          }
+          this.syncTabsFromServer(pendingData.tabs, isInitialSync, pendingData.activeTabsByPanel);
+        } else {
+          this.restoreTabs();
+        }
+      } finally {
+        this.isSyncingTabs = wasSyncingTabs;
       }
     }
   }
@@ -3488,25 +3551,49 @@ const wheelHandler = (e) => {
       // If init hasn't finished yet (DOM not ready), defer processing
       // until init completes and the open-tabs event queue is flushed.
       if (this.sticky) {
-        if (!this._initReady) {
-          console.log('[SSHIFT] Deferring open-tabs processing until init completes');
-          this._pendingOpenTabs = data;
-          this._pendingOpenTabsIsInitial = !this._initialSyncDone;
-          this._initialSyncDone = true;
-        } else if (data.tabs.length > 0) {
-          const isInitialSync = !this._initialSyncDone;
-          this.syncTabsFromServer(data.tabs, isInitialSync, data.activeTabsByPanel);
-        } else if (!this._initialSyncDone) {
-          // Server has no tabs and this is the first sync (e.g. server restart).
-          // Fall back to localStorage restore to reconnect sessions.
-          this.restoreTabs();
+        // Store server layout for mobile tab preservation
+        if (data.layout) {
+          this._serverLayout = data.layout;
         }
-        this._initialSyncDone = true;
+        // Prevent saveTabs from emitting to server during initial sync
+        // (the server is our source of truth; we don't want to broadcast
+        // incomplete state back to other clients)
+        const wasSyncingTabs = this.isSyncingTabs;
+        this.isSyncingTabs = true;
+        
+        try {
+          if (!this._initReady) {
+            console.log('[SSHIFT] Deferring open-tabs processing until init completes');
+            this._pendingOpenTabs = data;
+            this._pendingOpenTabsIsInitial = !this._initialSyncDone;
+            this._initialSyncDone = true;
+          } else if (data.tabs.length > 0) {
+            const isInitialSync = !this._initialSyncDone;
+            // Sync layout BEFORE tabs so panels exist before distribution
+            if (data.layout && !this.isMobile) {
+              this.setLayoutFromServer(data.layout);
+            }
+            this.syncTabsFromServer(data.tabs, isInitialSync, data.activeTabsByPanel);
+          } else if (!this._initialSyncDone) {
+            // Server has no tabs and this is the first sync (e.g. server restart).
+            // Still apply layout from server even with no tabs.
+            if (data.layout && !this.isMobile) {
+              this.setLayoutFromServer(data.layout);
+            }
+            // Fall back to localStorage restore to reconnect sessions.
+            this.restoreTabs();
+          } else if (data.layout && !this.isMobile) {
+            // No tabs change, but layout may have changed
+            this.setLayoutFromServer(data.layout);
+          }
+          this._initialSyncDone = true;
+        } finally {
+          // Restore previous syncing state (syncTabsFromServer manages its own)
+          this.isSyncingTabs = wasSyncingTabs;
+        }
       }
-      // Sync layout if provided (but not on mobile - mobile always uses single panel)
-      if (data.layout && this.sticky && !this.isMobile) {
-        this.setLayoutFromServer(data.layout);
-      }
+      // Layout sync is handled above before tab sync; skip redundant call on mobile
+      // (mobile always uses single panel)
     });
 
     // Handle tab opened event from another client
@@ -3569,6 +3656,8 @@ const wheelHandler = (e) => {
     // Handle layout change from another client
     this.socket.on('layout-changed', (data) => {
       console.log('[SSHIFT] Layout changed by another client:', data.layoutId);
+      // Always store server layout even on mobile (for preservation in saves)
+      this._serverLayout = data.layoutId;
       if (this.sticky && !this.isMobile) {
         this.setLayoutFromServer(data.layoutId);
       }
@@ -3607,6 +3696,18 @@ const wheelHandler = (e) => {
         this.isSyncingTabs = true;
         
         try {
+          // Update server panel map and layout for mobile preservation
+          if (data.tabs && Array.isArray(data.tabs)) {
+            data.tabs.forEach(tab => {
+              if (tab.sessionId && tab.panelId) {
+                this._serverPanelMap.set(tab.sessionId, tab.panelId);
+              }
+            });
+          }
+          if (data.layout) {
+            this._serverLayout = data.layout;
+          }
+          
           // Apply layout first if it's different
           if (data.layout && data.layout !== this.currentLayout?.id) {
             this.setLayoutFromServer(data.layout, data.tabs);
@@ -5680,41 +5781,57 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
         mobileTabsToggle.classList.remove('flashing');
       }
     } else {
-      // Desktop: Update dropdowns per panel (original behavior)
-      // If panelId is provided, update only that panel's dropdown
-      // Otherwise, update all mobile dropdowns across all panels
-      const panels = panelId ? [panelId] : this.getAllPanels();
-      
-      panels.forEach(pid => {
+      // Desktop multi-panel: Each panel's dropdown shows ALL tabs with panel indicators
+      const allPanels = this.getAllPanels();
+      const isSingleLayout = allPanels.length <= 1;
+      const panelsToUpdate = panelId ? [panelId] : allPanels;
+      const allTabsByPanel = {};
+      allPanels.forEach(pid => {
+        const tabsContainer = this.getTabsContainer(pid);
+        allTabsByPanel[pid] = tabsContainer ? Array.from(tabsContainer.children) : [];
+      });
+      const allPanelTabs = [];
+      const clockwisePanels = isSingleLayout ? allPanels : this.getClockwisePanels();
+      clockwisePanels.forEach(pid => {
+        allPanelTabs.push(...(allTabsByPanel[pid] || []).map(tab => ({
+          sessionId: tab.dataset.sessionId,
+          panelId: pid,
+          tabElement: tab
+        })));
+      });
+
+      panelsToUpdate.forEach(pid => {
         const mobileTabsLabel = document.getElementById(pid === 'panel-0' ? 'mobileTabsLabel' : `${pid}-mobileTabsLabel`);
         const mobileTabsMenu = document.getElementById(pid === 'panel-0' ? 'mobileTabsMenu' : `${pid}-mobileTabsMenu`);
         const mobileTabsToggle = document.getElementById(pid === 'panel-0' ? 'mobileTabsToggle' : `${pid}-mobileTabsToggle`);
         
         if (!mobileTabsLabel || !mobileTabsMenu || !mobileTabsToggle) return;
 
-        // Get tabs for this panel
-        const tabsContainer = this.getTabsContainer(pid);
-        const tabs = tabsContainer ? Array.from(tabsContainer.children) : [];
+        // For single layout, only show this panel's tabs; for multi-panel, show all tabs
+        const tabsToShow = isSingleLayout
+          ? (allTabsByPanel[pid] || []).map(tab => ({
+              sessionId: tab.dataset.sessionId,
+              panelId: pid,
+              tabElement: tab
+            }))
+          : allPanelTabs;
 
-        // Clear existing menu
         mobileTabsMenu.innerHTML = '';
 
-        // Find active tab
         let activeTabName = 'No Active Tabs';
         let activeTabIcon = 'fa-terminal';
 
-        // Add menu options for each tab
-        tabs.forEach(tab => {
-          const sessionId = tab.dataset.sessionId;
+        tabsToShow.forEach(({ sessionId, panelId: tabPanelId }) => {
           const session = this.sessions.get(sessionId) || this.sftpSessions.get(sessionId);
-          const isActive = tab.classList.contains('active');
+          const isActiveInPanel = this.activeSessionsByPanel.get(pid) === sessionId;
+          const isActive = this.activeSessionsByPanel.get(tabPanelId) === sessionId;
           
           if (session) {
             const icon = session.type === 'sftp' ? 'fa-folder-open' : 'fa-terminal';
             const iconClass = session.type === 'sftp' ? 'sftp' : 'ssh';
             const name = session.name || sessionId;
 
-            if (isActive) {
+            if (isActiveInPanel) {
               activeTabName = name;
               activeTabIcon = icon;
             }
@@ -5725,9 +5842,13 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
             if (this._flashingSessions && this._flashingSessions.has(sessionId)) {
               option.classList.add('flashing');
             }
+            const panelIndicator = !isSingleLayout && tabPanelId !== pid
+              ? `<span class="tab-panel-badge">${tabPanelId.replace('panel-', '')}</span>`
+              : '';
             option.innerHTML = `
               <i class="fas ${icon} tab-icon ${iconClass}"></i>
               <span class="tab-name">${name}</span>
+              ${panelIndicator}
               <button class="tab-rename" data-session-id="${sessionId}" title="Rename">
                 <i class="fas fa-pen"></i>
               </button>
@@ -5736,11 +5857,10 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
               </button>
             `;
 
-            // Click to switch tab (on the option div, not on the rename/close buttons)
             option.addEventListener('click', (e) => {
               if (!e.target.closest('.tab-rename') && !e.target.closest('.tab-close')) {
-                const panelId = this.getPanelForSession(sessionId);
-                this.switchTab(sessionId, panelId);
+                const targetPanel = this.getPanelForSession(sessionId);
+                this.switchTab(sessionId, targetPanel);
                 mobileTabsMenu.classList.remove('show');
                 mobileTabsToggle.classList.remove('active');
               }
@@ -5748,7 +5868,6 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
 
             mobileTabsMenu.appendChild(option);
 
-            // Rename button
             const renameBtn = option.querySelector('.tab-rename');
             renameBtn.addEventListener('click', (e) => {
               e.stopPropagation();
@@ -5757,7 +5876,6 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
               mobileTabsToggle.classList.remove('active');
             });
 
-            // Close button
             const closeBtn = option.querySelector('.tab-close');
             closeBtn.addEventListener('click', (e) => {
               e.stopPropagation();
@@ -5766,14 +5884,12 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
           }
         });
 
-        // Update toggle button
         const iconElement = mobileTabsToggle.querySelector('.tab-icon-active');
         if (iconElement) {
           iconElement.className = `fas ${activeTabIcon} tab-icon-active`;
         }
         mobileTabsLabel.textContent = activeTabName;
 
-        // Restore flashing state on toggle if any tab is flashing
         if (mobileTabsToggle) {
           if (this._flashingSessions && this._flashingSessions.size > 0) {
             mobileTabsToggle.classList.add('flashing');
@@ -8410,6 +8526,9 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
 
     // Get the panel this session belongs to before removing it
     const panelId = this.getPanelForSession(sessionId);
+    
+    // Clean up server panel map
+    this._serverPanelMap.delete(sessionId);
 
     // Notify server that this tab is closing (for cross-client sync)
     this.socket.emit('tab-close', { sessionId });
@@ -8526,6 +8645,9 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     if (!session) return;
 
     console.log('[SSHIFT] Removing tab locally:', sessionId);
+    
+    // Clean up server panel map
+    this._serverPanelMap.delete(sessionId);
 
     const panelId = this.getPanelForSession(sessionId);
 
@@ -8597,11 +8719,25 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
   }
 
   // Handle tab opened by another client
-  handleTabOpened(data) {
+handleTabOpened(data) {
     // Check if we already have this session
     if (this.sessions.has(data.sessionId) || this.sftpSessions.has(data.sessionId)) {
       console.log('[SSHIFT] Already have session:', data.sessionId);
       return;
+    }
+
+    console.log('[SSHIFT] Creating tab for session from another client:', data.sessionId);
+    
+    // Store server panel assignment for mobile preservation
+    if (data.panelId) {
+      this._serverPanelMap.set(data.sessionId, data.panelId);
+    }
+    
+    // Create the tab without connecting (we'll join the existing session)
+    if (data.type === 'ssh') {
+      this.createSSHTab(data.name, data.connectionData, data.sessionId);
+    } else if (data.type === 'sftp') {
+      this.createSFTPTab(data.name, data.connectionData, data.sessionId);
     }
 
     console.log('[SSHIFT] Creating tab for session from another client:', data.sessionId);
@@ -8709,6 +8845,11 @@ async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null) 
     
     console.log('[SSHIFT] Syncing tabs from server:', tabs.length, 'isInitialSync:', isInitialSync);
     this.isRestoring = true;
+
+    // Store server panel assignments and layout for mobile preservation
+    tabs.forEach(tab => {
+      this._serverPanelMap.set(tab.sessionId, tab.panelId || 'panel-0');
+    });
 
     // Suppress switchTab during creation so we can activate the correct tab at the end
     this._suppressTabSwitch = true;
