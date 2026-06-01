@@ -980,6 +980,45 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     // Don't persist - font size is session-only
   }
 
+  // Clear the WebGL glyph texture atlas and force a full repaint.
+  // The atlas caches rasterised glyphs; if it was built before the web font
+  // finished loading (or after a DPR / font-size change) those cached glyphs
+  // are blank or stale, producing the "black box" rendering artefacts.
+  // Clearing forces every cell to be re-rasterised with correct glyphs.
+  _resetWebGLAtlas(session) {
+    if (!session || !session.terminal) return;
+    if (session.webglAddon) {
+      try {
+        session.webglAddon.clearTextureAtlas();
+      } catch (_) {}
+    }
+    session.terminal.refresh(0, session.terminal.rows - 1);
+  }
+
+  // Watch for devicePixelRatio changes (zoom, monitor move, DPI switch).
+  // When DPR changes the WebGL glyph atlas is built for the old pixel ratio
+  // and every glyph becomes mis-scaled; clearing the atlas forces a rebuild.
+  _setupDPRListener() {
+    let currentDPR = window.devicePixelRatio;
+    const query = matchMedia(`(resolution: ${currentDPR}dppx)`);
+    const onChange = () => {
+      const newDPR = window.devicePixelRatio;
+      if (newDPR !== currentDPR) {
+        console.log('[SSHIFT] devicePixelRatio changed from', currentDPR, 'to', newDPR);
+        currentDPR = newDPR;
+        this.sessions.forEach(session => this._resetWebGLAtlas(session));
+        this.sftpSessions.forEach(session => this._resetWebGLAtlas(session));
+      }
+      // Re-register for the new DPR value
+      this._setupDPRListener();
+    };
+    if (query.addEventListener) {
+      query.addEventListener('change', onChange, { once: true });
+    } else if (query.addListener) {
+      query.addListener(onChange);
+    }
+  }
+
   // Robust terminal fit with validation and retry.
   // Sometimes fit() is called before the browser finishes laying out a
   // container that just became visible (display:none -> display:flex).
@@ -1027,6 +1066,11 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     }
 
     console.log('[SSHIFT] Terminal fitted, cols:', terminal.cols, 'rows:', terminal.rows);
+
+    // Resize changes cell metrics; clear the WebGL atlas so glyphs are
+    // re-rasterised at the new size rather than stretched from the old cache.
+    this._resetWebGLAtlas(session);
+
     return true;
   }
 
@@ -1063,8 +1107,11 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     
     // Update the terminal
     session.terminal.options.fontSize = size;
-    session.terminal.refresh(0, session.terminal.rows - 1);
-    
+
+    // Font-size changes invalidate the glyph atlas — clear it so
+    // glyphs are re-rasterised at the new size.
+    this._resetWebGLAtlas(session);
+
     if (session.fitAddon && session.isController) {
       this._fitTerminal(session);
     }
@@ -1092,7 +1139,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     this.sessions.forEach((session) => {
       if (session.terminal) {
         session.terminal.options.fontSize = size;
-        session.terminal.refresh(0, session.terminal.rows - 1);
+        this._resetWebGLAtlas(session);
         if (session.fitAddon && session.isController) {
           this._fitTerminal(session);
         }
@@ -1105,7 +1152,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     this.sftpSessions.forEach((session) => {
       if (session.terminal) {
         session.terminal.options.fontSize = size;
-        session.terminal.refresh(0, session.terminal.rows - 1);
+        this._resetWebGLAtlas(session);
         if (session.fitAddon) {
           this._fitTerminal(session);
         }
@@ -1299,8 +1346,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
         const newTheme = this.getTerminalTheme(theme);
         console.log('[SSHIFT] Applying theme to terminal:', newTheme);
         session.terminal.options.theme = newTheme;
-        // Force terminal to redraw with new theme
-        session.terminal.refresh(0, session.terminal.rows - 1);
+        this._resetWebGLAtlas(session);
         
         // Update wrapper background to match terminal background
         const wrapper = document.getElementById(`terminal-wrapper-${session.id}`);
@@ -1321,8 +1367,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       if (session.terminal) {
         const newTheme = this.getTerminalTheme(theme);
         session.terminal.options.theme = newTheme;
-        // Force terminal to redraw with new theme
-        session.terminal.refresh(0, session.terminal.rows - 1);
+        this._resetWebGLAtlas(session);
         
         // Update wrapper background to match terminal background
         const wrapper = document.getElementById(`terminal-wrapper-${session.id}`);
@@ -2306,7 +2351,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       // Set font size for this SFTP session
       sftpSession.fontSize = Math.max(this.minFontSize, Math.min(this.maxFontSize, newSize));
       sftpSession.terminal.options.fontSize = sftpSession.fontSize;
-      sftpSession.terminal.refresh(0, sftpSession.terminal.rows - 1);
+      this._resetWebGLAtlas(sftpSession);
       
       if (sftpSession.fitAddon) {
         this._fitTerminal(sftpSession);
@@ -2429,6 +2474,12 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     
     // Fix mobile viewport height issues
     this.fixMobileViewport();
+    
+    // Listen for devicePixelRatio changes (browser zoom, monitor move, etc.).
+    // DPR changes invalidate the WebGL glyph atlas because cell metrics are
+    // derived from CSS pixels * DPR — a different DPR means every cached
+    // glyph is now the wrong size and must be re-rasterised.
+    this._setupDPRListener();
     
     // Load sticky config first
     await this.loadStickyConfig();
@@ -6535,19 +6586,20 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
       type: 'ssh',
       terminal: null,
       fitAddon: null,
+      webglAddon: null,
       connecting: true,
       connected: false,
-      connectionData, // Store for sticky sessions
-      isRestoring: !!restoreSessionId, // Flag to indicate if this is a restored session
-      isAtBottom: true, // Auto-scroll by default when new data arrives
-      isController: false, // Default to observer - will be set to true for session creator or when taking control
-      syncing: false, // Flag to prevent data writes during screen sync
-      fontSize: this.terminalFontSize, // Initialize with default font size
-      mobileHandler: null, // Mobile terminal handler for touch interactions
-      writeChunks: [], // Array of chunks for batching terminal writes (avoids O(n^2) string concat)
-      writeRAF: null, // requestAnimationFrame ID for write flush
-      flushRemaining: null, // Remaining data from a frame that exceeded the write cap
-      originalScrollback: null, // Stores original scrollback before dynamic reduction
+      connectionData,
+      isRestoring: !!restoreSessionId,
+      isAtBottom: true,
+      isController: false,
+      syncing: false,
+      fontSize: this.terminalFontSize,
+      mobileHandler: null,
+      writeChunks: [],
+      writeRAF: null,
+      flushRemaining: null,
+      originalScrollback: null,
       scrollbackRestoreTimer: null
     });
 
@@ -7011,10 +7063,34 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
           const webglAddon = new window.WebglAddon();
           webglAddon.onContextLoss(() => {
             console.warn('[SSHIFT] WebGL context lost, disposing addon');
-            webglAddon.dispose();
+            try {
+              webglAddon.dispose();
+            } catch (_) {}
+            session.webglAddon = null;
+            session.terminal.refresh(0, session.terminal.rows - 1);
           });
           terminal.loadAddon(webglAddon);
+          session.webglAddon = webglAddon;
           console.log('[SSHIFT] WebglAddon loaded');
+
+          // Wait for the custom web font to finish loading before the first
+          // data write reaches the terminal.  The WebGL glyph texture atlas
+          // is lazily populated on first render — if the font hasn't loaded
+          // yet the browser substitutes a fallback, the atlas caches those
+          // broken glyphs, and every cell painted from that atlas shows as a
+          // blank/black box.  Clearing the atlas *after* the font is ready
+          // forces all glyphs to be re-rasterised with the correct face.
+          document.fonts.ready.then(() => {
+            if (session.webglAddon) {
+              try {
+                session.webglAddon.clearTextureAtlas();
+              } catch (_) {}
+            }
+            if (session.terminal) {
+              session.terminal.refresh(0, session.terminal.rows - 1);
+            }
+            console.log('[SSHIFT] WebGL atlas cleared after fonts ready');
+          });
         } catch (e) {
           console.warn('[SSHIFT] Failed to load WebglAddon, falling back to canvas renderer:', e.message);
         }
@@ -7291,6 +7367,9 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
                 this.showToast('Failed to copy', 'error');
               }
             });
+            if (session.webglAddon) {
+              terminal.refresh(0, terminal.rows - 1);
+            }
             return false; // Prevent default behavior
           }
         }
@@ -7325,6 +7404,9 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
                 this.showToast('Failed to copy', 'error');
               }
             });
+            if (session.webglAddon) {
+              terminal.refresh(0, terminal.rows - 1);
+            }
             return false;
           }
         }
@@ -7381,6 +7463,17 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
         
         // Show terminal context menu
         this.showTerminalContextMenu(sessionId, terminal, e);
+      });
+
+      // When the selection is cleared (e.g. after copy / deselect) the
+      // WebGL renderer can leave behind blank cells because the texture atlas
+      // cached the "selected" version of the glyph and never re-rasterised
+      // the deselected state.  Force a full repaint on every selection change
+      // so deselected cells are always redrawn with the correct glyph.
+      terminal.onSelectionChange(() => {
+        if (session.webglAddon) {
+          session.terminal.refresh(0, session.terminal.rows - 1);
+        }
       });
 
       session.terminal = terminal;
@@ -8461,7 +8554,7 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
           // Restore font size for this session
           if (session.fontSize && session.terminal) {
             session.terminal.options.fontSize = session.fontSize;
-            session.terminal.refresh(0, session.terminal.rows - 1);
+            this._resetWebGLAtlas(session);
             console.log('[SSHIFT] Restored font size', session.fontSize, 'for session', sessionId);
           }
 
@@ -8494,7 +8587,7 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
       // For non-controllers, just focus the terminal and restore font size
       if (session.fontSize) {
         session.terminal.options.fontSize = session.fontSize;
-        session.terminal.refresh(0, session.terminal.rows - 1);
+        this._resetWebGLAtlas(session);
       }
       if (this.isMobile && session.mobileHandler && session.mobileHandler.hiddenTextarea) {
         session.mobileHandler._focusHiddenTextarea();
@@ -8506,10 +8599,9 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     // Handle SFTP sessions
     const sftpSession = this.sftpSessions.get(sessionId);
     if (sftpSession && sftpSession.terminal) {
-      // Restore font size for SFTP session
       if (sftpSession.fontSize) {
         sftpSession.terminal.options.fontSize = sftpSession.fontSize;
-        sftpSession.terminal.refresh(0, sftpSession.terminal.rows - 1);
+        this._resetWebGLAtlas(sftpSession);
       }
     }
     
