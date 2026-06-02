@@ -995,6 +995,130 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     session.terminal.refresh(0, session.terminal.rows - 1);
   }
 
+  // Initialize (or re-initialize) the WebGL renderer addon for a session.
+  // Handles context-loss tracking with a retry cap: after 3 losses the session
+  // permanently falls back to the canvas renderer so we don't loop endlessly.
+  // The `initialLoad` flag controls whether we wait for web fonts before
+  // clearing the atlas (only needed on first creation, not on recreation).
+  _initWebGLAddon(session, initialLoad = false) {
+    if (!session || !session.terminal) return false;
+    if (!this.webglRenderer || typeof window.WebglAddon !== 'function') return false;
+
+    if ((session.webglContextLossCount || 0) >= 3) {
+      console.warn('[SSHIFT] Too many WebGL context losses for session, staying on canvas renderer');
+      return false;
+    }
+
+    if (session._webglInitPending) return false;
+    session._webglInitPending = true;
+
+    if (session.webglAddon) {
+      try { session.webglAddon.dispose(); } catch (_) {}
+      session.webglAddon = null;
+    }
+
+    try {
+      const webglAddon = new window.WebglAddon();
+
+      webglAddon.onContextLoss(() => {
+        console.warn('[SSHIFT] WebGL context lost');
+        try { webglAddon.dispose(); } catch (_) {}
+        session.webglAddon = null;
+        session.webglContextLossCount = (session.webglContextLossCount || 0) + 1;
+
+        if (session.webglContextLossCount < 3) {
+          console.log('[SSHIFT] Scheduling WebGL addon recreation via requestAnimationFrame');
+          requestAnimationFrame(() => {
+            if (session.terminal && !session.webglAddon && (session.webglContextLossCount || 0) < 3) {
+              console.log('[SSHIFT] Attempting WebGL addon recreation after context loss');
+              this._initWebGLAddon(session, false);
+              if (session.fitAddon && !document.hidden) {
+                try { session.fitAddon.fit(); } catch (_) {}
+              }
+            }
+          });
+        } else {
+          console.warn('[SSHIFT] Repeated WebGL context loss, permanently falling back to canvas renderer');
+        }
+
+        session.terminal.refresh(0, session.terminal.rows - 1);
+      });
+
+      session.terminal.loadAddon(webglAddon);
+      session.webglAddon = webglAddon;
+
+      const canvas = session.terminal.element?.querySelector('canvas');
+      if (canvas) {
+        const onCanvasContextLoss = () => {
+          if (session.webglAddon) {
+            console.warn('[SSHIFT] Raw canvas webglcontextlost event caught');
+            try { session.webglAddon.dispose(); } catch (_) {}
+            session.webglAddon = null;
+            session.webglContextLossCount = (session.webglContextLossCount || 0) + 1;
+            session.terminal.refresh(0, session.terminal.rows - 1);
+          }
+          canvas.removeEventListener('webglcontextlost', onCanvasContextLoss);
+        };
+        canvas.addEventListener('webglcontextlost', onCanvasContextLoss);
+      }
+
+      session._webglInitPending = false;
+      console.log('[SSHIFT] WebglAddon loaded');
+
+      if (initialLoad) {
+        document.fonts.ready.then(() => {
+          if (session.webglAddon) {
+            try { session.webglAddon.clearTextureAtlas(); } catch (_) {}
+          }
+          if (session.terminal) {
+            session.terminal.refresh(0, session.terminal.rows - 1);
+          }
+          console.log('[SSHIFT] WebGL atlas cleared after fonts ready');
+        });
+      } else {
+        try { webglAddon.clearTextureAtlas(); } catch (_) {}
+        session.terminal.refresh(0, session.terminal.rows - 1);
+        if (session.fitAddon) {
+          try { session.fitAddon.fit(); } catch (_) {}
+        }
+      }
+
+      return true;
+    } catch (e) {
+      session._webglInitPending = false;
+      console.warn('[SSHIFT] Failed to load WebglAddon, falling back to canvas renderer:', e.message);
+      return false;
+    }
+  }
+
+  // Called on visibilitychange (tab becomes visible).  Browsers may reclaim
+  // GPU memory from background tabs, which can invalidate the WebGL glyph
+  // texture atlas or cause a full context loss.  For sessions that still have
+  // a WebGL addon we clear the stale atlas and force a repaint; for sessions
+  // whose addon was lost while the tab was hidden we attempt to recreate it
+  // (up to the 3-loss cap in _initWebGLAddon).
+  // Wrapped in requestAnimationFrame to ensure layout is recalculated before
+  // we touch the canvas — the container may have had zero dimensions while
+  // the tab was hidden.
+  _refreshAllWebGLSessions() {
+    requestAnimationFrame(() => {
+      const refresh = (session) => {
+        if (!session || !session.terminal || !this.webglRenderer) return;
+        if (session.webglAddon) {
+          try { session.webglAddon.clearTextureAtlas(); } catch (_) {}
+          session.terminal.refresh(0, session.terminal.rows - 1);
+        } else if ((session.webglContextLossCount || 0) < 3 && typeof window.WebglAddon === 'function') {
+          this._initWebGLAddon(session, false);
+          if (session.fitAddon) {
+            try { session.fitAddon.fit(); } catch (_) {}
+          }
+        }
+      };
+      this.sessions.forEach(refresh);
+      this.sftpSessions.forEach(refresh);
+    });
+  }
+
   // Watch for devicePixelRatio changes (zoom, monitor move, DPI switch).
   // When DPR changes the WebGL glyph atlas is built for the old pixel ratio
   // and every glyph becomes mis-scaled; clearing the atlas forces a rebuild.
@@ -3544,12 +3668,16 @@ const wheelHandler = (e) => {
       }
     });
 
-    // When the tab becomes visible again, immediately try to reconnect if disconnected
+    // When the tab becomes visible again, reconnect the socket if needed
+    // and refresh WebGL terminal renderers (the browser may reclaim GPU
+    // memory from background tabs, invalidating the glyph texture atlas).
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden && !this.socket.connected) {
+      if (document.hidden) return;
+      if (!this.socket.connected) {
         console.log('[SSHIFT] Tab visible and socket disconnected, triggering reconnect');
         this.socket.connect();
       }
+      this._refreshAllWebGLSessions();
     });
 
     this.socket.on('connect_error', (error) => {
@@ -6587,6 +6715,8 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
       terminal: null,
       fitAddon: null,
       webglAddon: null,
+      webglContextLossCount: 0,
+      _webglInitPending: false,
       connecting: true,
       connected: false,
       connectionData,
@@ -7058,47 +7188,7 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
       terminal.open(container);
       
       // Load WebGL renderer addon if enabled and available
-      if (this.webglRenderer && typeof window.WebglAddon === 'function') {
-        try {
-          const webglAddon = new window.WebglAddon();
-          webglAddon.onContextLoss(() => {
-            console.warn('[SSHIFT] WebGL context lost, disposing addon');
-            try {
-              webglAddon.dispose();
-            } catch (_) {}
-            session.webglAddon = null;
-            session.terminal.refresh(0, session.terminal.rows - 1);
-          });
-          terminal.loadAddon(webglAddon);
-          session.webglAddon = webglAddon;
-          console.log('[SSHIFT] WebglAddon loaded');
-
-          // Wait for the custom web font to finish loading before the first
-          // data write reaches the terminal.  The WebGL glyph texture atlas
-          // is lazily populated on first render — if the font hasn't loaded
-          // yet the browser substitutes a fallback, the atlas caches those
-          // broken glyphs, and every cell painted from that atlas shows as a
-          // blank/black box.  Clearing the atlas *after* the font is ready
-          // forces all glyphs to be re-rasterised with the correct face.
-          document.fonts.ready.then(() => {
-            if (session.webglAddon) {
-              try {
-                session.webglAddon.clearTextureAtlas();
-              } catch (_) {}
-            }
-            if (session.terminal) {
-              session.terminal.refresh(0, session.terminal.rows - 1);
-            }
-            console.log('[SSHIFT] WebGL atlas cleared after fonts ready');
-          });
-        } catch (e) {
-          console.warn('[SSHIFT] Failed to load WebglAddon, falling back to canvas renderer:', e.message);
-        }
-      } else if (this.webglRenderer) {
-        console.warn('[SSHIFT] WebglAddon not available (window.WebglAddon type:', typeof window.WebglAddon, '), using canvas renderer');
-      } else {
-        console.log('[SSHIFT] WebGL renderer disabled in settings, using canvas renderer');
-      }
+      this._initWebGLAddon(session, true);
       
       // Load image addon if enabled and available (Sixel/iTerm2/Kitty image protocols)
       if (this.imageAddonEnabled && typeof window.ImageAddon === 'function') {
