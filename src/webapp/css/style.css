@@ -1970,13 +1970,11 @@ body {
 @keyframes tab-flash {
   0%, 100% {
     background: transparent;
-    border-bottom-color: var(--accent-primary);
     color: var(--accent-primary);
   }
   50% {
     background: var(--accent-primary);
     color: #fff;
-    border-bottom-color: var(--accent-primary);
   }
 }
 
@@ -2040,13 +2038,11 @@ body {
 @keyframes tab-flash-light {
   0%, 100% {
     background: transparent;
-    border-bottom-color: var(--accent-primary);
     color: var(--accent-primary);
   }
   50% {
     background: var(--accent-primary);
     color: #fff;
-    border-bottom-color: var(--accent-primary);
   }
 }
 
