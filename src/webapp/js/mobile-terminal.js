@@ -59,6 +59,7 @@ class MobileTerminalHandler {
     this._compositionEndTs = 0;
     this._lastSentInput = '';
     this._lastSentInputTs = 0;
+    this._previousTextareaValue = '';
     this.contextMenuUserPositioned = false; // Track if user has manually positioned the menu
     
     // Configuration
@@ -463,46 +464,88 @@ class MobileTerminalHandler {
     });
     
     // Handle input events (for virtual keyboard)
+    // We let the textarea accumulate text so that Gboard autocorrect can
+    // operate on it (replacing a misspelled word with the correction).
+    // Diff tracking between beforeinput and input events computes the delta
+    // to send to the terminal, handling insertText, deleteContentBackward,
+    // and insertReplacementText (Gboard autocorrect) uniformly.
+    this.hiddenTextarea.addEventListener('beforeinput', (e) => {
+      if (e.isComposing) return;
+      if (this._isComposing) return;
+      if (e.inputType === 'insertCompositionText') return;
+      this._previousTextareaValue = this.hiddenTextarea.value;
+    });
+
     this.hiddenTextarea.addEventListener('input', (e) => {
       if (this.touchState.isSelecting) {
         e.preventDefault();
         this.hiddenTextarea.value = '';
+        this._previousTextareaValue = '';
         return;
       }
 
-      // Skip composition-related input events - they are handled by compositionend.
-      // e.isComposing is true when the event is part of an active composition.
-      // e.inputType checks catch 'insertCompositionText' and 'insertReplacementText'
-      // which some browsers fire instead of or alongside composition events.
       if (e.isComposing) {
         return;
       }
 
       if (this._isComposing) {
-        this.hiddenTextarea.value = '';
         return;
       }
 
-      if (e.inputType === 'insertCompositionText' || e.inputType === 'insertReplacementText') {
-        this.hiddenTextarea.value = '';
+      if (e.inputType === 'insertCompositionText') {
         return;
       }
 
       // Guard against double-sending after compositionend.
-      // On some browsers/IMEs, an input event fires right after compositionend
-      // with the same text. We debounce this by tracking the last composition
-      // end time and skipping input events that arrive within a short window.
       if (this._compositionEndTs && (Date.now() - this._compositionEndTs) < 300) {
-        this.hiddenTextarea.value = '';
+        this.hiddenTextarea.value = this._previousTextareaValue;
+        this._previousTextareaValue = '';
         return;
       }
 
-      if (e.data && !this.touchState.isDragging) {
-        this._sendToTerminal(e.data);
-        this._lastSentInput = e.data;
-        this._lastSentInputTs = Date.now();
-        this.hiddenTextarea.value = '';
+      if (this.touchState.isDragging) {
+        this._previousTextareaValue = '';
+        return;
       }
+
+      const prev = this._previousTextareaValue;
+      const curr = this.hiddenTextarea.value;
+
+      if (curr === prev) {
+        // No change, nothing to send.
+      } else if (curr.length > prev.length && curr.startsWith(prev)) {
+        // Simple append: previous text unchanged, new text appended.
+        this._sendToTerminal(curr.substring(prev.length));
+        this._lastSentInput = curr.substring(curr.length - 1);
+        this._lastSentInputTs = Date.now();
+      } else {
+        // Complex change (replacement, deletion, or mixed).
+        // Find common prefix and suffix to minimize the diff.
+        let prefixLen = 0;
+        while (prefixLen < prev.length && prefixLen < curr.length && prev[prefixLen] === curr[prefixLen]) {
+          prefixLen++;
+        }
+        let suffixLen = 0;
+        while (
+          suffixLen < (prev.length - prefixLen) &&
+          suffixLen < (curr.length - prefixLen) &&
+          prev[prev.length - 1 - suffixLen] === curr[curr.length - 1 - suffixLen]
+        ) {
+          suffixLen++;
+        }
+        const deletedCount = prev.length - prefixLen - suffixLen;
+        const inserted = curr.substring(prefixLen, curr.length - suffixLen);
+        if (deletedCount > 0) {
+          this._sendToTerminal('\x7f'.repeat(deletedCount));
+        }
+        if (inserted) {
+          this._sendToTerminal(inserted);
+        }
+        this._lastSentInput = inserted || '';
+        this._lastSentInputTs = Date.now();
+      }
+
+      this._previousTextareaValue = '';
     });
     
     // Handle keydown for special keys
@@ -521,14 +564,20 @@ class MobileTerminalHandler {
         e.preventDefault();
         this._sendToTerminal('\r');
         this.hiddenTextarea.value = '';
+        this._previousTextareaValue = '';
       } else if (e.key === 'Backspace') {
-        e.preventDefault();
-        this._sendToTerminal('\x7f');
-        this.hiddenTextarea.value = '';
+        // Let the browser handle backspace in the textarea; the beforeinput/input
+        // diff will detect the deletion and send \x7f to the terminal.
+        // Only prevent default if the textarea is empty (nothing to delete).
+        if (!this.hiddenTextarea.value) {
+          e.preventDefault();
+          this._sendToTerminal('\x7f');
+        }
       } else if (e.key === 'Tab') {
         e.preventDefault();
         this._sendToTerminal('\t');
         this.hiddenTextarea.value = '';
+        this._previousTextareaValue = '';
       }
     });
     
@@ -546,6 +595,7 @@ class MobileTerminalHandler {
     this.hiddenTextarea.addEventListener('compositionstart', () => {
       this._isComposing = true;
       this._compositionText = '';
+      this._previousTextareaValue = '';
     });
 
     this.hiddenTextarea.addEventListener('compositionupdate', (e) => {
@@ -577,7 +627,7 @@ class MobileTerminalHandler {
       this._compositionText = '';
       this._lastSentInput = '';
       this._lastSentInputTs = 0;
-      this.hiddenTextarea.value = '';
+      this._previousTextareaValue = '';
     });
   }
   
@@ -1425,6 +1475,12 @@ class MobileTerminalHandler {
     if (this.hiddenTextarea) {
       // Remove readonly to allow keyboard
       this.hiddenTextarea.removeAttribute('readonly');
+      // Reset textarea to empty when refocusing so the diff tracking
+      // starts from a clean state. Gboard autocorrect operates on the
+      // textarea content, so stale text from a previous focus would
+      // produce incorrect diffs.
+      this.hiddenTextarea.value = '';
+      this._previousTextareaValue = '';
       this.hiddenTextarea.focus();
     }
   }
