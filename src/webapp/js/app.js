@@ -995,41 +995,17 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     session.terminal.refresh(0, session.terminal.rows - 1);
   }
 
-  // Snap cell width to an integer number of device pixels by adjusting
-  // letterSpacing.  When cellWidth × DPR is fractional, adjacent cells
-  // land on sub-pixel boundaries, causing 1px vertical seams in block
-  // characters.  Adding a tiny letterSpacing rounds the device-pixel cell
-  // width up to a whole number, eliminating seams.
-  //
-  // Only applies when the needed padding is <= 0.15 CSS px — larger
-  // padding is visually noticeable as extra character spacing, so we
-  // skip it and accept the occasional 1px seam instead.
-  _snapCellWidth(session) {
-    if (!session || !session.terminal || !session.fitAddon) return;
-    const term = session.terminal;
-    const core = term._core;
-    if (!core?._renderService?.dimensions?.css?.cell) return;
-
-    const cellCssW = core._renderService.dimensions.css.cell.width;
-    if (!cellCssW || cellCssW <= 0) return;
-
-    const dpr = window.devicePixelRatio || 1;
-    const deviceW = cellCssW * dpr;
-    const fraction = deviceW - Math.floor(deviceW);
-
-    if (fraction > 0.01 && fraction < 0.99) {
-      const padCss = (1 - fraction) / dpr;
-      // Only snap if the padding needed is tiny (imperceptible).
-      // Larger padding creates visible gaps between characters.
-      if (padCss <= 0.15) {
-        term.options.letterSpacing = padCss;
-      } else {
-        term.options.letterSpacing = 0;
-      }
-    } else {
-      term.options.letterSpacing = 0;
-    }
-  }
+// Sub-pixel seam mitigation is handled by canvas/WebGL renderer +
+  // customGlyphs: true, which draws block/box characters as vector fills
+  // that meet exactly.  letterSpacing nudging doesn't work because xterm.js
+  // only accepts integer letterSpacing values.  Origin-snapping transforms
+  // are also unnecessary because the canvas/WebGL renderer paints the cell
+  // grid in its own coordinate system.  The remaining mitigation is:
+  //  - customGlyphs: true (set in Terminal options)
+  //  - canvas or WebGL renderer as default (not DOM)
+  //  - clearTextureAtlas() on DPR change (handled by _setupDPRListener)
+  //  - clean base metrics: letterSpacing: 0, lineHeight: 1.0 in _fitTerminal
+  _snapCellWidth() { /* no-op: see comment above */ }
 
   // Initialize (or re-initialize) the WebGL renderer addon for a session.
   // Handles context-loss tracking with a retry cap: after 3 losses the session
@@ -1119,7 +1095,6 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
           if (session.webglAddon) {
             try { session.webglAddon.clearTextureAtlas(); } catch (_) {}
           }
-          this._snapCellWidth(session);
           if (session.terminal) {
             session.terminal.refresh(0, session.terminal.rows - 1);
           }
@@ -1183,7 +1158,6 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
         currentDPR = newDPR;
         this.sessions.forEach(session => {
           this._resetWebGLAtlas(session);
-          this._snapCellWidth(session);
           if (session.fitAddon && session.terminal && session.isController) {
             const wrapper = document.getElementById(`terminal-wrapper-${session.id}`);
             if (wrapper && wrapper.classList.contains('active')) {
@@ -1241,6 +1215,13 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       return false;
     }
 
+    // Reset letterSpacing and lineHeight to base values before fitting so
+    // alignToDeviceGrid measures from clean metrics rather than accumulated
+    // nudges from a previous invocation.
+    const term = session.terminal;
+    term.options.letterSpacing = 0;
+    term.options.lineHeight = 1;
+
     void container.offsetHeight;
     void wrapper.offsetHeight;
 
@@ -1266,22 +1247,6 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
           return false;
         }
       }
-    }
-
-    // Snap cell width to an integer number of device pixels so block/box
-    // drawing characters tile without 1px seams on fractional-DPR displays.
-    // This MUST be followed by a refit because letterSpacing changes the
-    // cell width, which changes how many columns fit in the container.
-    const letterSpacingBefore = terminal.options.letterSpacing || 0;
-    this._snapCellWidth(session);
-    const letterSpacingAfter = terminal.options.letterSpacing || 0;
-
-    // If letterSpacing changed, refit so xterm recalculates column count
-    // with the new (snapped) cell width.
-    if (letterSpacingAfter !== letterSpacingBefore) {
-      try {
-        session.fitAddon.fit();
-      } catch (_) {}
     }
 
     console.log('[SSHIFT] Terminal fitted, cols:', terminal.cols, 'rows:', terminal.rows);
