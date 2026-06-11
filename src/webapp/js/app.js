@@ -1175,12 +1175,14 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       return false;
     }
 
-    // Guard: refuse to fit if the container has zero or near-zero dimensions.
+    // Guard: refuse to fit if the container has near-zero dimensions.
     // A zero-size container produces bogus col/row counts that propagate to
     // the remote PTY and cause narrow-wrap / garbled output bugs.
+    // We use 2px as the threshold to catch truly collapsed containers while
+    // allowing containers that are mid-layout-transition but already have
+    // meaningful size.
     const rect = container.getBoundingClientRect();
-    if (rect.width < 10 || rect.height < 10) {
-      console.warn(`[SSHIFT] Container too small to fit (${rect.width.toFixed(1)}x${rect.height.toFixed(1)}px), deferring`);
+    if (rect.width < 2 || rect.height < 2) {
       session.needsResize = true;
       if (retryCount < 3) {
         requestAnimationFrame(() => this._fitTerminal(session, retryCount + 1));
@@ -4158,10 +4160,11 @@ const wheelHandler = (e) => {
                 if (!session.terminal || !session.fitAddon || !session.isController) return;
                 try {
                   session.isResyncing = true;
-                  this._fitTerminal(session);
+                  const fitted = this._fitTerminal(session);
                   session.isResyncing = false;
                   
-                  if (session.terminal && session.connected) {
+                  // Only send the resize if we actually fitted successfully.
+                  if (fitted && session.terminal && session.connected) {
                     this.socket.emit('ssh-resize', {
                       sessionId: data.sessionId,
                       cols: session.terminal.cols,
@@ -4175,9 +4178,9 @@ const wheelHandler = (e) => {
                       session.isResyncing = true;
                       const prevCols = session.terminal.cols;
                       const prevRows = session.terminal.rows;
-                      this._fitTerminal(session);
+                      const corrected = this._fitTerminal(session);
                       session.isResyncing = false;
-                      if (session.terminal.cols !== prevCols || session.terminal.rows !== prevRows) {
+                      if (corrected && (session.terminal.cols !== prevCols || session.terminal.rows !== prevRows)) {
                         this.socket.emit('ssh-resize', {
                           sessionId: data.sessionId,
                           cols: session.terminal.cols,
@@ -4250,10 +4253,15 @@ const wheelHandler = (e) => {
               if (!session.terminal || !session.fitAddon || !session.isController) return;
               try {
                 session.isResyncing = true;
-                this._fitTerminal(session);
+                const fitted = this._fitTerminal(session);
                 session.isResyncing = false;
                 
-                if (session.terminal && session.connected) {
+                // Only send the resize to the server if we actually fitted the
+                // terminal.  If _fitTerminal returned false (container too small,
+                // not visible, etc.), the cols/rows are stale and would confuse
+                // the remote PTY.  A successful retry will trigger onResize
+                // which emits ssh-resize via the debounced handler.
+                if (fitted && session.terminal && session.connected) {
                   this.socket.emit('ssh-resize', {
                     sessionId: data.sessionId,
                     cols: session.terminal.cols,
@@ -4267,9 +4275,9 @@ const wheelHandler = (e) => {
                     session.isResyncing = true;
                     const prevCols = session.terminal.cols;
                     const prevRows = session.terminal.rows;
-                    this._fitTerminal(session);
+                    const corrected = this._fitTerminal(session);
                     session.isResyncing = false;
-                    if (session.terminal.cols !== prevCols || session.terminal.rows !== prevRows) {
+                    if (corrected && (session.terminal.cols !== prevCols || session.terminal.rows !== prevRows)) {
                       this.socket.emit('ssh-resize', {
                         sessionId: data.sessionId,
                         cols: session.terminal.cols,
@@ -7772,12 +7780,18 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
         // hold.  The PTY on the server wraps at those bogus dimensions.
         const sendResize = () => {
           if (session.fitAddon) {
-            this._fitTerminal(session);
-            this.socket.emit('ssh-resize', { 
-              sessionId: data.sessionId, 
-              cols: session.terminal.cols, 
-              rows: session.terminal.rows 
-            });
+            const fitted = this._fitTerminal(session);
+            // Only send the resize to the server if we actually fitted
+            // successfully — otherwise the remote PTY would get stale
+            // dimensions.  A deferred retry will trigger onResize which
+            // sends ssh-resize via the debounced handler.
+            if (fitted) {
+              this.socket.emit('ssh-resize', { 
+                sessionId: data.sessionId, 
+                cols: session.terminal.cols, 
+                rows: session.terminal.rows 
+              });
+            }
           }
         };
 
@@ -8804,7 +8818,23 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
             session.needsResize = false;
           }
 
-          this._fitTerminal(session);
+          const fitted = this._fitTerminal(session);
+
+          // If fitting failed (e.g. container not yet laid out), retry
+          // with delays until the browser commits the layout change.
+          if (!fitted) {
+            console.log('[SSHIFT] Initial fit failed during tab switch, scheduling retries');
+            let retriesLeft = 4;
+            const retryFit = () => {
+              if (!session.terminal || !session.fitAddon || !session.isController) return;
+              const ok = this._fitTerminal(session);
+              if (!ok && retriesLeft > 0) {
+                retriesLeft--;
+                setTimeout(retryFit, 100);
+              }
+            };
+            setTimeout(retryFit, 50);
+          }
 
           // Focus the terminal so user can type
           if (session.terminal) {
