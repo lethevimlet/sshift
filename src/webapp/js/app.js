@@ -1264,11 +1264,23 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       }
     }
 
-    console.log('[SSHIFT] Terminal fitted, cols:', terminal.cols, 'rows:', terminal.rows);
-
     // Snap cell width to an integer number of device pixels so block/box
     // drawing characters tile without 1px seams on fractional-DPR displays.
+    // This MUST be followed by a refit because letterSpacing changes the
+    // cell width, which changes how many columns fit in the container.
+    const letterSpacingBefore = terminal.options.letterSpacing || 0;
     this._snapCellWidth(session);
+    const letterSpacingAfter = terminal.options.letterSpacing || 0;
+
+    // If letterSpacing changed, refit so xterm recalculates column count
+    // with the new (snapped) cell width.
+    if (letterSpacingAfter !== letterSpacingBefore) {
+      try {
+        session.fitAddon.fit();
+      } catch (_) {}
+    }
+
+    console.log('[SSHIFT] Terminal fitted, cols:', terminal.cols, 'rows:', terminal.rows);
 
     // Resize changes cell metrics; clear the WebGL atlas so glyphs are
     // re-rasterised at the new size rather than stretched from the old cache.
