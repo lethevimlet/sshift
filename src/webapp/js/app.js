@@ -1009,7 +1009,20 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       return false;
     }
 
-    if (session._webglInitPending) return false;
+    // Guard: don't initialise WebGL while the terminal is hidden (display:none).
+    // A hidden canvas has zero dimensions, producing corrupt glyph caches (Bug 3).
+    const wrapper = document.getElementById(`terminal-wrapper-${session.id}`);
+    if (wrapper && !wrapper.classList.contains('active')) {
+      session._webglInitPending = true;
+      console.log('[SSHIFT] Delaying WebGL init — wrapper is hidden');
+      return false;
+    }
+
+    if (session._webglInitPending && session.webglAddon) {
+      // A previous call set the pending flag and we already have an addon;
+      // don't double-initialise.
+      return false;
+    }
     session._webglInitPending = true;
 
     if (session.webglAddon) {
@@ -1162,6 +1175,19 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       return false;
     }
 
+    // Guard: refuse to fit if the container has zero or near-zero dimensions.
+    // A zero-size container produces bogus col/row counts that propagate to
+    // the remote PTY and cause narrow-wrap / garbled output bugs.
+    const rect = container.getBoundingClientRect();
+    if (rect.width < 10 || rect.height < 10) {
+      console.warn(`[SSHIFT] Container too small to fit (${rect.width.toFixed(1)}x${rect.height.toFixed(1)}px), deferring`);
+      session.needsResize = true;
+      if (retryCount < 3) {
+        requestAnimationFrame(() => this._fitTerminal(session, retryCount + 1));
+      }
+      return false;
+    }
+
     void container.offsetHeight;
     void wrapper.offsetHeight;
 
@@ -1194,6 +1220,12 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     // Resize changes cell metrics; clear the WebGL atlas so glyphs are
     // re-rasterised at the new size rather than stretched from the old cache.
     this._resetWebGLAtlas(session);
+
+    // Force a full repaint to flush stale cells from the previous dimensions.
+    // This prevents bottom-row garbage and garbled status lines after resize.
+    try {
+      terminal.refresh(0, terminal.rows - 1);
+    } catch (_) {}
 
     return true;
   }
@@ -2031,16 +2063,19 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
         this.distributeTabsToPanels(syncedTabs);
       }
       
-      // Resize terminals after restoration
-      setTimeout(() => {
+      // Resize terminals after restoration.
+      // Use requestAnimationFrame so the browser has committed the new
+      // flex/grid layout before we measure container widths (Bug 2 & 3).
+      // Stagger a second pass for late fonts or animations.
+      requestAnimationFrame(() => {
+        this._refreshAllWebGLSessions();
         this.handleResize();
-        // Additional resize after animations complete
         requestAnimationFrame(() => {
           this.handleResize();
         });
-      }, 100);
+      });
       
-      // Final resize attempt for slow rendering
+      // Final resize attempt for slow rendering / font swaps
       setTimeout(() => this.handleResize(), 300);
       return;
     }
@@ -2089,16 +2124,18 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     // Use syncedTabs if available (from another browser tab), otherwise distribute evenly
     this.distributeTabsToPanels(syncedTabs);
     
-    // Resize terminals after restoration
-    setTimeout(() => {
+// Resize terminals after restoration.
+    // Use requestAnimationFrame so the browser has committed the new
+    // flex/grid layout before we measure container widths (Bug 2 & 3).
+    requestAnimationFrame(() => {
+      this._refreshAllWebGLSessions();
       this.handleResize();
-      // Additional resize after animations complete
       requestAnimationFrame(() => {
         this.handleResize();
       });
-    }, 100);
+    });
     
-    // Final resize attempt for slow rendering
+    // Final resize attempt for slow rendering / font swaps
     setTimeout(() => this.handleResize(), 300);
 
     // Update scroll arrows for all panels
@@ -3678,6 +3715,9 @@ const wheelHandler = (e) => {
         this.socket.connect();
       }
       this._refreshAllWebGLSessions();
+      // Refit visible terminals after tab becomes visible — the container
+      // may have had zero dimensions while hidden (Bugs 1 & 2).
+      requestAnimationFrame(() => this.handleResize());
     });
 
     this.socket.on('connect_error', (error) => {
@@ -7187,8 +7227,16 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
       
       terminal.open(container);
       
-      // Load WebGL renderer addon if enabled and available
-      this._initWebGLAddon(session, true);
+      // Initialise the WebGL renderer only if the wrapper is currently
+      // visible.  Loading WebGL on a hidden (display:none) terminal
+      // produces a zero-size canvas, corrupting the glyph texture atlas
+      // and causing dim/invisible text (Bug 3).
+      if (wrapper.classList.contains('active')) {
+        this._initWebGLAddon(session, true);
+      } else {
+        session._webglInitPending = true;
+        console.log('[SSHIFT] Deferring WebGL init — terminal not yet visible');
+      }
       
       // Load image addon if enabled and available (Sixel/iTerm2/Kitty image protocols)
       if (this.imageAddonEnabled && typeof window.ImageAddon === 'function') {
@@ -7273,44 +7321,44 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
       // repaint interference during initial render
       terminal.options.cursorBlink = true;
       
-      console.log('[SSHIFT] Terminal opened, fitting...');
+      console.log('[SSHIFT] Terminal opened, waiting for fonts before fitting...');
       
-      // Fit after a small delay to ensure container is visible and rendered
-      // Use multiple attempts to ensure proper fitting
-      const attemptFit = (attempt = 1) => {
-        try {
-          // Force a reflow to ensure proper rendering
-          container.offsetHeight;
-          wrapper.offsetHeight;
-          
-          fitAddon.fit();
-          console.log('[SSHIFT] Terminal fitted successfully (attempt ' + attempt + '), cols:', terminal.cols, 'rows:', terminal.rows);
-          
-          // Verify the fit was successful by checking dimensions
-          if (terminal.cols > 0 && terminal.rows > 0) {
-            return true;
+      // CRITICAL: Wait for custom monospace fonts (JetBrains Mono etc.) to
+      // finish loading before calling fitAddon.fit().  If we fit before the
+      // web font swaps in, the browser measures the fallback font's glyph
+      // width which is typically narrower, producing far fewer columns than
+      // the container can actually hold.  Those bogus dimensions are then
+      // sent to the remote PTY, wrapping every ~10 characters (Bug 1).
+      // After fonts are ready we delay by one animation frame so the
+      // browser has repainted with the correct metrics.
+      const fontReady = document.fonts
+        ? document.fonts.ready
+        : Promise.resolve();
+
+      fontReady.then(() => {
+        // Clear the WebGL texture atlas after the font swap — glyphs cached
+        // before the swap were rasterised at the fallback font's metrics.
+        if (session.webglAddon) {
+          try { session.webglAddon.clearTextureAtlas(); } catch (_) {}
+        }
+
+        // Also check if WebGL init was deferred due to hidden wrapper
+        // (Bug 3) — the terminal may now be visible.
+        if (session._webglInitPending && wrapper.classList.contains('active')) {
+          session._webglInitPending = false;
+          this._initWebGLAddon(session, true);
+        }
+
+        requestAnimationFrame(() => {
+          const fitted = this._fitTerminal(session);
+          if (fitted) {
+            console.log('[SSHIFT] Terminal fitted after fonts ready, cols:', terminal.cols, 'rows:', terminal.rows);
+          } else {
+            // If _fitTerminal couldn't fit (e.g. wrapper not visible yet),
+            // it will have set needsResize = true so switchTab() picks it up.
+            console.log('[SSHIFT] Could not fit after fonts ready — deferred to tab activation');
           }
-          return false;
-        } catch (e) {
-          console.warn('[SSHIFT] Fit attempt ' + attempt + ' failed:', e.message);
-          return false;
-        }
-      };
-      
-      // Try fitting immediately
-      requestAnimationFrame(() => {
-        if (!attemptFit(1)) {
-          // If first attempt fails, try again after delays
-          setTimeout(() => {
-            if (!attemptFit(2)) {
-              setTimeout(() => {
-                if (!attemptFit(3)) {
-                  console.error('[SSHIFT] All fit attempts failed');
-                }
-              }, 200);
-            }
-          }, 100);
-        }
+        });
       });
 
       // Handle terminal input
@@ -7665,14 +7713,26 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
         // Clear the terminal to remove connecting messages
         session.terminal.clear();
         
-        // Send initial resize
-        if (session.fitAddon) {
-          this._fitTerminal(session);
-          this.socket.emit('ssh-resize', { 
-            sessionId: data.sessionId, 
-            cols: session.terminal.cols, 
-            rows: session.terminal.rows 
-          });
+        // Send initial resize — but wait for fonts first so we send
+        // the correct column/row count (Bug 1).  If fonts haven't
+        // loaded yet, the fallback font's narrower glyphs would make
+        // fit() report far fewer cols than the container can actually
+        // hold.  The PTY on the server wraps at those bogus dimensions.
+        const sendResize = () => {
+          if (session.fitAddon) {
+            this._fitTerminal(session);
+            this.socket.emit('ssh-resize', { 
+              sessionId: data.sessionId, 
+              cols: session.terminal.cols, 
+              rows: session.terminal.rows 
+            });
+          }
+        };
+
+        if (document.fonts && document.fonts.status !== 'loaded') {
+          document.fonts.ready.then(sendResize);
+        } else {
+          sendResize();
         }
         
         // Focus the terminal so user can type immediately
@@ -8641,10 +8701,23 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
       // A second RAF ensures the paint is complete before we measure.
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
+          // If WebGL init was deferred because this terminal was hidden
+          // (Bug 3), initialise it now that the wrapper is visible.
+          if (session._webglInitPending && this.webglRenderer && typeof window.WebglAddon === 'function') {
+            session._webglInitPending = false;
+            console.log('[SSHIFT] Initializing deferred WebGL for session:', sessionId);
+            this._initWebGLAddon(session, true);
+          }
+
+          // Always clear the WebGL texture atlas when a tab becomes visible.
+          // While display:none, the terminal canvas has zero dimensions and
+          // any cached glyphs are rendered at wrong colours/sizes (Bug 3).
+          // Clearing + refreshing forces a clean redraw at the correct size.
+          this._resetWebGLAtlas(session);
+
           // Restore font size for this session
           if (session.fontSize && session.terminal) {
             session.terminal.options.fontSize = session.fontSize;
-            this._resetWebGLAtlas(session);
             console.log('[SSHIFT] Restored font size', session.fontSize, 'for session', sessionId);
           }
 
@@ -8674,10 +8747,11 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
         });
       });
     } else if (session && session.terminal) {
-      // For non-controllers, just focus the terminal and restore font size
+      // For non-controllers, just focus the terminal and restore font size.
+      // Also clear the WebGL atlas since this tab was hidden.
+      this._resetWebGLAtlas(session);
       if (session.fontSize) {
         session.terminal.options.fontSize = session.fontSize;
-        this._resetWebGLAtlas(session);
       }
       if (this.isMobile && session.mobileHandler && session.mobileHandler.hiddenTextarea) {
         session.mobileHandler._focusHiddenTextarea();
