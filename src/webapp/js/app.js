@@ -995,6 +995,36 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     session.terminal.refresh(0, session.terminal.rows - 1);
   }
 
+  // Snap cell width to an integer number of device pixels by adjusting
+  // letterSpacing.  When the CSS cell width × devicePixelRatio is fractional,
+  // adjacent cells alternate between N and N+1 device pixels, leaving 1px
+  // vertical seams in block/box-drawing characters.  Adding a tiny
+  // letterSpacing pad rounds the device-pixel width up to a whole number,
+  // eliminating seams regardless of zoom level or DPR.
+  _snapCellWidth(session) {
+    if (!session || !session.terminal || !session.fitAddon) return;
+    const term = session.terminal;
+    const core = term._core;
+    if (!core?._renderService?.dimensions?.css?.cell) return;
+
+    const cellCssW = core._renderService.dimensions.css.cell.width;
+    if (!cellCssW || cellCssW <= 0) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const deviceW = cellCssW * dpr;
+    const fraction = deviceW - Math.floor(deviceW);
+
+    if (fraction > 0.01) {
+      // Pad up to the next whole device pixel, converted back to CSS px.
+      const padCss = (1 - fraction) / dpr;
+      // Clamp to avoid excessive spacing — 0.5 CSS px is generous.
+      const clampedPad = Math.min(padCss, 0.5);
+      term.options.letterSpacing = clampedPad;
+    } else {
+      term.options.letterSpacing = 0;
+    }
+  }
+
   // Initialize (or re-initialize) the WebGL renderer addon for a session.
   // Handles context-loss tracking with a retry cap: after 3 losses the session
   // permanently falls back to the canvas renderer so we don't loop endlessly.
@@ -1083,6 +1113,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
           if (session.webglAddon) {
             try { session.webglAddon.clearTextureAtlas(); } catch (_) {}
           }
+          this._snapCellWidth(session);
           if (session.terminal) {
             session.terminal.refresh(0, session.terminal.rows - 1);
           }
@@ -1135,6 +1166,9 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
   // Watch for devicePixelRatio changes (zoom, monitor move, DPI switch).
   // When DPR changes the WebGL glyph atlas is built for the old pixel ratio
   // and every glyph becomes mis-scaled; clearing the atlas forces a rebuild.
+  // We also refit and re-snap letterSpacing so cells remain integer-width
+  // in device pixels at the new DPR, eliminating seams on fractional-DPR
+  // displays.
   _setupDPRListener() {
     let currentDPR = window.devicePixelRatio;
     const query = matchMedia(`(resolution: ${currentDPR}dppx)`);
@@ -1143,8 +1177,21 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       if (newDPR !== currentDPR) {
         console.log('[SSHIFT] devicePixelRatio changed from', currentDPR, 'to', newDPR);
         currentDPR = newDPR;
-        this.sessions.forEach(session => this._resetWebGLAtlas(session));
-        this.sftpSessions.forEach(session => this._resetWebGLAtlas(session));
+        this.sessions.forEach(session => {
+          this._resetWebGLAtlas(session);
+          this._snapCellWidth(session);
+          if (session.fitAddon && session.terminal && session.isController) {
+            const wrapper = document.getElementById(`terminal-wrapper-${session.id}`);
+            if (wrapper && wrapper.classList.contains('active')) {
+              this._fitTerminal(session);
+            } else if (wrapper) {
+              session.needsResize = true;
+            }
+          }
+        });
+        this.sftpSessions.forEach(session => {
+          this._resetWebGLAtlas(session);
+        });
       }
       // Re-register for the new DPR value
       this._setupDPRListener();
@@ -1218,6 +1265,10 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     }
 
     console.log('[SSHIFT] Terminal fitted, cols:', terminal.cols, 'rows:', terminal.rows);
+
+    // Snap cell width to an integer number of device pixels so block/box
+    // drawing characters tile without 1px seams on fractional-DPR displays.
+    this._snapCellWidth(session);
 
     // Resize changes cell metrics; clear the WebGL atlas so glyphs are
     // re-rasterised at the new size rather than stretched from the old cache.
@@ -7200,6 +7251,7 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
         fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', 'Courier New', monospace",
         fontSize: this.terminalFontSize,
         lineHeight: 1.0,
+        letterSpacing: 0,
         cursorBlink: false,
         cursorStyle: 'block',
         scrollback: this.scrollback || 10000,
@@ -7211,7 +7263,8 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
         fastScrollModifier: 'alt',
         fastScrollSensitivity: 5,
         smoothScrollDuration: 80,
-        overviewRuler: { width: 14 }
+        overviewRuler: { width: 14 },
+        customGlyphs: true
       });
 
       // Set wrapper background color
@@ -8835,6 +8888,19 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
             };
             setTimeout(retryFit, 50);
           }
+
+          // Safety net: always schedule a delayed refit after tab switch.
+          // Sometimes the initial fit succeeds at a small intermediate size
+          // (e.g. 100×100px) because the browser hasn't fully committed the
+          // display:none → display:flex layout change. A delayed refit
+          // corrects this once the layout has settled.
+          setTimeout(() => {
+            if (!session.terminal || !session.fitAddon || !session.isController) return;
+            const wrapper = document.getElementById(`terminal-wrapper-${session.id}`);
+            if (wrapper && wrapper.classList.contains('active')) {
+              this._fitTerminal(session);
+            }
+          }, 150);
 
           // Focus the terminal so user can type
           if (session.terminal) {
