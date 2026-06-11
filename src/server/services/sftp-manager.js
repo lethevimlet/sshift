@@ -86,16 +86,30 @@ class SFTPManager {
             conn: conn,
             sftp: sftp,
             socket: socket,
-            // Connection info for sessions API
             host: options.host,
             port: options.port || 22,
             username: options.username,
-            connectedAt: Date.now()
+            connectedAt: Date.now(),
+            homeDir: null
           };
 
-          this.sessions.set(sessionId, session);
-          console.log(`[SFTP] SFTP session started: ${sessionId}`);
-          resolve(sessionId);
+          // Resolve the user's home directory so we can fall back to it
+          // when listing "/" fails (e.g. chrooted SFTP or restricted
+          // server configs).  realpath('.') returns the absolute path of
+          // the remote working directory, which defaults to the user's
+          // home on most SSH servers.
+          sftp.realpath('.', (realpathErr, resolvedPath) => {
+            if (!realpathErr && resolvedPath) {
+              session.homeDir = resolvedPath;
+              console.log(`[SFTP] Resolved home directory for ${options.username}: ${resolvedPath}`);
+            } else {
+              console.warn(`[SFTP] Could not resolve home directory: ${realpathErr?.message}`);
+            }
+
+            this.sessions.set(sessionId, session);
+            console.log(`[SFTP] SFTP session started: ${sessionId}`);
+            resolve(sessionId);
+          });
         });
       });
 
@@ -114,12 +128,36 @@ class SFTPManager {
         removeTab(sessionId);
       });
 
-      try {
-        conn.connect(config);
-      } catch (err) {
-        console.error(`[SFTP] Connect exception: ${err.message}`);
-        reject(err);
+try {
+      conn.connect(config);
+    } catch (err) {
+      console.error(`[SFTP] Connect exception: ${err.message}`);
+      reject(err);
+    }
+  });
+  }
+
+  home(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return null;
+    return session.homeDir || null;
+  }
+
+  realpath(sessionId, path) {
+    return new Promise((resolve, reject) => {
+      const session = this.sessions.get(sessionId);
+      if (!session) {
+        reject(new Error('Session not found'));
+        return;
       }
+
+      session.sftp.realpath(path, (err, resolvedPath) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(resolvedPath);
+      });
     });
   }
 

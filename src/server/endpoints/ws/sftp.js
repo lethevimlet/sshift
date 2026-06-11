@@ -81,9 +81,58 @@ function registerSFTPHandlers(socket, io) {
       console.log('[SFTP] Emitting sftp-list-result for sessionId:', data.sessionId, 'files:', files.length);
       socket.emit('sftp-list-result', { path: data.path, files, sessionId: data.sessionId });
     } catch (err) {
-      console.error('[SFTP] Error in sftp-list:', err.message);
-      socket.emit('sftp-error', { message: err.message });
+      console.error('[SFTP] Error in sftp-list:', err.message, 'code:', err.code);
+
+      const homeDir = sftpManager.home(data.sessionId);
+      const isPermissionDenied = err.code === 3
+        || (err.message && (
+          err.message.includes('Permission denied')
+          || err.message.includes('permission denied')
+          || err.message.includes('EACCES')
+        ));
+
+      // If listing "/" fails with permission denied and we know the home
+      // directory, try falling back to it automatically.  This handles the
+      // common case of chrooted SFTP servers that restrict root access.
+      if (isPermissionDenied && homeDir && data.path === '/') {
+        console.log('[SFTP] Permission denied on /, falling back to home directory:', homeDir);
+        try {
+          const homeFiles = await sftpManager.list(data.sessionId, homeDir);
+          socket.emit('sftp-list-result', {
+            path: homeDir,
+            files: homeFiles,
+            sessionId: data.sessionId,
+            redirectedFrom: '/',
+            homeDir
+          });
+          return;
+        } catch (homeErr) {
+          console.error('[SFTP] Home directory also failed:', homeErr.message);
+          socket.emit('sftp-error', {
+            message: homeErr.message,
+            sessionId: data.sessionId,
+            homeDir
+          });
+          return;
+        }
+      }
+
+      socket.emit('sftp-error', {
+        message: err.message,
+        sessionId: data.sessionId,
+        homeDir,
+        isPermissionDenied
+      });
     }
+  });
+
+  // SFTP get home directory
+  socket.on('sftp-home', (data) => {
+    const homeDir = sftpManager.home(data.sessionId);
+    socket.emit('sftp-home-result', {
+      sessionId: data.sessionId,
+      homeDir
+    });
   });
 
   // SFTP download (streamed)

@@ -4432,11 +4432,47 @@ const wheelHandler = (e) => {
       }
     });
 
+    this.socket.on('sftp-home-result', (data) => {
+      console.log('[SSHIFT] sftp-home-result received:', data);
+      const session = this.sftpSessions.get(data.sessionId);
+      if (session && data.homeDir) {
+        session.homeDir = data.homeDir;
+        console.log('[SSHIFT] Stored home directory for session:', data.homeDir);
+
+        // If the session still shows "/" as current path (initial load),
+        // and listing "/" hasn't succeeded yet, navigate to home instead.
+        // This gives users with chrooted SFTP a working starting directory.
+        if (session.currentPath === '/' && !session._rootListSucceeded) {
+          console.log('[SSHIFT] Navigating to home directory:', data.homeDir);
+          session.currentPath = data.homeDir;
+          const pathInput = document.querySelector(`#sftp-${data.sessionId} .sftp-path-input`);
+          if (pathInput) pathInput.value = data.homeDir;
+          this.socket.emit('sftp-list', { sessionId: data.sessionId, path: data.homeDir });
+        }
+      }
+    });
+
     this.socket.on('sftp-list-result', (data) => {
       console.log('[SSHIFT] sftp-list-result received:', data);
       console.log('[SSHIFT] sessionId from server:', data.sessionId);
       console.log('[SSHIFT] path:', data.path);
       console.log('[SSHIFT] files count:', data.files?.length || 0);
+
+      // Track whether root listing has succeeded (used by sftp-home-result
+      // to decide whether to redirect to home directory).
+      const session = this.sftpSessions.get(data.sessionId);
+      if (session) {
+        if (data.path === '/' && !data.redirectedFrom) {
+          session._rootListSucceeded = true;
+        }
+        session.currentPath = data.path;
+      }
+
+      // If listing was auto-redirected from "/" to home, notify the user.
+      if (data.redirectedFrom) {
+        this.showToast(`Root directory (${data.redirectedFrom}) is not accessible. Showing home directory instead.`, 'info');
+      }
+
       this.renderSFTPFileList(data.path, data.files, data.sessionId);
     });
 
@@ -4475,6 +4511,22 @@ const wheelHandler = (e) => {
           console.log('[SSHIFT] Suppressing auth error toast for restoring SFTP session without credentials');
         } else {
           this.showToast(data.message, 'error');
+        }
+      } else if (data.isPermissionDenied && data.homeDir) {
+        // Permission denied with a known home directory — show a helpful
+        // error with a "Go Home" action instead of a bare error toast.
+        this.showToast(`Permission denied: ${data.message}. Try navigating to your home directory.`, 'error');
+        // Auto-navigate to home directory if we're stuck at an inaccessible path
+        const session = data?.sessionId ? this.sftpSessions.get(data.sessionId) : null;
+        if (session) {
+          session.homeDir = data.homeDir;
+          const currentPath = session.currentPath || '/';
+          // Only auto-redirect if we haven't already navigated away
+          const pathInput = document.querySelector(`#sftp-${data.sessionId} .sftp-path-input`);
+          if (pathInput && pathInput.value === currentPath) {
+            console.log('[SSHIFT] Auto-navigating SFTP to home directory:', data.homeDir);
+            this.navigateSFTPPath(data.homeDir, data.sessionId);
+          }
         }
       } else {
         this.showToast(data.message, 'error');
@@ -8035,6 +8087,8 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
       name,
       type: 'sftp',
       currentPath: '/',
+      homeDir: null,             // Resolved from server via sftp-home
+      _rootListSucceeded: false,  // Whether listing "/" worked (used for auto-redirect)
       connectionData, // Store for sticky sessions
       fontSize: this.terminalFontSize, // Initialize with default font size
       isRestoring: !!restoreSessionId, // Flag to indicate if this is a restored session
@@ -8086,6 +8140,9 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     container.innerHTML = `
       <div class="sftp-toolbar">
         <div class="sftp-path">
+          <button class="btn btn-sm sftp-home-btn" title="Home directory">
+            <i class="fas fa-home"></i>
+          </button>
           <input type="text" class="sftp-path-input" placeholder="/path/to/directory">
           <button class="btn btn-sm sftp-go-btn">
             <i class="fas fa-arrow-right"></i>
@@ -8108,10 +8165,17 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
 
     // Add event listeners
     const pathInput = container.querySelector('.sftp-path-input');
+    const homeBtn = container.querySelector('.sftp-home-btn');
     const goBtn = container.querySelector('.sftp-go-btn');
     const refreshBtn = container.querySelector('.sftp-refresh-btn');
     const mkdirBtn = container.querySelector('.sftp-mkdir-btn');
     const uploadBtn = container.querySelector('.sftp-upload-btn');
+
+    homeBtn.addEventListener('click', () => {
+      const session = this.sftpSessions.get(sessionId);
+      const homePath = session?.homeDir || '~';
+      this.navigateSFTPPath(homePath, sessionId);
+    });
 
     goBtn.addEventListener('click', () => {
       this.navigateSFTPPath(pathInput.value, sessionId);
@@ -8187,7 +8251,12 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
         console.log('[SSHIFT] SFTP container parent:', sftpContainer.parentElement?.id);
       }
       
-      // Update path input and list files
+      // Request the server's home directory for this session so we can
+      // start there instead of "/" (which may be denied by chroot / perms)
+      this.socket.emit('sftp-home', { sessionId: data.sessionId });
+      
+      // Also start listing the current path (or "/") immediately; if the
+      // home-directory response arrives first we'll navigate there instead.
       const pathInput = document.querySelector(`#sftp-${data.sessionId} .sftp-path-input`);
       console.log('[SSHIFT] Path input found:', !!pathInput);
       
@@ -8197,7 +8266,6 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
         console.error('[SSHIFT] Path input not found for session:', data.sessionId);
       }
       
-      // List files in the current directory
       console.log('[SSHIFT] Emitting sftp-list for path:', session.currentPath || '/');
       this.socket.emit('sftp-list', { sessionId: data.sessionId, path: session.currentPath || '/' });
     } else {
@@ -8330,6 +8398,16 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
   navigateSFTPPath(path, sessionId) {
     const session = this.sftpSessions.get(sessionId);
     if (session) {
+      // Resolve ~ to the user's home directory
+      if (path === '~' || path.startsWith('~/')) {
+        if (session.homeDir) {
+          path = path === '~' ? session.homeDir : session.homeDir + path.slice(1);
+        } else {
+          // Ask the server to resolve ~ if we don't have the home dir yet
+          this.socket.emit('sftp-home', { sessionId });
+        }
+      }
+      
       session.currentPath = path;
       
       const pathInput = document.querySelector(`#sftp-${sessionId} .sftp-path-input`);
