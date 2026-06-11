@@ -995,13 +995,40 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     session.terminal.refresh(0, session.terminal.rows - 1);
   }
 
-  // Disabled: letterSpacing snapping produced visible gaps between all
-  // characters without reliably fixing block-character seams.  Kept for
-  // future re-evaluation — the math is correct but xterm.js customGlyphs
-  // does not fill the letterSpacing portion of block characters.
-  // See v1.4.2–v1.4.3 commit messages for details.
+  // Snap cell width to an integer number of device pixels by adjusting
+  // letterSpacing.  When cellWidth × DPR is fractional, adjacent cells
+  // land on sub-pixel boundaries, causing 1px vertical seams in block
+  // characters.  Adding a tiny letterSpacing rounds the device-pixel cell
+  // width up to a whole number, eliminating seams.
+  //
+  // Only applies when the needed padding is <= 0.15 CSS px — larger
+  // padding is visually noticeable as extra character spacing, so we
+  // skip it and accept the occasional 1px seam instead.
   _snapCellWidth(session) {
-    // No-op: disabled.  customGlyphs: true is the primary seam mitigation.
+    if (!session || !session.terminal || !session.fitAddon) return;
+    const term = session.terminal;
+    const core = term._core;
+    if (!core?._renderService?.dimensions?.css?.cell) return;
+
+    const cellCssW = core._renderService.dimensions.css.cell.width;
+    if (!cellCssW || cellCssW <= 0) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const deviceW = cellCssW * dpr;
+    const fraction = deviceW - Math.floor(deviceW);
+
+    if (fraction > 0.01 && fraction < 0.99) {
+      const padCss = (1 - fraction) / dpr;
+      // Only snap if the padding needed is tiny (imperceptible).
+      // Larger padding creates visible gaps between characters.
+      if (padCss <= 0.15) {
+        term.options.letterSpacing = padCss;
+      } else {
+        term.options.letterSpacing = 0;
+      }
+    } else {
+      term.options.letterSpacing = 0;
+    }
   }
 
   // Initialize (or re-initialize) the WebGL renderer addon for a session.
@@ -1092,6 +1119,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
           if (session.webglAddon) {
             try { session.webglAddon.clearTextureAtlas(); } catch (_) {}
           }
+          this._snapCellWidth(session);
           if (session.terminal) {
             session.terminal.refresh(0, session.terminal.rows - 1);
           }
@@ -1155,6 +1183,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
         currentDPR = newDPR;
         this.sessions.forEach(session => {
           this._resetWebGLAtlas(session);
+          this._snapCellWidth(session);
           if (session.fitAddon && session.terminal && session.isController) {
             const wrapper = document.getElementById(`terminal-wrapper-${session.id}`);
             if (wrapper && wrapper.classList.contains('active')) {
@@ -1239,11 +1268,21 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       }
     }
 
-    // NOTE: subpixel seam mitigation is handled by customGlyphs: true in
-    // the Terminal options and by the DPR listener in _setupDPRListener.
-    // letterSpacing snapping was tried but produced visible gaps between
-    // all characters without reliably fixing block-character seams, so it
-    // is disabled for now.
+    // Snap cell width to an integer number of device pixels so block/box
+    // drawing characters tile without 1px seams on fractional-DPR displays.
+    // This MUST be followed by a refit because letterSpacing changes the
+    // cell width, which changes how many columns fit in the container.
+    const letterSpacingBefore = terminal.options.letterSpacing || 0;
+    this._snapCellWidth(session);
+    const letterSpacingAfter = terminal.options.letterSpacing || 0;
+
+    // If letterSpacing changed, refit so xterm recalculates column count
+    // with the new (snapped) cell width.
+    if (letterSpacingAfter !== letterSpacingBefore) {
+      try {
+        session.fitAddon.fit();
+      } catch (_) {}
+    }
 
     console.log('[SSHIFT] Terminal fitted, cols:', terminal.cols, 'rows:', terminal.rows);
 
