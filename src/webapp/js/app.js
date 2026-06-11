@@ -995,34 +995,13 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     session.terminal.refresh(0, session.terminal.rows - 1);
   }
 
-  // Snap cell width to an integer number of device pixels by adjusting
-  // letterSpacing.  When the CSS cell width × devicePixelRatio is fractional,
-  // adjacent cells alternate between N and N+1 device pixels, leaving 1px
-  // vertical seams in block/box-drawing characters.  Adding a tiny
-  // letterSpacing pad rounds the device-pixel width up to a whole number,
-  // eliminating seams regardless of zoom level or DPR.
+  // Disabled: letterSpacing snapping produced visible gaps between all
+  // characters without reliably fixing block-character seams.  Kept for
+  // future re-evaluation — the math is correct but xterm.js customGlyphs
+  // does not fill the letterSpacing portion of block characters.
+  // See v1.4.2–v1.4.3 commit messages for details.
   _snapCellWidth(session) {
-    if (!session || !session.terminal || !session.fitAddon) return;
-    const term = session.terminal;
-    const core = term._core;
-    if (!core?._renderService?.dimensions?.css?.cell) return;
-
-    const cellCssW = core._renderService.dimensions.css.cell.width;
-    if (!cellCssW || cellCssW <= 0) return;
-
-    const dpr = window.devicePixelRatio || 1;
-    const deviceW = cellCssW * dpr;
-    const fraction = deviceW - Math.floor(deviceW);
-
-    if (fraction > 0.01) {
-      // Pad up to the next whole device pixel, converted back to CSS px.
-      const padCss = (1 - fraction) / dpr;
-      // Clamp to avoid excessive spacing — 0.5 CSS px is generous.
-      const clampedPad = Math.min(padCss, 0.5);
-      term.options.letterSpacing = clampedPad;
-    } else {
-      term.options.letterSpacing = 0;
-    }
+    // No-op: disabled.  customGlyphs: true is the primary seam mitigation.
   }
 
   // Initialize (or re-initialize) the WebGL renderer addon for a session.
@@ -1113,7 +1092,6 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
           if (session.webglAddon) {
             try { session.webglAddon.clearTextureAtlas(); } catch (_) {}
           }
-          this._snapCellWidth(session);
           if (session.terminal) {
             session.terminal.refresh(0, session.terminal.rows - 1);
           }
@@ -1166,9 +1144,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
   // Watch for devicePixelRatio changes (zoom, monitor move, DPI switch).
   // When DPR changes the WebGL glyph atlas is built for the old pixel ratio
   // and every glyph becomes mis-scaled; clearing the atlas forces a rebuild.
-  // We also refit and re-snap letterSpacing so cells remain integer-width
-  // in device pixels at the new DPR, eliminating seams on fractional-DPR
-  // displays.
+  // We also refit terminals so they recalculate at the new DPR.
   _setupDPRListener() {
     let currentDPR = window.devicePixelRatio;
     const query = matchMedia(`(resolution: ${currentDPR}dppx)`);
@@ -1179,7 +1155,6 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
         currentDPR = newDPR;
         this.sessions.forEach(session => {
           this._resetWebGLAtlas(session);
-          this._snapCellWidth(session);
           if (session.fitAddon && session.terminal && session.isController) {
             const wrapper = document.getElementById(`terminal-wrapper-${session.id}`);
             if (wrapper && wrapper.classList.contains('active')) {
@@ -1264,21 +1239,11 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       }
     }
 
-    // Snap cell width to an integer number of device pixels so block/box
-    // drawing characters tile without 1px seams on fractional-DPR displays.
-    // This MUST be followed by a refit because letterSpacing changes the
-    // cell width, which changes how many columns fit in the container.
-    const letterSpacingBefore = terminal.options.letterSpacing || 0;
-    this._snapCellWidth(session);
-    const letterSpacingAfter = terminal.options.letterSpacing || 0;
-
-    // If letterSpacing changed, refit so xterm recalculates column count
-    // with the new (snapped) cell width.
-    if (letterSpacingAfter !== letterSpacingBefore) {
-      try {
-        session.fitAddon.fit();
-      } catch (_) {}
-    }
+    // NOTE: subpixel seam mitigation is handled by customGlyphs: true in
+    // the Terminal options and by the DPR listener in _setupDPRListener.
+    // letterSpacing snapping was tried but produced visible gaps between
+    // all characters without reliably fixing block-character seams, so it
+    // is disabled for now.
 
     console.log('[SSHIFT] Terminal fitted, cols:', terminal.cols, 'rows:', terminal.rows);
 
