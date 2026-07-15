@@ -1200,27 +1200,33 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       return false;
     }
 
-    // Guard: refuse to fit if the container has near-zero dimensions.
-    // A zero-size container produces bogus col/row counts that propagate to
-    // the remote PTY and cause narrow-wrap / garbled output bugs.
-    // We use 2px as the threshold to catch truly collapsed containers while
-    // allowing containers that are mid-layout-transition but already have
-    // meaningful size.
+    // Guard: refuse to fit if the container hasn't reached a usable size.
+    // A zero/very small container (e.g. a pane mid-layout-transition that
+    // is briefly ~100x100px) produces bogus col/row counts.  Those propagate
+    // to the remote PTY and cause the "tiny ~10-column terminal" bug.
+    //
+    // 50px is below every real pane size (terms-container min-height 200px,
+    // layout-panel min-width/height enforce 200px+ even on mobile) but above
+    // transient collapsed states (display:none, mid-flex-grow).  Retrying on
+    // the next animation frame lets the browser finish laying out first.
     const rect = container.getBoundingClientRect();
-    if (rect.width < 2 || rect.height < 2) {
+    if (rect.width < 50 || rect.height < 50) {
       session.needsResize = true;
-      if (retryCount < 3) {
+      if (retryCount < 5) {
         requestAnimationFrame(() => this._fitTerminal(session, retryCount + 1));
       }
       return false;
     }
 
-    // Reset letterSpacing and lineHeight to base values before fitting so
-    // alignToDeviceGrid measures from clean metrics rather than accumulated
-    // nudges from a previous invocation.
+    // Note: do NOT mutate term.options.lineHeight / letterSpacing here.
+    // Both options are set to their base values (1, 0) at Terminal construction
+    // and nothing else modifies them, so a reset would be a no-op — except that
+    // xterm.js's option setter invalidates _renderService.dimensions
+    // asynchronously.  Then fitAddon.fit() can read the stale (pre-invalidation)
+    // cell height, computing cols/rows for one cell height while the renderer
+    // paints at another.  That mismatch shows every other row empty (the
+    // "alternating black band" rendering bug).
     const term = session.terminal;
-    term.options.letterSpacing = 0;
-    term.options.lineHeight = 1;
 
     void container.offsetHeight;
     void wrapper.offsetHeight;
@@ -1239,7 +1245,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       const containerWidth = container.getBoundingClientRect().width;
       if (cellWidth > 0 && containerWidth > 80) {
         const expectedCols = Math.floor(containerWidth / cellWidth);
-        if (terminal.cols < expectedCols * 0.5 && retryCount < 3) {
+        if (terminal.cols < expectedCols * 0.5 && retryCount < 5) {
           console.warn(`[SSHIFT] Terminal fit seems incorrect (cols: ${terminal.cols}, expected: ~${expectedCols}, container: ${containerWidth}px), retrying (attempt ${retryCount + 1})...`);
           requestAnimationFrame(() => {
             this._fitTerminal(session, retryCount + 1);
@@ -7184,10 +7190,19 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     console.log('[SSHIFT] Container dimensions:', container.offsetWidth, 'x', container.offsetHeight);
     console.log('[SSHIFT] Wrapper visible:', isVisible, 'Display:', wrapper ? getComputedStyle(wrapper).display : 'N/A');
 
-    // Ensure container has dimensions and is visible
-    if (container.offsetWidth === 0 || container.offsetHeight === 0 || !isVisible) {
+    // Ensure container has dimensions large enough for a usable terminal
+    // before opening it.  A pane that is mid-layout-transition can briefly
+    // measure ~100x100px; terminal.open() at that size computes bogus
+    // cols/rows that get sent to the remote PTY, and the terminal stays
+    // tiny from then on.  See _fitTerminal's matching threshold comment.
+    const rect = container.getBoundingClientRect();
+    if (
+      !isVisible ||
+      rect.width < 50 || rect.height < 50 ||
+      container.offsetWidth === 0 || container.offsetHeight === 0
+    ) {
       if (retryCount < 10) {
-        console.warn(`[SSHIFT] Container not ready (attempt ${retryCount + 1}/10), waiting...`);
+        console.warn(`[SSHIFT] Container not ready (attempt ${retryCount + 1}/10, ${rect.width}x${rect.height}px), waiting...`);
         setTimeout(() => this.initTerminal(sessionId, retryCount + 1), 100);
         return;
       } else {
@@ -7308,10 +7323,16 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
 
       console.log('[SSHIFT] Opening terminal in container...');
       
-      // Ensure container has valid dimensions before opening
+      // Ensure container has valid dimensions before opening.
+      // xterm.js's terminal.open() inlines a sized <div> based on whatever
+      // cols/rows the Terminal was constructed with; if the container is
+      // collapsed at open() time the inline styles get pinned to near-zero
+      // pixels and subsequent fit()s can fail to recover from that state.
+      // The matching load-time retry above already keeps us waiting until
+      // the container is usable; re-check here as a hard invariant.
       const rect = container.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) {
-        console.error('[SSHIFT] Container has zero dimensions:', rect.width, 'x', rect.height);
+      if (rect.width < 50 || rect.height < 50) {
+        console.error('[SSHIFT] Container not usable before open():', rect.width, 'x', rect.height);
         this.showToast('Terminal container has invalid dimensions', 'error');
         return;
       }
@@ -7452,6 +7473,27 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
             // it will have set needsResize = true so switchTab() picks it up.
             console.log('[SSHIFT] Could not fit after fonts ready — deferred to tab activation');
           }
+
+          // Safety net: the first fit may have measured a pane mid-layout
+          // (Browser is still committing display:none -> display:flex, or a
+          // sidebar is collapsing/opening).  Re-fit after layout settles so
+          // a transient small pane size doesn't leave the terminal stuck in
+          // a ~100x100px box (the "tiny terminal" bug).  Mirrors the same
+          // fix already used in switchTab().
+          setTimeout(() => {
+            if (!session.terminal || !session.fitAddon || !session.isController) return;
+            const w = document.getElementById(`terminal-wrapper-${session.id}`);
+            if (w && w.classList.contains('active')) {
+              this._fitTerminal(session);
+            }
+          }, 250);
+          setTimeout(() => {
+            if (!session.terminal || !session.fitAddon || !session.isController) return;
+            const w = document.getElementById(`terminal-wrapper-${session.id}`);
+            if (w && w.classList.contains('active')) {
+              this._fitTerminal(session);
+            }
+          }, 600);
         });
       });
 
