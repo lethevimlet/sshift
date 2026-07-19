@@ -2743,13 +2743,30 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     this.updateTerminalColorOverrideUI();
     
     // In sticky mode, the server is the single source of truth for tabs.
-    // Wait for the open-tabs event from the server instead of restoring from localStorage.
-    // Set a fallback timeout in case the server is unreachable.
+    // We WAIT for the open-tabs event from the server instead of
+    // restoring from localStorage. If the server is unreachable or
+    // reports 0 active tabs (e.g. after a server restart), we treat it
+    // as a fresh slate and DO NOT resurrect stale localStorage tabs —
+    // the SSH sessions those tabs represented are GONE on the server,
+    // so reopening them as fresh connections would silently spawn
+    // duplicate sessions and confuse every other connected client.
+    //
+    // The 3s fallback below used to call restoreTabs() on timeout,
+    // which auto-reconnected to all sessions in localStorage. That
+    // behavior is removed: if the server doesn't respond within 3s we
+    // just clear the stale localStorage cache so the next saveTabs()
+    // doesn't re-broadcast it to other clients.
     if (this.sticky) {
       this._serverSyncTimeout = setTimeout(() => {
         if (!this._initialSyncDone) {
-          console.log('[SSHIFT] Server tabs not received within timeout, falling back to localStorage');
-          this.restoreTabs();
+          console.warn('[SSHIFT] Server tabs not received within 3s timeout — starting with a fresh slate.');
+          // Clear any stale localStorage tab cache so a future saveTabs
+          // doesn't broadcast dead sessions to other clients.
+          try { this.clearTabs(); } catch (_) {}
+          // Drop the wait flag so any pending syncTabsFromServer busy-wait
+          // doesn't block forever (it watches `this.isRestoring`).
+          this.isRestoring = false;
+          this._initialSyncDone = true;
         }
       }, 3000);
     }
@@ -2795,7 +2812,13 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
           }
           this.syncTabsFromServer(pendingData.tabs, isInitialSync, pendingData.activeTabsByPanel);
         } else {
-          this.restoreTabs();
+          // Server has no tabs (e.g. right after restart). Treat it as a
+          // fresh slate: clear stale localStorage and DO NOT resurrect
+          // those sessions — they're gone on the server.
+          if (pendingData.layout && !this.isMobile) {
+            this.setLayoutFromServer(pendingData.layout);
+          }
+          try { this.clearTabs(); } catch (_) {}
         }
       } finally {
         this.isSyncingTabs = wasSyncingTabs;
@@ -3653,113 +3676,30 @@ const wheelHandler = (e) => {
   }
 
   async restoreTabs() {
-    // If server tabs have already been synced, skip localStorage restore
-    // This prevents duplication when the server responded before the fallback timeout
-    if (this._initialSyncDone) {
-      console.log('[SSHIFT] Server tabs already synced, skipping localStorage restore');
-      return;
-    }
-
-    const savedData = this.loadTabs();
-    
-    // Handle both old format (array) and new format (object with tabs and layout)
-    const savedTabs = Array.isArray(savedData) ? savedData : (savedData?.tabs || []);
-    const savedLayout = !Array.isArray(savedData) ? savedData?.layout : null;
-    
-    if (!savedTabs || savedTabs.length === 0) {
-      console.log('[SSHIFT] No tabs to restore');
-      return;
-    }
-    
-    console.log('[SSHIFT] Restoring', savedTabs.length, 'tabs');
-    console.log('[SSHIFT] sticky:', this.sticky, 'layout:', savedLayout);
-    
-    // Set restoring flag to prevent saving during restoration
-    this.isRestoring = true;
-    
-    // Wait for socket to be connected
-    if (!this.socket.connected) {
-      await new Promise(resolve => {
-        this.socket.once('connect', resolve);
-        setTimeout(resolve, 1000); // Timeout after 1s
-      });
-    }
-    
-    // Map old savedTab.sessionId -> freshly-created sessionId so the active
-    // highlight resolves against the new session id (not the pre-restart id
-    // which no longer exists on the server).
-    const savedToFresh = new Map();
-    let activeSavedId = null;
-
-    // Restore each session
-    for (const savedTab of savedTabs) {
-      // Stop restoring if server tabs have been synced (open-tabs arrived while we were restoring)
-      if (this._initialSyncDone) {
-        console.log('[SSHIFT] Server tabs received during restore, stopping localStorage restore');
-        break;
-      }
-
-      console.log('[SSHIFT] Restoring tab:', savedTab.name, savedTab.type);
-
-      let freshSessionId = null;
-      // restoreTabs() is only called when the server has no active sessions
-      // (e.g. server restart), so we must create new connections, not join.
-      const restoreSessionId = null;
-
-      if (savedTab.type === 'ssh') {
-        freshSessionId = this.createSSHTab(savedTab.name, savedTab.connectionData, restoreSessionId);
-      } else if (savedTab.type === 'sftp') {
-        freshSessionId = this.createSFTPTab(savedTab.name, savedTab.connectionData, restoreSessionId);
-      }
-
-      if (freshSessionId) {
-        savedToFresh.set(savedTab.sessionId, freshSessionId);
-      }
-
-      // Track the active saved id; resolve to the fresh id below
-      if (savedTab.active) {
-        activeSavedId = savedTab.sessionId;
-      }
-
-      // Small delay between sessions
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-
-    // Restore active session using the freshly-minted sessionId
-    if (activeSavedId) {
-      const freshActiveId = savedToFresh.get(activeSavedId);
-      if (freshActiveId) {
-        setTimeout(() => {
-          console.log('[SSHIFT] Restoring active session (fresh id):', freshActiveId);
-          const savedTab = savedTabs.find(t => t.sessionId === activeSavedId);
-          const panelId = savedTab?.panelId || this.getPanelForSession(freshActiveId);
-          this.switchTab(freshActiveId, panelId);
-        }, 500);
-      }
-    }
-    
-    // Restore layout if saved, or use current layout
-    if (this.currentLayout) {
-      const layoutToApply = (savedLayout && this.layouts) 
-        ? this.layouts.find(l => l.id === savedLayout) || this.currentLayout
-        : this.currentLayout;
-      
-      console.log('[SSHIFT] Applying layout after restoration:', layoutToApply.id);
-      // Pass savedTabs to applyLayout which will handle distribution
-      this.applyLayout(layoutToApply, savedTabs);
-    }
-    
-    // Update mobile tabs Dropdown after restoration
-    this.updateMobileTabsDropdown();
-    
-    // Apply any flash states that arrived before DOM elements existed
-    this.applyFlashStates();
-    
-    // Clear restoring flag after restoration is complete
+    /**
+     * DEPRECATED — server restart now produces a fresh slate with
+     * 0 active sessions (no localStorage-based tab reconstruction).
+     *
+     * The previous behavior auto-SSH-connected to every tab the user
+     * had open before the restart. Because the underlying SSH
+     * sessions are GONE on the server, this silently spawned brand-
+     * new SSH connections AND broadcast them to every other client
+     * as if they were the original sessions — confusing sticky
+     * state across devices. The user-visible contract is now: server
+     * restart = blank client.
+     *
+     * Former call sites now invoke clearTabs() to drop the stale
+     * localStorage cache and start empty. This method remains as a
+     * no-op for any external callers (legacy extensions, plugins) so
+     * they don't accidentally resurrect sessions.
+     */
+    console.log('[SSHIFT] restoreTabs() is deprecated — clearing stale localStorage cache.');
+    try { this.clearTabs(); } catch (_) {}
     this.isRestoring = false;
+    this._initialSyncDone = true;
   }
 
-  // Legacy method for backwards compatibility
+    // Legacy method for backwards compatibility
   async restoreStickySessions() {
     return this.restoreTabs();
   }
@@ -3888,13 +3828,17 @@ const wheelHandler = (e) => {
             }
             this.syncTabsFromServer(data.tabs, isInitialSync, data.activeTabsByPanel);
           } else if (!this._initialSyncDone) {
-            // Server has no tabs and this is the first sync (e.g. server restart).
-            // Still apply layout from server even with no tabs.
+            // Server has no tabs and this is the first sync. This is the
+            // post-restart / fresh-install / single-client-with-no-sessions
+            // case. Per the user contract, a server restart = new slate:
+            // we do NOT auto-reconnect stale localStorage tabs (those SSH
+            // sessions are gone on the server, recreating them as new
+            // connections silently spawns duplicates and confuses other
+            // clients). Drop the stale cache and start fresh.
             if (data.layout && !this.isMobile) {
               this.setLayoutFromServer(data.layout);
             }
-            // Fall back to localStorage restore to reconnect sessions.
-            this.restoreTabs();
+            try { this.clearTabs(); } catch (_) {}
           } else if (data.layout && !this.isMobile) {
             // No tabs change, but layout may have changed
             this.setLayoutFromServer(data.layout);
@@ -4516,11 +4460,25 @@ const wheelHandler = (e) => {
         } else {
           this.showToast(data.message, 'error');
         }
+      } else if (data.advisory) {
+        // Advisory errors (rate-limit, invalid payload, bufferFull, etc.)
+        // are non-fatal — warn via toast but DO NOT close the tab. Closing
+        // the tab on every rate-limited ssh-request-sync would kill the
+        // very session the user was trying to refresh / switch to.
+        console.warn('[SSHIFT] Advisory ssh-error (tab kept open):', data.message);
+        this.showToast(data.message, 'warning');
       } else {
         this.showToast(data.message, 'error');
       }
-      
-      if (data.sessionId && data.message !== 'Session not found') {
+
+      // Only close the tab for hard errors that actually break the session.
+      // `advisory: true` errors (rate-limit, invalid payload, bufferFull) are
+      // operational warnings and must NOT close the tab. Previously a single
+      // mobile dropdown tab switch would close every tab because switchTab
+      // triggers ssh-request-sync, which hit the Phase-3 rate-limit and
+      // emitted an advisory ssh-error; the old closeTab-on-any-error path
+      // then chained the close into server-side teardown cascades.
+      if (data.sessionId && data.message !== 'Session not found' && !data.advisory) {
         this.closeTab(data.sessionId);
       }
     });

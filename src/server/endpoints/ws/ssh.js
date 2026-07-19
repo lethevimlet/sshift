@@ -104,12 +104,19 @@ function registerSSHHandlers(socket, io) {
     console.log('[SSH] ssh-request-sync event received for session:', data.sessionId);
 
     // Rate-limit per session to prevent abuse / accidental DoS.
+    // NOTE: this emits an `ssh-error` with `advisory: true` so the
+    // client's ssh-error handler can distinguish a soft advisory from
+    // a hard connection failure (which would warrant closing the tab).
+    // Without the `advisory: true` flag, the client would
+    // `closeTab()` on every rate-limited sync — killing the very tab
+    // the user was trying to refresh.
     const now = Date.now();
     const last = _syncLastSent.get(data.sessionId) || 0;
     if ((now - last) < SYNC_RATE_LIMIT_MS) {
       socket.emit('ssh-error', {
         sessionId: data.sessionId,
-        message: 'Sync rate limit reached, please wait'
+        message: 'Sync rate limit reached, please wait',
+        advisory: true
       });
       return;
     }
@@ -145,7 +152,8 @@ function registerSSHHandlers(socket, io) {
       console.warn(`[SSH] ssh-data: invalid payload type from socket ${socket.id}`);
       socket.emit('ssh-error', {
         sessionId: data.sessionId,
-        message: 'Invalid input payload'
+        message: 'Invalid input payload',
+        advisory: true
       });
       return;
     }
@@ -155,7 +163,8 @@ function registerSSHHandlers(socket, io) {
       console.error(`[SSH] ssh-data: write failed for ${data.sessionId}:`, err.message);
       socket.emit('ssh-error', {
         sessionId: data.sessionId,
-        message: 'Failed to write input: ' + err.message
+        message: 'Failed to write input: ' + err.message,
+        advisory: true
       });
     }
   });
@@ -203,7 +212,8 @@ function registerSSHHandlers(socket, io) {
       console.warn(`[SSH] ssh-resize: invalid dimensions (${data.cols}x${data.rows}) from socket ${socket.id}`);
       socket.emit('ssh-error', {
         sessionId: data.sessionId,
-        message: `Invalid terminal dimensions: ${data.cols}x${data.rows}`
+        message: `Invalid terminal dimensions: ${data.cols}x${data.rows}`,
+        advisory: true
       });
       return;
     }
@@ -213,7 +223,8 @@ function registerSSHHandlers(socket, io) {
       console.error(`[SSH] ssh-resize: resize failed for ${data.sessionId}:`, err.message);
       socket.emit('ssh-error', {
         sessionId: data.sessionId,
-        message: 'Failed to resize: ' + err.message
+        message: 'Failed to resize: ' + err.message,
+        advisory: true
       });
       return;
     }

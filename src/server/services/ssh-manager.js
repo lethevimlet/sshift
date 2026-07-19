@@ -571,12 +571,13 @@ class SSHManager {
         if (session.writeQueue.length >= 64) {
           console.warn(`[SSH] writeQueue overflow for ${sessionId}; dropping ${session.writeQueue.length} queued chunks`);
           session.writeQueue = [];
-          if (this.io) {
-            this.io.to(`session-${sessionId}`).emit('ssh-error', {
-              sessionId,
-              message: 'bufferFull'
-            });
-          }
+if (this.io) {
+          this.io.to(`session-${sessionId}`).emit('ssh-error', {
+            sessionId,
+            message: 'bufferFull',
+            advisory: true
+          });
+        }
           return;
         }
         session.writeQueue.push(data);
