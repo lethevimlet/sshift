@@ -7451,6 +7451,24 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
         : Promise.resolve();
 
       fontReady.then(() => {
+        // Force the CharSizeService to re-measure the glyph dimensions now
+        // that the web font has swapped in.  xterm.js v6's CharSizeService
+        // only re-measures on fontFamily/fontSize option changes or on
+        // resize() — it does NOT observe document.fonts.ready itself.  A
+        // competing fit() (e.g. from the ResizeObserver) that runs before
+        // font load completes leaves the renderer's dimensions stuck at the
+        // fallback font's metrics.  That mismatch paints every other row as
+        // an empty black band (the "interlace" bug) because the atlas
+        // rasters glyphs at the real font size while the cell layout keeps
+        // the fallback's smaller row pitch.  Calling measure() here fires
+        // onCharSizeChange synchronously, which the RenderService listens to
+        // and forwards to the renderer's handleCharSizeChanged so
+        // _updateDimensions + _refreshCharAtlas run before our fit().
+        const core = terminal._core;
+        if (core && core._charSizeService && typeof core._charSizeService.measure === 'function') {
+          try { core._charSizeService.measure(); } catch (_) {}
+        }
+
         // Clear the WebGL texture atlas after the font swap — glyphs cached
         // before the swap were rasterised at the fallback font's metrics.
         if (session.webglAddon) {
