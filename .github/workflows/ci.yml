@@ -43,3 +43,50 @@ jobs:
 
       - name: Install dependencies
         run: sfw pnpm install --frozen-lockfile
+
+      # Jest's globalSetup (src/tests/global-setup.js) boots the
+      # test SSH fixture (docker/test-ssh/docker-compose.yml) before
+      # any tests run, exports TEST_USER/TEST_PASS/TEST_HOST/TEST_PORT,
+      # and globalTeardown tears it down after. The fixture degrades
+      # gracefully (SKIP_SSH_TESTS=true) if Docker isn't available.
+      - name: Run unit tests
+        run: pnpm test:unit
+
+      - name: Start dev server (for integration + browser tests)
+        run: |
+          nohup npm run dev > /tmp/dev-server.log 2>&1 &
+          # Wait for the HTTPS endpoint to respond. The dev server uses
+          # a self-signed cert so we use --insecure; an HTTP 200 (not 301
+          # redirect) confirms HTTPS is up.
+          for i in $(seq 1 30); do
+            code=$(curl -sSk -o /dev/null -w "%{http_code}" https://localhost:3000/ || echo "000")
+            if [ "$code" = "200" ]; then
+              echo "Dev server ready (HTTPS 200) after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          if [ "$code" != "200" ]; then
+            echo "Dev server failed to come up (last code: $code)"
+            cat /tmp/dev-server.log
+            exit 1
+          fi
+
+      - name: Run integration tests
+        run: pnpm test:integration
+        env:
+          SERVER_URL: https://localhost:3000
+
+      - name: Run browser tests (Puppeteer)
+        run: pnpm test:browser
+        env:
+          SERVER_URL: https://localhost:3000
+          PUPPETEER_EXECUTABLE_PATH: '' # let Puppeteer resolve its bundled Chromium
+
+      - name: Upload dev server logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-server-log
+          path: /tmp/dev-server.log
+          if-no-files-found: ignore

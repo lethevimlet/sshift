@@ -35,6 +35,11 @@ function createSocketClient(serverUrl = getServerUrl(), options = {}) {
   return io(serverUrl, {
     transports: ['websocket', 'polling'],
     reconnection: false,
+    // The dev server uses HTTPS with a self-signed certificate by default
+    // (see example.config.json). Socket.IO client uses the underlying
+    // Node.js HTTPS agent — accept self-signed certs so integration
+    // tests can connect without manual cert trust setup.
+    rejectUnauthorized: false,
     ...options
   });
 }

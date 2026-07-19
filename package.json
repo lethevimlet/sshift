@@ -1,6 +1,6 @@
 {
   "name": "@lethevimlet/sshift",
-  "version": "1.4.8",
+  "version": "1.4.9",
   "description": "Web-based SSH + SFTP terminal client with tabs and bookmarks",
   "main": "src/server/index.js",
   "bin": {
@@ -16,6 +16,9 @@
     "test:integration": "jest --testPathPatterns='src/tests/integration' --forceExit",
     "test:e2e": "jest --testPathPatterns='src/tests/e2e' --forceExit --runInBand",
     "test:browser": "jest --testPathPatterns='src/tests/browser' --forceExit --runInBand",
+    "test:ssh:up": "docker compose -f docker/test-ssh/docker-compose.yml up -d --build",
+    "test:ssh:down": "docker compose -f docker/test-ssh/docker-compose.yml down -v",
+    "test:ssh:logs": "docker compose -f docker/test-ssh/docker-compose.yml logs -f",
     "prepublishOnly": "echo 'Publishing to npm...'",
     "install:safe": "sfw pnpm install"
   },

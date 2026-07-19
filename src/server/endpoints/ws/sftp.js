@@ -3,7 +3,7 @@
  */
 
 const { loadConfig, getStickySetting } = require('../../utils/config');
-const { addTab, removeTab, addSocketToTab, removeSocketFromTab } = require('../../utils/tab-manager');
+const { addTab, getTab, removeTab, addSocketToTab, removeSocketFromTab, clearCloseTimer, setCloseTimer } = require('../../utils/tab-manager');
 const { sftpManager } = require('../../services');
 
 /**
@@ -44,13 +44,13 @@ function registerSFTPHandlers(socket, io) {
         sticky: sticky
       });
       
-      io.emit('tab-opened', {
+      socket.broadcast.emit('tab-opened', {
         sessionId,
         name: data.name || 'SFTP',
         type: 'sftp',
         connectionData: data
       });
-      
+
       io.emit('sessions-updated');
       
       socket.emit('sftp-connected', { sessionId });
@@ -274,14 +274,50 @@ function registerSFTPHandlers(socket, io) {
     }
   });
 
-  // SFTP disconnect
+  // SFTP disconnect — mirror the ssh-disconnect viewer/sticky-aware teardown
+  // so the closing client's view is removed without tearing down the
+  // underlying SFTP stream for other viewers or non-sticky-none-viewers.
   socket.on('sftp-disconnect', (data) => {
+    console.log('[SFTP] sftp-disconnect event received for', data.sessionId, 'from socket', socket.id);
+
+    const tab = getTab(data.sessionId);
+    if (tab) {
+      removeSocketFromTab(data.sessionId, socket.id);
+
+      if (tab.activeSockets.size > 0) {
+        console.log('[SFTP] sftp-disconnect from', socket.id, 'but', tab.activeSockets.size, 'viewer(s) remain; keeping:', data.sessionId);
+        io.emit('sessions-updated');
+        return;
+      }
+
+      // No remaining viewers. Honor sticky flag (same semantics as ssh).
+      clearCloseTimer(data.sessionId);
+      if (tab.sticky) {
+        console.log('[SFTP] Sticky session remains open on server (no viewers):', data.sessionId);
+        io.emit('sessions-updated');
+        return;
+      }
+
+      console.log('[SFTP] Non-sticky session, scheduling close after grace:', data.sessionId);
+      const gracePeriod = 5000;
+      setCloseTimer(data.sessionId, setTimeout(() => {
+        const currentTab = getTab(data.sessionId);
+        if (currentTab && currentTab.activeSockets.size === 0) {
+          console.log('[SFTP] Grace expired, closing session:', data.sessionId);
+          sftpManager.disconnect(data.sessionId);
+          removeTab(data.sessionId);
+          io.emit('tab-closed', { sessionId: data.sessionId });
+          io.emit('sessions-updated');
+        } else {
+          console.log('[SFTP] Session has new sockets, canceling close:', data.sessionId);
+        }
+      }, gracePeriod));
+      return;
+    }
+
+    // No tab record — broadcast close so stale client UIs clear it.
     sftpManager.disconnect(data.sessionId);
-    
-    // Remove from open tabs
     removeTab(data.sessionId);
-    
-    // Broadcast to all clients that tab was closed
     io.emit('tab-closed', { sessionId: data.sessionId });
     io.emit('sessions-updated');
   });

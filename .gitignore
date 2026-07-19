@@ -13,6 +13,7 @@ config.json
 
 # AI agent files
 .agents/
+.opencode/
 
 # Prevent AI-generated documentation in root (except README.md and AGENTS.md)
 *IMPLEMENTATION*.md

@@ -18,7 +18,13 @@ module.exports = {
     '/src/tests/helpers/'
   ],
   
-  // Setup files
+  // Boot the test SSH fixture (docker/test-ssh) before any tests run.
+  // Skips automatically if Docker is unavailable or SKIP_SSH_TESTS=true.
+  globalSetup: '<rootDir>/src/tests/global-setup.js',
+  globalTeardown: '<rootDir>/src/tests/global-teardown.js',
+
+  // Setup files (run AFTER globalSetup so TEST_USER/TEST_PASS env vars
+  // set by the fixture are visible here).
   setupFilesAfterEnv: ['<rootDir>/src/tests/setup.js'],
   
   // Coverage configuration

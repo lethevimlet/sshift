@@ -1,0 +1,36 @@
+# Test fixture — ephemeral OpenSSH server for sshift integration tests.
+#
+# Boot with: docker compose -f docker/test-ssh/docker-compose.yml up -d --build
+# Tear down with: docker compose -f docker/test-ssh/docker-compose.yml down -v
+#
+# Jest's globalSetup (src/tests/global-setup.js) auto-boots this when
+# Docker is available and no TEST_USER/TEST_PASS is already set in the
+# environment, then exports the credentials as env vars so the credential-
+# gated integration tests (src/tests/integration/*.test.js / browser/*.test.js)
+# switch from `describe.skip` to full `describe`.
+
+version: '3.8'
+
+services:
+  sshd:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sshift-test-sshd
+    ports:
+      # Bind only to localhost so the test SSH server is never reachable
+      # from other hosts. Tests connect to localhost:2222.
+      - "127.0.0.1:2222:2222"
+    environment:
+      - USER_NAME=testuser
+      - USER_PASSWORD=testpass
+      - PASSWORD_ACCESS=true
+      - PUID=1000
+      - PGID=1000
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "2222"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 3s

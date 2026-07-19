@@ -5,7 +5,7 @@
 
 const io = require('socket.io-client');
 
-const BASE_URL = process.env.SERVER_URL || 'http://localhost:3000';
+const BASE_URL = process.env.SERVER_URL || 'https://localhost:3000';
 const TEST_CONFIG = {
   host: process.env.TEST_HOST || 'localhost',
   port: parseInt(process.env.TEST_PORT) || 22,

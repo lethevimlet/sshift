@@ -9,9 +9,11 @@ async function checkBrowserAvailable() {
     const puppeteer = require('puppeteer');
     const browser = await puppeteer.launch({
       headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu'],
-      timeout: 5000
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu', '--ignore-certificate-errors'],
+      timeout: 5000,
+      ignoreHTTPSErrors: true
     });
+
     await browser.close();
     browserAvailable = true;
     return true;

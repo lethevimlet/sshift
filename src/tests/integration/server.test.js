@@ -1,18 +1,30 @@
 /**
  * Integration tests for SSHIFT Server
  * Tests HTTP endpoints and static file serving
+ *
+ * Expects the dev server to be running: `npm run dev` (port 3000,
+ * HTTPS by default with HTTP→HTTPS redirect per example.config.json).
+ * Set SERVER_URL to override (must match the protocol the server is
+ * actually serving — `https://localhost:3000` for the default config).
  */
 
 const http = require('http');
+const https = require('https');
 
-const BASE_URL = process.env.SERVER_URL || 'http://localhost:3000';
+// Default to the dev server's HTTPS endpoint. The dev server uses
+// self-signed certificates so we MUST disable cert verification.
+const BASE_URL = process.env.SERVER_URL || 'https://localhost:3000';
 
 /**
- * Helper function to make HTTP requests
+ * Helper function to make HTTP(S) requests against the running dev server.
+ * Picks `http` or `https` based on the BASE_URL scheme and accepts
+ * self-signed certs (rejectUnauthorized: false).
  */
 function fetch(path) {
+  const url = `${BASE_URL}${path}`;
+  const lib = url.startsWith('https://') ? https : http;
   return new Promise((resolve, reject) => {
-    http.get(`${BASE_URL}${path}`, (res) => {
+    lib.get(url, { rejectUnauthorized: false }, (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => resolve({ status: res.statusCode, data }));

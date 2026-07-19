@@ -6,19 +6,24 @@
 const fs = require('fs');
 const path = require('path');
 
-const SERVER_URL = process.env.SERVER_URL || 'http://localhost:3000';
+const SERVER_URL = process.env.SERVER_URL || 'https://localhost:3000';
 const CONFIG_PATH = path.join(__dirname, '..', '..', 'config.json');
 
 /**
- * Helper function to make HTTP requests
+ * Helper function to make HTTP(S) requests against the dev server.
+ * Picks `http` or `https` from the URL scheme and accepts the dev
+ * server's self-signed certificate.
  */
 async function httpRequest(url, options = {}) {
-  const http = require('http');
+  const lib = url.startsWith('https://') ? require('https') : require('http');
   return new Promise((resolve, reject) => {
-    const req = http.request(url, options, (res) => {
+    const req = lib.request(url, { ...options, rejectUnauthorized: false }, (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
-      res.on('end', () => resolve({ status: res.statusCode, data: JSON.parse(data) }));
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, data: JSON.parse(data) }); }
+        catch (_) { resolve({ status: res.statusCode, data }); }
+      });
     });
     req.on('error', reject);
     if (options.body) {

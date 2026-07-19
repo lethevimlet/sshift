@@ -41,6 +41,11 @@ class SSHIFTClient {
     this._serverLayout = null; // Layout from server (preserved for mobile saves)
     this._initialSyncDone = false; // Whether initial open-tabs sync from server has completed
     this._serverSyncTimeout = null; // Timeout for fallback to localStorage restore
+    // saveTabs dedup/debounce state — prevents redundant localStorage writes
+    // and tabs-save broadcasts when called rapidly (e.g. on every tab move,
+    // rename, switch, distribute) with the same payload.
+    this._saveTabsTimer = null;
+    this._saveTabsSignature = null;
     this.sftpClipboard = null; // For cut/copy/paste: { action: 'cut'|'copy', path: string, name: string, sessionId: string }
     this.terminalClipboardContent = null; // Pre-read clipboard content for context menu paste
     this.osc52Buffer = null; // Buffered OSC 52 clipboard content pending write
@@ -447,23 +452,23 @@ class SSHIFTClient {
       this.clearTabs();
       return;
     }
-    
+
     const tabs = [];
-    
+
     // Get tabs from all panels
     const panels = this.getAllPanels();
-    
+
     panels.forEach(panelId => {
       const tabsContainer = this.getTabsContainer(panelId);
       if (!tabsContainer) return;
-      
+
       const tabElements = Array.from(tabsContainer.children);
       const activeInThisPanel = this.activeSessionsByPanel.get(panelId);
-      
+
       tabElements.forEach(tabElement => {
         const sessionId = tabElement.dataset.sessionId;
         const session = this.sessions.get(sessionId) || this.sftpSessions.get(sessionId);
-        
+
         if (session) {
           // On mobile (single panel), preserve the server-assigned panel instead of panel-0
           const effectivePanelId = this.isMobile
@@ -482,7 +487,7 @@ class SSHIFTClient {
         }
       });
     });
-    
+
     // Save tabs with current layout (mobile saves server layout, not 'single')
     const savedLayout = this.isMobile
       ? (this._serverLayout || 'single')
@@ -491,15 +496,30 @@ class SSHIFTClient {
       tabs,
       layout: savedLayout
     };
-    
-    localStorage.setItem('openTabs', JSON.stringify(tabsData));
-    console.log('[SSHIFT] Saved tabs:', tabs.length, 'layout:', tabsData.layout);
-    
-    // Sync to server for cross-tab sync
-    // Don't emit if we're currently syncing from another client to prevent loops
-    if (this.socket && this.socket.connected && !this.isSyncingTabs) {
-      this.socket.emit('tabs-save', tabsData);
-    }
+
+    // Debounce + dedup: collapse rapid-fire saveTabs calls into one
+    // tabs-save broadcast. Many call sites (switchTab, distributeTabs,
+    // drag-end, handleTabClosed, createSSHTab/SFTPTab, distribution)
+    // fire saveTabs in tight succession with identical payloads; that
+    // amplified duplicates across clients and spammed the server.
+    const signature = JSON.stringify(tabsData);
+    if (this._saveTabsTimer) clearTimeout(this._saveTabsTimer);
+    this._saveTabsTimer = setTimeout(() => {
+      this._saveTabsTimer = null;
+      // Only persist + broadcast if payload actually changed since the
+      // last write (signature dedup suppresses no-op re-exports).
+      if (this._saveTabsSignature === signature) return;
+      this._saveTabsSignature = signature;
+
+      localStorage.setItem('openTabs', signature);
+      console.log('[SSHIFT] Saved tabs:', tabs.length, 'layout:', tabsData.layout);
+
+      // Sync to server for cross-tab sync
+      // Don't emit if we're currently syncing from another client to prevent loops
+      if (this.socket && this.socket.connected && !this.isSyncingTabs) {
+        this.socket.emit('tabs-save', tabsData);
+      }
+    }, 150);
   }
 
   loadTabs() {
@@ -713,17 +733,13 @@ class SSHIFTClient {
     if (!sourceTabsContainer || !targetTabsContainer) return;
     if (!sourceTerminalsContainer || !targetTerminalsContainer) return;
     
-    // Move tab element
-    const tabElement = sourceTabsContainer.querySelector(`[data-session-id="${sessionId}"]`);
-    if (tabElement) {
-      targetTabsContainer.appendChild(tabElement);
-    }
-    
-    // Move terminal element
-    const terminalElement = sourceTerminalsContainer.querySelector(`[data-session-id="${sessionId}"]`);
-    if (terminalElement) {
-      targetTerminalsContainer.appendChild(terminalElement);
-    }
+// Move ALL tab elements matching this session (defensive against duplicates)
+    const tabElements = sourceTabsContainer.querySelectorAll(`[data-session-id="${sessionId}"]`);
+    tabElements.forEach(el => targetTabsContainer.appendChild(el));
+
+    // Move terminal element(s)
+    const terminalElements = sourceTerminalsContainer.querySelectorAll(`[data-session-id="${sessionId}"]`);
+    terminalElements.forEach(el => targetTerminalsContainer.appendChild(el));
     
     // Hide empty state in target panel if it has tabs now
     const targetTabs = targetTabsContainer.children;
@@ -1017,7 +1033,11 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     if (!this.webglRenderer || typeof window.WebglAddon !== 'function') return false;
 
     if ((session.webglContextLossCount || 0) >= 3) {
-      console.warn('[SSHIFT] Too many WebGL context losses for session, staying on canvas renderer');
+      // xterm v6 does NOT ship a built-in canvas renderer — without
+      // @xterm/addon-caddon-canvas packaged, the post-WebGL fallback
+      // is the default DOM renderer, which is slower but functional.
+      // Log explicitly so the degraded state is observable.
+      console.warn('[SSHIFT] Too many WebGL context losses for session — staying on the default DOM renderer (slower than WebGL/canvas). Consider restarting the tab if rendering feels sluggish.');
       return false;
     }
 
@@ -1059,6 +1079,15 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
               this._initWebGLAddon(session, false);
               if (session.fitAddon && !document.hidden) {
                 try { session.fitAddon.fit(); } catch (_) {}
+              }
+              // After context loss the local terminal's rasterised
+              // cells may have been cleared; reconcile with the
+              // server's headless terminal state to avoid divergence.
+              // Only do this if the session is connected (a connecting
+              // session hasn't received its first sync yet).
+              const sid = session.id;
+              if (sid && session.connected) {
+                try { this.requestScreenSync(sid); } catch (_) {}
               }
             }
           });
@@ -1709,7 +1738,18 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     this.saveAccent(accent);
     this.updateAccentPreview(accent);
     this.updateAccentActiveState(accent);
-    
+
+    // Repaint existing terminals so the new accent's color is reflected
+    // immediately. Previously terminals only picked up the accent at
+    // construction time, so live accent changes left existing tabs with
+    // the stale accent until reload.
+    try {
+      const currentTheme = this.loadTheme();
+      this.updateTerminalThemes(currentTheme);
+    } catch (e) {
+      console.warn('[SSHIFT] Failed to re-apply terminal themes after accent change:', e.message);
+    }
+
     // Sync accent to server for cross-device sync
     if (this.socket && this.socket.connected) {
       this.socket.emit('accent-change', { accent: accent });
@@ -2889,13 +2929,18 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
             const fontSizeChange = distanceDiff * 0.1;
             
             if (Math.abs(fontSizeChange) >= 0.5) {
-              const newFontSize = Math.round(this.terminalFontSize + fontSizeChange);
-              
-              if (newFontSize !== this.terminalFontSize) {
-                this.setTerminalFontSize(newFontSize);
+              // Per-session font sizing: use setSessionFontSize so we
+              // don't clobber other sessions' personalised font sizes
+              // when pinch-zooming. (The legacy setTerminalFontSize()
+              // would force every terminal to the same value.)
+              const currentSessionSize = session.fontSize || this.terminalFontSize;
+              const newFontSize = Math.round(currentSessionSize + fontSizeChange);
+
+              if (newFontSize !== currentSessionSize) {
+                this.setSessionFontSize(session.id, newFontSize);
               }
             }
-            
+
             session.lastPinchDistance = currentDistance;
           }
         }, { passive: false });
@@ -3640,8 +3685,12 @@ const wheelHandler = (e) => {
       });
     }
     
-    let activeSessionId = null;
-    
+    // Map old savedTab.sessionId -> freshly-created sessionId so the active
+    // highlight resolves against the new session id (not the pre-restart id
+    // which no longer exists on the server).
+    const savedToFresh = new Map();
+    let activeSavedId = null;
+
     // Restore each session
     for (const savedTab of savedTabs) {
       // Stop restoring if server tabs have been synced (open-tabs arrived while we were restoring)
@@ -3651,37 +3700,42 @@ const wheelHandler = (e) => {
       }
 
       console.log('[SSHIFT] Restoring tab:', savedTab.name, savedTab.type);
-      
-      let sessionId;
-      
+
+      let freshSessionId = null;
       // restoreTabs() is only called when the server has no active sessions
       // (e.g. server restart), so we must create new connections, not join.
       const restoreSessionId = null;
-      
+
       if (savedTab.type === 'ssh') {
-        sessionId = this.createSSHTab(savedTab.name, savedTab.connectionData, restoreSessionId);
+        freshSessionId = this.createSSHTab(savedTab.name, savedTab.connectionData, restoreSessionId);
       } else if (savedTab.type === 'sftp') {
-        sessionId = this.createSFTPTab(savedTab.name, savedTab.connectionData, restoreSessionId);
+        freshSessionId = this.createSFTPTab(savedTab.name, savedTab.connectionData, restoreSessionId);
       }
-      
-      // Track the active session
+
+      if (freshSessionId) {
+        savedToFresh.set(savedTab.sessionId, freshSessionId);
+      }
+
+      // Track the active saved id; resolve to the fresh id below
       if (savedTab.active) {
-        activeSessionId = savedTab.sessionId;
+        activeSavedId = savedTab.sessionId;
       }
-      
+
       // Small delay between sessions
       await new Promise(resolve => setTimeout(resolve, 100));
     }
-    
-    // Restore active session after all sessions are created
-    if (activeSessionId) {
-      setTimeout(() => {
-        console.log('[SSHIFT] Restoring active session:', activeSessionId);
-        // Find the panelId for this session from savedTabs
-        const savedTab = savedTabs.find(t => t.sessionId === activeSessionId);
-        const panelId = savedTab?.panelId || this.getPanelForSession(activeSessionId);
-        this.switchTab(activeSessionId, panelId);
-      }, 500);
+
+    // Restore active session using the freshly-minted sessionId
+    if (activeSavedId) {
+      const freshActiveId = savedToFresh.get(activeSavedId);
+      if (freshActiveId) {
+        setTimeout(() => {
+          console.log('[SSHIFT] Restoring active session (fresh id):', freshActiveId);
+          const savedTab = savedTabs.find(t => t.sessionId === activeSavedId);
+          const panelId = savedTab?.panelId || this.getPanelForSession(freshActiveId);
+          this.switchTab(freshActiveId, panelId);
+        }, 500);
+      }
     }
     
     // Restore layout if saved, or use current layout
@@ -4083,10 +4137,17 @@ const wheelHandler = (e) => {
         // This includes all escape sequences to reconstruct the screen
         session.terminal.write(state, () => {
           console.log('[SSHIFT] Terminal state synchronized, partial:', data.partial);
-          
+
           // Clear syncing flag after sync is complete
           session.syncing = false;
-          
+          // Sync succeeded — reset the retry counter used by the
+          // requestScreenSync safety timeout.
+          session._syncRetries = 0;
+          if (session.syncTimeout) {
+            clearTimeout(session.syncTimeout);
+            session.syncTimeout = null;
+          }
+
           // If full scrollback was restored, scroll to bottom to show latest output
           if (!data.partial) {
             session.terminal.scrollToBottom();
@@ -4365,17 +4426,31 @@ const wheelHandler = (e) => {
         clearTimeout(session.syncTimeout);
       }
       
-      // Set syncing flag to prevent data from being written during sync
-      session.syncing = true;
-      
-      // Safety timeout: clear syncing flag after 5 seconds if ssh-screen-sync never arrives
-      session.syncTimeout = setTimeout(() => {
-        console.warn('[SSHIFT] Sync timeout, clearing syncing flag for session:', sessionId);
-        session.syncing = false;
-      }, 5000);
-      
-      console.log('[SSHIFT] Requesting screen sync for session:', sessionId);
-      this.socket.emit('ssh-request-sync', { sessionId });
+// Set syncing flag to prevent data from being written during sync
+    session.syncing = true;
+
+    // Safety timeout: if ssh-screen-sync never arrives within 5s the
+    // terminal would otherwise be stuck silently dropping all output.
+    // Clear the flag AND request a fresh sync. After 2 failed attempts
+    // we give up to avoid hammering the server when the session is
+    // actually gone.
+    session._syncRetries = (session._syncRetries || 0);
+    session.syncTimeout = setTimeout(() => {
+      console.warn('[SSHIFT] Sync timeout for session:', sessionId, 'retries:', session._syncRetries);
+      session.syncing = false;
+      if (session._syncRetries < 2 && session.connected) {
+        session._syncRetries += 1;
+        // Re-arm by calling ourselves once more. We pass a flag via the
+        // session so we don't recurse infinitely (the new timeout will
+        // run with retries incremented and bail at the cap above).
+        this.requestScreenSync(sessionId);
+      } else {
+        session._syncRetries = 0;
+      }
+    }, 5000);
+
+    console.log('[SSHIFT] Requesting screen sync for session:', sessionId);
+    this.socket.emit('ssh-request-sync', { sessionId });
     };
 
     this.socket.on('ssh-data', (data) => {
@@ -6818,6 +6893,23 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
   // SSH Session Management
   createSSHTab(name, connectionData, restoreSessionId = null) {
     const sessionId = restoreSessionId || 'ssh-' + Date.now();
+
+    // Idempotency: if a tab for this sessionId already exists (DOM +
+    // session map), return the existing id rather than creating a
+    // duplicate. Guards against duplicate tab-opened echoes and any
+    // future regressions of the mobile tab-count bug.
+    const existingDomTab = document.querySelector(`.tab[data-session-id="${sessionId}"]`);
+    if (existingDomTab && this.sessions.has(sessionId)) {
+      console.log('[SSHIFT] createSSHTab: session already exists, returning existing id:', sessionId);
+      return sessionId;
+    }
+    if (existingDomTab) {
+      // Stale DOM tab without a session entry — remove it before re-creating.
+      existingDomTab.remove();
+      const existingWrapper = document.getElementById(`terminal-wrapper-${sessionId}`);
+      if (existingWrapper) existingWrapper.remove();
+    }
+
     console.log('[SSHIFT] createSSHTab called:', { 
       name, 
       sessionId, 
@@ -6868,7 +6960,10 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
       writeRAF: null,
       flushRemaining: null,
       originalScrollback: null,
-      scrollbackRestoreTimer: null
+      scrollbackRestoreTimer: null,
+      // Per-session buffer for OSC 52 / DCS sequences that arrive split
+      // across two write-chunk frames (see _handleOsc52).
+      pendingOsc52: null
     });
 
     // Switch to the new tab FIRST to make the container visible
@@ -6892,15 +6987,25 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
           const session = this.sessions.get(restoreSessionId);
           if (session) {
             session.syncing = true;
-            
-            // Safety timeout: clear syncing flag after 5 seconds if ssh-screen-sync never arrives
-            // This prevents the terminal from being stuck in syncing state
+            session._syncRetries = 0;
+
+            // Safety timeout: if sync never arrives within 5s the
+            // terminal would be stuck silently dropping all output.
+            // Clear the flag AND request a fresh sync (up to 2 retries)
+            // so a slow/lost ssh-screen-sync doesn't permanently lose
+            // output for this client.
             session.syncTimeout = setTimeout(() => {
-              console.warn('[SSHIFT] Sync timeout, clearing syncing flag for session:', restoreSessionId);
+              console.warn('[SSHIFT] Sync timeout for session:', restoreSessionId, 'retries:', session._syncRetries);
               session.syncing = false;
+              if (session._syncRetries < 2 && session.connected) {
+                session._syncRetries += 1;
+                this.requestScreenSync(restoreSessionId);
+              } else {
+                session._syncRetries = 0;
+              }
             }, 5000);
           }
-          
+
           this.socket.emit('ssh-join', { sessionId: restoreSessionId });
         } else {
           // Show connecting message only for new connections
@@ -7945,14 +8050,79 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     }
   }
 
+  // Pure helper used by _flushWriteChunks to pick a frame-write split point
+  // that doesn't bisect a UTF-16 surrogate pair or an ANSI escape sequence.
+  // Exposed as a static method so it can be unit-tested without a Terminal.
+  static findSafeWriteSplitPoint(combined, maxLen, scanWindow = 4096) {
+    if (typeof combined !== 'string' || combined.length <= maxLen) return combined ? combined.length : 0;
+    let splitAt = maxLen;
+    const startScan = Math.max(0, maxLen - scanWindow);
+    for (let i = maxLen - 1; i > startScan && i > 0; i--) {
+      const code = combined.charCodeAt(i);
+      // ESC (\x1b) always begins a new control sequence — safe to split before it.
+      if (code === 0x1b) {
+        splitAt = i;
+        break;
+      }
+      // Don't split inside a UTF-16 surrogate pair. Two arrangements
+      // need to back off:
+      //  (a) i is a TRAIL surrogate (0xDC00-0xDFFF) and i-1 is its
+      //      LEAD partner (0xD800-0xDBFF). Splitting at i would leave
+      //      the lone lead at the end of chunk-1 — and the lone trail
+      //      at the start of chunk-2 — both halves rendering as
+      //      U+FFFD. Move split back to before the LEAD.
+      //  (b) i is itself a LEAD surrogate (0xD800-0xDBFF) whose TRAIL
+      //      partner is at i+1. Splitting at i would put the LEAD at
+      //      the END of chunk-1 with no partner. Split at i instead
+      //      moves the entire pair into chunk-2.
+      if (code >= 0xDC00 && code <= 0xDFFF) {
+        if (i > 0) {
+          const prev = combined.charCodeAt(i - 1);
+          if (prev >= 0xD800 && prev <= 0xDBFF) {
+            splitAt = i - 1;
+            break;
+          }
+        }
+        splitAt = i;
+        break;
+      }
+      if (code >= 0xD800 && code <= 0xDBFF) {
+        splitAt = i;
+        break;
+      }
+    }
+    return splitAt;
+  }
+
   // Parse and handle OSC 52 clipboard sequences from terminal data stream.
   // Extracts clipboard content, writes it to browser clipboard, and safely
   // handles sequences that span across data chunks.
   // Also handles tmux DCS passthrough: \x1bPtmux;\x1b\x1b]52;c;...\x07\x1b\\
-  _handleOsc52(data) {
-    if (!data || data.indexOf('52;') === -1) return data;
+  //
+  // Cross-chunk handling: an OSC 52 sequence may arrive split across two
+  // `_flushWriteChunks` calls (e.g. `\x1b]52;c;` in one frame and the
+  // base64 + BEL in the next). When we detect an incomplete sequence we
+  // stash the partial bytes on `session.pendingOsc52` and strip them
+  // from the data sent to xterm.js; the next call prepends that buffer
+  // and processes the whole sequence as one.
+  _handleOsc52(session, data) {
+    if (!data) return data;
 
-    let result = data;
+    // If a previous frame left a pending partial OSC 52 / DCS sequence,
+    // prepend it so the now-complete sequence can be processed as a unit.
+    let working = data;
+    if (session.pendingOsc52) {
+      working = session.pendingOsc52 + working;
+      session.pendingOsc52 = null;
+    }
+
+    // Fast path: nothing OSC-52-shaped in the payload (and no pending
+    // partial). Skip the heavy reshaping work below.
+    if (working.indexOf('52;') === -1 && working.indexOf('\x1bPtmux;') === -1 && working.indexOf('\x1bP\x1b') === -1) {
+      return working;
+    }
+
+    let result = working;
 
     // Handle tmux/screen DCS passthrough wrapper:
     // \x1bPtmux;\x1b wraps an inner escape sequence, terminated by \x1b\\
@@ -7980,7 +8150,13 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
           const inner = result.substring(dcsStart + dcsPrefixLen, dcsEnd);
           result = result.substring(0, dcsStart) + inner + result.substring(dcsEnd + 2);
         } else {
-          break; // Incomplete DCS, leave for next chunk
+          // Incomplete DCS — save the tail (from dcsStart onward) onto
+          // pendingOsc52 so the next frame can finish processing it.
+          // Strip it from `result` so xterm doesn't buffer the partial
+          // DCS itself.
+          session.pendingOsc52 = result.substring(dcsStart);
+          result = result.substring(0, dcsStart);
+          break;
         }
       } else {
         break;
@@ -8011,6 +8187,14 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
       }
 
       if (endIdx === -1) {
+        // Incomplete OSC 52 — save the tail (from startIdx onward) onto
+        // pendingOsc52 so the next frame can finish processing it.
+        // Strip it from `result` so xterm doesn't buffer the partial
+        // OSC sequence itself (which would cause the eventual clipboard
+        // payload to leak through to xterm.js as soon as the rest of
+        // the sequence arrives in the next frame).
+        session.pendingOsc52 = result.substring(startIdx);
+        result = result.substring(0, startIdx);
         break;
       }
 
@@ -8126,32 +8310,16 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     // Intercept OSC 52 clipboard sequences before writing to terminal.
     // OSC 52 format: ESC ] 52 ; <target> ; <base64> (BEL or ST)
     // This is more reliable than registerOscHandler which may not fire.
-    combined = this._handleOsc52(combined);
+    combined = this._handleOsc52(session, combined);
 
     // Cap write size per frame. terminal.write() is synchronous and blocks
     // the main thread. We spill overflow to the next frame via flushRemaining.
     const MAX_WRITE_PER_FRAME = 32768;
 
     if (combined.length > MAX_WRITE_PER_FRAME) {
-      // Find a safe split point that doesn't break in the middle of an
-      // escape sequence. Scan backwards from the cap limit for a character
-      // that is NOT part of a multi-byte UTF-16 surrogate or an escape
-      // sequence body. A bare ESC (\x1b) or CSI introducer (\x1b[)
-      // always starts a new sequence, so splitting just before ESC is safe.
-      let splitAt = MAX_WRITE_PER_FRAME;
-      for (let i = MAX_WRITE_PER_FRAME - 1; i > MAX_WRITE_PER_FRAME - 4096 && i > 0; i--) {
-        const code = combined.charCodeAt(i);
-        // ESC (\x1b) always begins a new control sequence
-        if (code === 0x1b) {
-          splitAt = i;
-          break;
-        }
-        // Don't split inside a UTF-16 surrogate pair
-        if (code >= 0xDC00 && code <= 0xDFFF) {
-          splitAt = i;
-          break;
-        }
-      }
+      // Find a safe split point using the static helper so the logic is
+      // unit-testable without an xterm.js terminal instance.
+      const splitAt = SSHIFTClient.findSafeWriteSplitPoint(combined, MAX_WRITE_PER_FRAME);
       terminal.write(combined.substring(0, splitAt));
       session.flushRemaining = combined.substring(splitAt);
       session.writeRAF = requestAnimationFrame(() => {
@@ -8165,6 +8333,19 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
   // SFTP Session Management
   createSFTPTab(name, connectionData, restoreSessionId = null) {
     const sessionId = restoreSessionId || 'sftp-' + Date.now();
+
+    // Idempotency: bail out if this session is already in the DOM + map.
+    const existingDomTab = document.querySelector(`.tab[data-session-id="${sessionId}"]`);
+    if (existingDomTab && this.sftpSessions.has(sessionId)) {
+      console.log('[SSHIFT] createSFTPTab: session already exists, returning existing id:', sessionId);
+      return sessionId;
+    }
+    if (existingDomTab) {
+      existingDomTab.remove();
+      const existingWrapper = document.getElementById(`terminal-wrapper-${sessionId}`);
+      if (existingWrapper) existingWrapper.remove();
+    }
+
     console.log('[SSHIFT] Creating SFTP tab with sessionId:', sessionId);
     
     const tab = this.createTabElement(sessionId, name, 'sftp');
@@ -9058,11 +9239,10 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
       this.sftpSessions.delete(sessionId);
     }
 
-    // Remove from DOM
-    const tab = document.querySelector(`.tab[data-session-id="${sessionId}"]`);
+    // Remove from DOM (use querySelectorAll to catch any duplicates)
+    const tabs = document.querySelectorAll(`.tab[data-session-id="${sessionId}"]`);
     const wrapper = document.getElementById(`terminal-wrapper-${sessionId}`);
-    
-    if (tab) tab.remove();
+    tabs.forEach(t => t.remove());
     if (wrapper) wrapper.remove();
 
     // Update scroll arrows visibility
@@ -9157,10 +9337,10 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
       this.sftpSessions.delete(sessionId);
     }
 
-    // Remove from DOM
-    const tab = document.querySelector(`.tab[data-session-id="${sessionId}"]`);
+    // Remove from DOM (use querySelectorAll to catch any duplicates)
+    const tabs = document.querySelectorAll(`.tab[data-session-id="${sessionId}"]`);
     const wrapper = document.getElementById(`terminal-wrapper-${sessionId}`);
-    if (tab) tab.remove();
+    tabs.forEach(t => t.remove());
     if (wrapper) wrapper.remove();
 
     // Update scroll arrows
@@ -9204,20 +9384,19 @@ handleTabOpened(data) {
       this._serverPanelMap.set(data.sessionId, data.panelId);
     }
     
-    // Create the tab without connecting (we'll join the existing session)
-    if (data.type === 'ssh') {
-      this.createSSHTab(data.name, data.connectionData, data.sessionId);
-    } else if (data.type === 'sftp') {
-      this.createSFTPTab(data.name, data.connectionData, data.sessionId);
-    }
-
-    console.log('[SSHIFT] Creating tab for session from another client:', data.sessionId);
-    
-    // Create the tab without connecting (we'll join the existing session)
-    if (data.type === 'ssh') {
-      this.createSSHTab(data.name, data.connectionData, data.sessionId);
-    } else if (data.type === 'sftp') {
-      this.createSFTPTab(data.name, data.connectionData, data.sessionId);
+    // Create the tab without connecting (we'll join the existing session).
+    // Defensive dedupe: only create if no DOM tab exists yet for this session.
+    const existingTabNodes = document.querySelectorAll(
+      `.tab[data-session-id="${data.sessionId}"]`
+    );
+    if (existingTabNodes.length === 0) {
+      if (data.type === 'ssh') {
+        this.createSSHTab(data.name, data.connectionData, data.sessionId);
+      } else if (data.type === 'sftp') {
+        this.createSFTPTab(data.name, data.connectionData, data.sessionId);
+      }
+    } else {
+      console.log('[SSHIFT] Tab DOM already exists for session, skipping:', data.sessionId);
     }
     
     // Update mobile tabs dropdown
@@ -9267,11 +9446,10 @@ handleTabOpened(data) {
       this.sftpSessions.delete(sessionId);
     }
 
-    // Remove from DOM
-    const tab = document.querySelector(`.tab[data-session-id="${sessionId}"]`);
+    // Remove from DOM (querySelectorAll to handle any duplicates)
+    const tabs = document.querySelectorAll(`.tab[data-session-id="${sessionId}"]`);
     const wrapper = document.getElementById(`terminal-wrapper-${sessionId}`);
-    
-    if (tab) tab.remove();
+    tabs.forEach(t => t.remove());
     if (wrapper) wrapper.remove();
 
     // Check if there are remaining tabs in the panel
@@ -9325,6 +9503,7 @@ async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null) 
     // Suppress switchTab during creation so we can activate the correct tab at the end
     this._suppressTabSwitch = true;
 
+    try {
     // On initial sync, remove any client-side tabs that don't exist on the server.
     // This ensures the server is the single source of truth and prevents duplicates
     // from stale localStorage caches (e.g. when switching between devices).
@@ -9393,9 +9572,13 @@ async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null) 
 
     // Apply any flash states that arrived before DOM elements existed
     this.applyFlashStates();
-
-    this.isRestoring = false;
-    this._suppressTabSwitch = false;
+    } finally {
+      // Guarantee the sync flags clear even if a throw happens mid-sync.
+      // Without this the UI would dead-lock (switchTab suppressed forever
+      // and restoreTabs blocked waiting on isRestoring).
+      this.isRestoring = false;
+      this._suppressTabSwitch = false;
+    }
 
     // Activate the correct tab per panel based on server state
     if (activeTabsByPanel && !this.isMobile) {

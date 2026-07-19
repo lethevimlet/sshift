@@ -1,0 +1,12 @@
+# Custom sshd_config overrides for the test fixture.
+# These are loaded IN ADDITION to the LinuxServer image's defaults.
+
+# Allow the test user to log in with a password (the USER_PASSWORD env
+# var is already honored by the image's startup script).
+PasswordAuthentication yes
+
+# Disable DNS lookups so SSH connection setup is fast in CI / sandboxes.
+UseDNS no
+
+# Accept env vars so the integration tests can set TERM if needed.
+AcceptEnv LANG LC_* TERM

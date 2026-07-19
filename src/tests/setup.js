@@ -25,19 +25,28 @@ function loadEnvForTests() {
 // Auto-load environment variables
 loadEnvForTests();
 
-// Set default test configuration
-// Development server runs on port 3000 (npm run dev)
-process.env.SERVER_URL = process.env.SERVER_URL || 'http://localhost:3000';
+// Set default test configuration.
+// `npm run dev` runs the dev server on port 3000. The default config
+// (example.config.json) enables HTTPS with an HTTP→HTTPS redirect, so
+// integration tests must hit the HTTPS endpoint to get 200 responses
+// (plain HTTP gets a 301 redirect body). The dev server uses a self-
+// signed cert; the integration test helper disables cert verification.
+process.env.SERVER_URL = process.env.SERVER_URL || 'https://localhost:3000';
 
-// Only set SSH test config if explicitly provided
-// This allows tests to properly skip when no SSH server is available
+// SSH test target. TEST_HOST and TEST_PORT are either:
+//   - set by globalSetup (src/tests/global-setup.js) after booting the
+//     Docker fixture (docker/test-ssh) → 127.0.0.1:2222 with testuser/testpass,
+//   - set externally by the caller (TEST_HOST=... TEST_PORT=... TEST_USER=... TEST_PASS=...),
+//   - or unset, in which case the credential-gated tests fall back to
+//     describe.skip (see SKIP_SSH_TESTS in each test file).
+// Defaults here only apply if neither globalSetup nor the caller set them.
 if (!process.env.TEST_HOST) {
   process.env.TEST_HOST = 'localhost';
 }
 if (!process.env.TEST_PORT) {
   process.env.TEST_PORT = '22';
 }
-// Do NOT set default TEST_USER and TEST_PASS - let tests skip if not provided
+// Do NOT default TEST_USER/TEST_PASS — let tests skip when absent.
 
 // Global test timeout
 jest.setTimeout(30000);
@@ -77,4 +86,4 @@ global.getSSHConfig = () => ({
 });
 
 // Helper to get server URL
-global.getServerUrl = () => process.env.SERVER_URL || 'http://localhost:3000';
+global.getServerUrl = () => process.env.SERVER_URL || 'https://localhost:3000';

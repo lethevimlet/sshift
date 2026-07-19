@@ -1,140 +1,143 @@
 # SSHIFT Test Suite
 
-This directory contains all tests for the SSHIFT project, converted to use the Jest testing framework.
+This directory contains all tests for the SSHIFT project, using the Jest framework.
 
 ## Test Structure
 
 ```
 src/tests/
-├── setup.js                    # Global Jest setup
+├── global-setup.js           # Boots Docker SSH fixture before any tests run
+├── global-teardown.js        # Tears down the Docker SSH fixture after tests
+├── setup.js                  # Per-file setup (env vars, console spies)
 ├── helpers/
-│   └── test-utils.js          # Test helper utilities
-├── unit/                       # Unit tests
+│   └── test-utils.js         # Socket.IO client + waitForEvent helpers
+├── unit/                     # Pure-logic tests (no server, no SSH)
+│   ├── alternate-buffer.test.js     # xterm.js headless buffer / serialization
+│   ├── clipboard-streaming.test.js  # sendChunkedInput chunking
+│   ├── flush-chunks.test.js         # surrogate-pair + OSC 52 cross-chunk
+│   ├── save-tabs-dedup.test.js      # saveTabs debounce + signature dedup
+│   ├── server-robustness.test.js    # ssh-data/ssh-resize/ssh-request-sync validation
 │   ├── sticky-session.test.js
-│   └── alternate-buffer.test.js
-├── integration/                # Integration tests
+│   ├── tabs-handling.test.js        # handleTabOpened dedupe, idempotent createSSHTab
+│   ├── tabs-teardown.test.js        # Phase 7 sticky-close viewer-aware teardown
+│   └── terminal-worker.test.js     # Worker protocol (init/ping/data/...)
+├── integration/              # Tests that hit the live dev server
 │   ├── client.test.js
 │   ├── server.test.js
 │   ├── frontend.test.js
 │   ├── sticky-keepalive.test.js
 │   ├── grace-period.test.js
 │   └── bookmark-sync.test.js
-└── browser/                    # Browser/E2E tests
+└── browser/                  # Puppeteer E2E tests
     ├── ui.test.js
     ├── settings-modal.test.js
     ├── console.test.js
-    └── layout-sync.test.js
+    ├── layout-sync.test.js
+    ├── mobile-terminal.test.js
+    └── simple.test.js
 ```
 
 ## Running Tests
 
-### All Tests
+### Full suite (unit + integration + browser)
+
 ```bash
-npm test
+npm run dev              # terminal 1 — boot the dev server on HTTPS :3000
+npm test                 # terminal 2 — runs all tests
 ```
 
-### Watch Mode
-```bash
-npm run test:watch
-```
+The full suite needs the dev server up — integration and browser tests
+hit `https://localhost:3000` (the server uses HTTPS with HTTP→HTTPS
+redirect per `example.config.json`, so plain HTTP gets a 301 body).
 
-### Coverage Report
+### Sub-suites
+
 ```bash
+npm run test:unit        # no server required
+npm run test:integration
+npm run test:browser
 npm run test:coverage
 ```
 
-### Specific Test Suites
+## Test SSH fixture (auto)
 
-#### Unit Tests
+The 18 SSH-credential-gated tests (in `src/tests/integration/client.test.js`,
+`grace-period.test.js`, `src/tests/browser/ui.test.js`, `console.test.js`)
+require an actual SSH server to log into. Jest's `globalSetup`
+(`src/tests/global-setup.js`) handles this for you:
+
+1. If `TEST_USER` and `TEST_PASS` env vars are already set
+   (you supplied an external SSH target), use those.
+2. Otherwise, boot `docker/test-ssh/docker-compose.yml` and export
+   `TEST_USER=testuser`, `TEST_PASS=testpass`, `TEST_HOST=127.0.0.1`,
+   `TEST_PORT=2222` for the test files.
+3. If Docker isn't available, set `SKIP_SSH_TESTS=true` and log a
+   clear warning. The credential-gated tests auto-downgrade to
+   `describe.skip`.
+
+### Manual fixture control
+
 ```bash
-npm run test:unit
+# Boot + tear down by hand (the same thing globalSetup does automatically)
+docker compose -f docker/test-ssh/docker-compose.yml up -d --build
+TEST_USER=testuser TEST_PASS=testpass TEST_HOST=127.0.0.1 TEST_PORT=2222 npm test
+docker compose -f docker/test-ssh/docker-compose.yml down -v
 ```
 
-#### Integration Tests
+### Opting out entirely
+
 ```bash
-npm run test:integration
+SKIP_SSH_TESTS=true npm test           # skips the credential-gated tests
 ```
-
-#### Browser/E2E Tests
-```bash
-npm run test:browser
-```
-
-## Test Categories
-
-### Unit Tests
-- **sticky-session.test.js**: Tests for sticky session management logic
-- **alternate-buffer.test.js**: Tests for xterm.js alternate buffer handling
-
-### Integration Tests
-- **client.test.js**: Tests for Socket.IO client and SSH connections
-- **server.test.js**: Tests for HTTP server endpoints
-- **frontend.test.js**: Tests for frontend resource loading
-- **sticky-keepalive.test.js**: Tests for sticky sessions and keepalive settings
-- **grace-period.test.js**: Tests for session grace period functionality
-- **bookmark-sync.test.js**: Tests for bookmark API and synchronization
-
-### Browser Tests
-- **ui.test.js**: Tests for browser UI functionality
-- **settings-modal.test.js**: Tests for settings modal interactions
-- **console.test.js**: Tests for browser console errors
-- **layout-sync.test.js**: Tests for layout synchronization between tabs
-
-## Prerequisites
-
-### For Integration and Browser Tests
-
-1. **Server must be running**:
-   ```bash
-   # For development testing (port 3000)
-   npm run dev
-   
-   # OR for production testing (port 8022)
-   npm start
-   ```
-
-2. **SSH server must be accessible** (for SSH connection tests):
-   - Set environment variables:
-     ```bash
-     export TEST_HOST=localhost
-     export TEST_PORT=22
-     export TEST_USER=testuser
-     export TEST_PASS=testpassword
-     ```
-
-3. **Puppeteer** (for browser tests):
-   - Puppeteer is included as a dev dependency
-   - Tests run in headless mode by default
 
 ## Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `SERVER_URL` | Server URL for tests | `http://localhost:3000` |
-| `TEST_HOST` | SSH test host | `localhost` |
-| `TEST_PORT` | SSH test port | `22` |
-| `TEST_USER` | SSH test username | `testuser` |
-| `TEST_PASS` | SSH test password | `testpassword` |
+| Variable | Default | Description |
+|---|---|---|
+| `SERVER_URL` | `https://localhost:3000` | Dev server URL (auto-set by `setup.js`) |
+| `TEST_HOST` | `127.0.0.1` (when fixture is up) | SSH target host |
+| `TEST_PORT` | `2222` (when fixture is up) | SSH target port |
+| `TEST_USER` | `testuser` (when fixture is up) | SSH login user |
+| `TEST_PASS` | `testpass` (when fixture is up) | SSH login password |
+| `SKIP_SSH_TESTS` | unset | `true` disables all SSH-credential tests |
+| `JEST_INTEGRATION` | unset | `true` bumps per-test timeout to 60s |
 
-**Note**: The default `SERVER_URL` is set to port 3000, which is the development server port (`npm run dev`). For production testing, set `SERVER_URL=http://localhost:8022`.
+**Note:** Integration and browser tests use the HTTPS endpoint and
+disable certificate verification (`rejectUnauthorized: false`,
+`ignoreHTTPSErrors: true`, `--ignore-certificate-errors`) so the dev
+server's self-signed cert doesn't trip them up.
 
 ## Test Configuration
 
-Jest configuration is in `jest.config.js`:
+Jest config lives in `jest.config.js`. Key bits:
 
 ```javascript
 module.exports = {
   testEnvironment: 'node',
   testMatch: ['**/src/tests/**/*.test.js'],
+  globalSetup: '<rootDir>/src/tests/global-setup.js',
+  globalTeardown: '<rootDir>/src/tests/global-teardown.js',
   setupFilesAfterEnv: ['<rootDir>/src/tests/setup.js'],
   testTimeout: 30000,
-  // ... more config
+  // ...
 };
 ```
 
+`globalSetup` runs **before** any test file is imported. This matters
+because the gated test files do:
+
+```javascript
+const SKIP_SSH_TESTS = process.env.SKIP_SSH_TESTS === 'true' || !process.env.TEST_USER;
+const describeSSH = SKIP_SSH_TESTS ? describe.skip : describe;
+```
+
+at module-load time. So `TEST_USER` must be set in `globalSetup` for
+those `describe.skip` decisions to flip to `describe`.
+
 ## Writing New Tests
 
-### Unit Test Example
+### Unit tests (pure logic, no server, fast)
+
 ```javascript
 describe('My Unit Tests', () => {
   test('should do something', () => {
@@ -144,7 +147,8 @@ describe('My Unit Tests', () => {
 });
 ```
 
-### Integration Test Example
+### Integration tests (HTTP / Socket.IO against the dev server)
+
 ```javascript
 const { createSocketClient, waitForConnect } = require('../helpers/test-utils');
 
@@ -159,68 +163,73 @@ describe('My Integration Tests', () => {
 });
 ```
 
-### Browser Test Example
+### Browser tests (Puppeteer against the dev server)
+
 ```javascript
 const puppeteer = require('puppeteer');
 
 describe('My Browser Tests', () => {
   jest.setTimeout(60000);
   let browser;
-  let page;
 
   beforeAll(async () => {
     browser = await puppeteer.launch({
       headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu', '--ignore-certificate-errors'],
+      ignoreHTTPSErrors: true
     });
   });
 
-  afterAll(async () => {
-    if (browser) await browser.close();
-  });
+  afterAll(async () => { if (browser) await browser.close(); });
 
   test('should load page', async () => {
-    page = await browser.newPage();
-    await page.goto('http://localhost:3000');
-    expect(page).toBeDefined();
+    const page = await browser.newPage();
+    await page.goto(process.env.SERVER_URL, { waitUntil: 'networkidle2' });
+    expect(await page.title()).toContain('SSHIFT');
   });
 });
 ```
 
 ## Troubleshooting
 
-### Tests Fail with "Timeout waiting for event"
-- Ensure the server is running
-- Check that the correct port is configured
-- Verify SSH server is accessible
+### `Tests: 18 skipped` and you want them to run
 
-### Browser Tests Fail
-- Ensure Puppeteer is installed: `npm install`
-- Check that the server is running
-- Verify no other browser instances are blocking
+The 18 SSH-credential-gated tests only run when an SSH target is
+reachable: either install Docker (the globalSetup auto-boots the
+fixture), or export `TEST_USER`/`TEST_PASS`/`TEST_HOST`/`TEST_PORT`
+to point to an external SSH server.
 
-### Socket.IO Connection Errors
-- Check firewall settings
-- Verify server is listening on the correct port
-- Ensure CORS is properly configured
+### `AggregateError` / `ECONNREFUSED` in integration tests
+
+The dev server isn't running. Boot it: `npm run dev`. Or you hit
+`http://` instead of `https://` — the dev server forces HTTPS with
+HTTP→HTTPS redirect; tests must use `https://localhost:3000`.
+
+### `net::ERR_CERT_AUTHORITY_INVALID` in browser tests
+
+Puppeteer is rejecting the dev server's self-signed cert. All browser
+test files set `ignoreHTTPSErrors: true` AND pass
+`--ignore-certificate-errors` to Chromium. If you copy the test
+scaffold elsewhere, keep both flags.
+
+### Socket.IO connection errors
+
+- Verify dev server is listening: `curl -k https://localhost:3000/`
+- The `socket.io-client` helper in `src/tests/helpers/test-utils.js`
+  sets `rejectUnauthorized: false` so it can use a self-signed cert.
+- CORS is not required — the test client connects directly to the
+  dev server origin.
 
 ## Continuous Integration
 
-For CI environments, you may need to:
+`.github/workflows/ci.yml` runs:
 
-1. Start the server before tests:
-   ```bash
-   npm start &
-   sleep 2
-   npm test
-   ```
+1. **gitleaks** — secret scanning on every PR/push.
+2. **install-and-test** — installs deps, runs the unit suite, then
+   boots `npm run dev`, runs integration + browser tests, uploads
+   `/tmp/dev-server.log` as an artifact on failure.
 
-2. Use a test SSH server or mock SSH connections
-
-3. Configure Puppeteer for CI:
-   ```javascript
-   const browser = await puppeteer.launch({
-     headless: 'new',
-     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu']
-   });
-   ```
+The Jest `globalSetup` will auto-start the Docker SSH fixture in CI
+(runner has Docker available). If for any reason Docker isn't
+available the SSH-credential tests skip with a clear log message,
+keeping the suite green.

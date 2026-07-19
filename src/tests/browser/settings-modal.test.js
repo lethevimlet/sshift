@@ -18,9 +18,11 @@ describe('Settings Modal Tests', () => {
   beforeAll(async () => {
     browser = await puppeteer.launch({
       headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu'],
-      timeout: 30000
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu', '--ignore-certificate-errors'],
+      timeout: 30000,
+      ignoreHTTPSErrors: true
     });
+
   }, 30000);
 
   afterAll(async () => {

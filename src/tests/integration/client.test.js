@@ -7,7 +7,7 @@ const io = require('socket.io-client');
 const { createSocketClient, waitForConnect, waitForEvent, disconnectSocket, createSSHParams, createSFTPParams, sleep } = require('../helpers/test-utils');
 
 // Test configuration
-const SERVER_URL = process.env.SERVER_URL || 'http://localhost:3000';
+const SERVER_URL = process.env.SERVER_URL || 'https://localhost:3000';
 const TEST_CONFIG = {
   host: process.env.TEST_HOST || 'localhost',
   port: parseInt(process.env.TEST_PORT) || 22,

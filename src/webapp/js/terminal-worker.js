@@ -110,6 +110,29 @@ self.onmessage = function(e) {
       break;
     }
 
+    case 'init': {
+      // Explicitly register a session ahead of the first data frame.
+      // Optional — `data` will lazily create the session state via
+      // getOrCreateSession(). `init` exists so callers can pre-warm the
+      // worker and verify the round-trip with an ack.
+      const sessionId = msg.sessionId;
+      if (!sessionId) break;
+      getOrCreateSession(sessionId);
+      self.postMessage({
+        type: 'ready',
+        sessionId: sessionId,
+        cols: msg.cols || 80,
+        rows: msg.rows || 24
+      });
+      break;
+    }
+
+    case 'ping': {
+      // Liveness probe — used by tests and health checks.
+      self.postMessage({ type: 'pong', sessionId: msg.sessionId });
+      break;
+    }
+
     case 'data': {
       const sessionId = msg.sessionId;
       if (!sessionId) break;
@@ -227,6 +250,19 @@ self.onmessage = function(e) {
           chunksSent: session.chunksSent,
           paused: session.paused
         } : null
+      });
+      break;
+    }
+
+    default: {
+      // Unknown message types are explicitly rejected so callers can
+      // detect protocol drift rather than observing silent no-ops.
+      console.warn('[terminal-worker] Unknown message type:', msg.type);
+      self.postMessage({
+        type: 'error',
+        error: 'unknownMessage',
+        messageType: msg.type,
+        sessionId: msg.sessionId
       });
       break;
     }

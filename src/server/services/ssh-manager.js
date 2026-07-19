@@ -189,6 +189,10 @@ class SSHManager {
 
           stream.on('close', () => {
             console.log(`[SSH] Stream closed: ${sessionId}`);
+            if (session.exitTimer) {
+              clearTimeout(session.exitTimer);
+              session.exitTimer = null;
+            }
             this.flushData(sessionId);
             this.broadcastToSession(sessionId, 'ssh-disconnected', { sessionId });
             this.disconnect(sessionId);
@@ -202,6 +206,21 @@ class SSHManager {
           stream.on('exit', (code, signal) => {
             console.log(`[SSH] Stream exit: ${sessionId}, code: ${code}, signal: ${signal}`);
             this.broadcastToSession(sessionId, 'ssh-exit', { sessionId, code, signal });
+            // Remote process exited. The ssh2 channel normally fires
+            // `close` shortly after, but if it doesn't (network drop,
+            // half-open socket) the session would linger in the map
+            // forever, freezing sticky clients that reattach to it.
+            // Arm a 500ms safety timer to force teardown if `close`
+            // doesn't fire.
+            if (session.exitTimer) clearTimeout(session.exitTimer);
+            session.exitTimer = setTimeout(() => {
+              console.warn(`[SSH] Stream close did not fire after exit; forcing disconnect for ${sessionId}`);
+              this.disconnect(sessionId);
+              if (this.io) {
+                this.io.emit('tab-closed', { sessionId });
+                this.io.emit('sessions-updated');
+              }
+            }, 500);
           });
 
           stream.on('error', (err) => {
@@ -544,8 +563,22 @@ class SSHManager {
     if (session && session.stream) {
       const canWrite = session.stream.write(data);
       if (!canWrite) {
-        // Stream buffer is full — queue write and wait for drain
+        // Stream buffer is full — queue write and wait for drain.
+        // Cap the queue to avoid OOM on a slow/half-open remote;
+        // 64 chunks is enough headroom for normal paste flows
+        // while bounding memory in pathological cases.
         if (!session.writeQueue) session.writeQueue = [];
+        if (session.writeQueue.length >= 64) {
+          console.warn(`[SSH] writeQueue overflow for ${sessionId}; dropping ${session.writeQueue.length} queued chunks`);
+          session.writeQueue = [];
+          if (this.io) {
+            this.io.to(`session-${sessionId}`).emit('ssh-error', {
+              sessionId,
+              message: 'bufferFull'
+            });
+          }
+          return;
+        }
         session.writeQueue.push(data);
         if (!session.drainListener) {
           session.drainListener = true;
@@ -567,13 +600,23 @@ class SSHManager {
   resize(sessionId, cols, rows) {
     const session = this.sessions.get(sessionId);
     if (session && session.stream) {
-      session.stream.setWindow(rows, cols);
+      try {
+        session.stream.setWindow(rows, cols);
+      } catch (err) {
+        console.error(`[SSH] stream.setWindow failed for ${sessionId}:`, err.message);
+      }
       session.cols = cols;
       session.rows = rows;
-      
-      // Also resize the headless terminal
+
+      // Also resize the headless terminal. xterm.js v6 throws on
+      // resize(0, 0) or out-of-range values — wrap so a malformed
+      // payload doesn't tear down the entire session.
       if (session.terminal) {
-        session.terminal.resize(cols, rows);
+        try {
+          session.terminal.resize(cols, rows);
+        } catch (err) {
+          console.error(`[SSH] headless terminal.resize failed for ${sessionId}:`, err.message);
+        }
       }
     }
   }
@@ -619,6 +662,11 @@ class SSHManager {
         clearTimeout(session.batchTimer);
         session.batchTimer = null;
       }
+      // Clear any pending exit-safety timer
+      if (session.exitTimer) {
+        clearTimeout(session.exitTimer);
+        session.exitTimer = null;
+      }
       // Flush any remaining incomplete UTF-8 bytes from the streaming
       // decoder. Passing { stream: false } (or no option) signals the
       // decoder that the stream has ended, emitting any buffered bytes
@@ -626,10 +674,15 @@ class SSHManager {
       // disconnect, but this prevents a memory leak.
       try { session.decoder.decode(new Uint8Array(0)); } catch (_) {}
       if (session.stream) {
-        session.stream.end();
+        try { session.stream.end(); } catch (_) {}
+        // Also call destroy() to force teardown of half-open sockets.
+        // end() only signals EOF and waits for the peer to acknowledge;
+        // if the remote is unreachable, end() alone can leave a
+        // half-open socket pinning the session in the map until GC.
+        try { session.stream.destroy(); } catch (_) {}
       }
       if (session.conn) {
-        session.conn.end();
+        try { session.conn.end(); } catch (_) {}
       }
       // Dispose of the headless terminal
       if (session.terminal) {

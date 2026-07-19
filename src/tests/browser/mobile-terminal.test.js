@@ -5,6 +5,10 @@
 
 const puppeteer = require('puppeteer');
 
+// Dev server runs HTTPS by default (example.config.json: enableHttps=true).
+// setup.js sets process.env.SERVER_URL to https://localhost:3000.
+const SERVER_URL = process.env.SERVER_URL || 'https://localhost:3000';
+
 describe('MobileTerminalHandler Integration Tests', () => {
   jest.setTimeout(30000);
   
@@ -14,9 +18,11 @@ describe('MobileTerminalHandler Integration Tests', () => {
   beforeAll(async () => {
     browser = await puppeteer.launch({
       headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu'],
-      timeout: 10000
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu', '--ignore-certificate-errors'],
+      timeout: 10000,
+      ignoreHTTPSErrors: true
     });
+
   }, 15000);
   
   afterAll(async () => {
@@ -39,7 +45,7 @@ describe('MobileTerminalHandler Integration Tests', () => {
   });
   
   test('should load mobile-terminal.js script', async () => {
-    await page.goto('http://localhost:3000', { waitUntil: 'networkidle2', timeout: 10000 });
+    await page.goto(SERVER_URL, { waitUntil: 'networkidle2', timeout: 10000 });
     
     // Check that MobileTerminalHandler is defined
     const handlerExists = await page.evaluate(() => {
@@ -50,7 +56,7 @@ describe('MobileTerminalHandler Integration Tests', () => {
   });
   
   test('should detect mobile device', async () => {
-    await page.goto('http://localhost:3000', { waitUntil: 'networkidle2', timeout: 10000 });
+    await page.goto(SERVER_URL, { waitUntil: 'networkidle2', timeout: 10000 });
     
     const isMobile = await page.evaluate(() => {
       return window.app && window.app.isMobile;
@@ -60,24 +66,26 @@ describe('MobileTerminalHandler Integration Tests', () => {
   });
   
   test('should create mobile handler instance when terminal is created', async () => {
-    await page.goto('http://localhost:3000', { waitUntil: 'networkidle2', timeout: 10000 });
-    
-    // Wait for page to load
-    await page.waitForSelector('#newSessionBtn', { timeout: 5000 });
-    
-    // Click new session button
-    await page.click('#newSessionBtn');
-    
+    await page.goto(SERVER_URL, { waitUntil: 'networkidle2', timeout: 10000 });
+
+    // Wait for page to load. The "New SSH Connection" button is #newSshBtn
+    // (index.html:57). An older version of the test referenced #newSessionBtn
+    // which never existed in the DOM — the test silently failed before.
+    await page.waitForSelector('#newSshBtn', { timeout: 5000 });
+
+    // Click new session button — opens the connection modal.
+    await page.click('#newSshBtn');
+
     // Wait for connection modal
     await page.waitForSelector('#connectionModal', { visible: true, timeout: 5000 });
-    
+
     // The test would continue with filling in connection details
     // but we can't actually connect without a real SSH server
     // This is a placeholder for integration testing
   });
   
   test('should have mobile CSS styles loaded', async () => {
-    await page.goto('http://localhost:3000', { waitUntil: 'networkidle2', timeout: 10000 });
+    await page.goto(SERVER_URL, { waitUntil: 'networkidle2', timeout: 10000 });
     
     // Check that mobile CSS classes exist
     const hasMobileStyles = await page.evaluate(() => {

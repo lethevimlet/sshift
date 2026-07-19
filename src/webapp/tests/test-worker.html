@@ -2,40 +2,64 @@
 <html>
 <head><title>Worker Test</title></head>
 <body>
-<h2>Terminal Worker Test</h2>
-<pre id="log"></pre>
-<script>
-const log = document.getElementById('log');
-function addLog(msg) {
-  log.textContent += msg + '\n';
-  console.log(msg);
-}
+  <h2>Terminal Worker Test</h2>
+  <pre id="log"></pre>
+  <script>
+    const log = document.getElementById('log');
+    function addLog(msg) {
+      log.textContent += msg + '\n';
+      console.log(msg);
+    }
 
-addLog('Creating worker...');
-try {
-  const w = new Worker('/js/terminal-worker.js');
-  addLog('Worker created');
-  w.onmessage = (e) => {
-    addLog('Message: ' + JSON.stringify(e.data));
-  };
-  w.onerror = (e) => {
-    addLog('Error: ' + e.message + ' at ' + e.filename + ':' + e.lineno);
-  };
-  setTimeout(() => {
-    addLog('Sending init...');
-    w.postMessage({ type: 'init', sessionId: 'test-1', cols: 80, rows: 24 });
-  }, 500);
-  setTimeout(() => {
-    addLog('Sending data...');
-    w.postMessage({ type: 'data', sessionId: 'test-1', data: 'Hello World\r\n' });
-  }, 1000);
-  setTimeout(() => {
-    addLog('Sending ping...');
-    w.postMessage({ type: 'ping' });
-  }, 1500);
-} catch (e) {
-  addLog('Failed to create worker: ' + e.message);
-}
-</script>
+    const assertions = [];
+    function assert(cond, label) {
+      assertions.push({ pass: !!cond, label });
+      addLog((cond ? 'PASS ' : 'FAIL ') + label);
+    }
+
+    addLog('Creating worker...');
+    const w = new Worker('/js/terminal-worker.js');
+    const collected = [];
+
+    w.onmessage = (e) => {
+      collected.push(e.data);
+      addLog('Message: ' + JSON.stringify(e.data));
+    };
+    w.onerror = (e) => {
+      addLog('Error: ' + e.message + ' at ' + e.filename + ':' + e.lineno);
+    };
+
+    setTimeout(() => {
+      addLog('Sending init...');
+      w.postMessage({ type: 'init', sessionId: 'test-1', cols: 80, rows: 24 });
+    }, 100);
+
+    setTimeout(() => {
+      addLog('Sending data...');
+      w.postMessage({ type: 'data', sessionId: 'test-1', data: 'Hello World\r\n' });
+    }, 300);
+
+    setTimeout(() => {
+      addLog('Sending ping...');
+      w.postMessage({ type: 'ping', sessionId: 'test-1' });
+    }, 500);
+
+    setTimeout(() => {
+      addLog('Sending unknown...');
+      w.postMessage({ type: 'bogus-type', sessionId: 'test-1' });
+    }, 700);
+
+    setTimeout(() => {
+      const types = collected.map(m => m.type);
+      assert(types.indexOf('ready') !== -1, 'init → ready ack received');
+      assert(types.indexOf('data') !== -1, 'data → flushed data returned');
+      assert(types.indexOf('pong') !== -1, 'ping → pong received');
+      assert(types.indexOf('error') !== -1, 'unknown → error received');
+      const flushed = collected.find(m => m.type === 'data' && m.sessionId === 'test-1');
+      assert(flushed && flushed.data === 'Hello World\r\n', 'flushed payload matches input');
+      addLog('---');
+      addLog('Result: ' + assertions.filter(a => a.pass).length + '/' + assertions.length + ' passed');
+    }, 1500);
+  </script>
 </body>
 </html>

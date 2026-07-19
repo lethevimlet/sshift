@@ -4,15 +4,19 @@
  */
 
 const http = require('http');
+const https = require('https');
 
-const BASE_URL = process.env.SERVER_URL || 'http://localhost:3000';
+const BASE_URL = process.env.SERVER_URL || 'https://localhost:3000';
 
 /**
- * Helper function to make HTTP requests
+ * Helper function to make HTTP(S) requests against the dev server.
+ * Picks `http` or `https` from the URL scheme and accepts the dev
+ * server's self-signed certificate.
  */
 function fetch(url) {
+  const lib = url.startsWith('https://') ? https : http;
   return new Promise((resolve, reject) => {
-    http.get(url, (res) => {
+    lib.get(url, { rejectUnauthorized: false }, (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => resolve({ status: res.statusCode, data }));
@@ -48,36 +52,28 @@ describe('Frontend Resource Tests', () => {
       expect(result.status).toBe(200);
       expect(result.data.length).toBeGreaterThan(0);
     });
-  });
 
-  describe('External Resources (CDN)', () => {
-    // These tests check if external CDN resources are accessible
-    // They may fail if network is unavailable
-    test.skip('should access xterm.js from CDN', async () => {
-      const result = await fetch('https://unpkg.com/xterm@5.3.0/lib/xterm.js');
+    // Local xterm packages (vendored under src/webapp/libs/xterm/).
+    // These replace a previous block of CDN-reachability tests that
+    // (1) targeted the wrong xterm version (5.3.0 vs 6.0.0 shipped),
+    // (2) only verified unpkg.com was reachable — not sshift behavior,
+    // (3) and would flake in offline/sandboxed CI.
+    test('should serve vendored xterm.js', async () => {
+      const result = await fetch(`${BASE_URL}/libs/xterm/xterm.js`);
       expect(result.status).toBe(200);
       expect(result.data).toContain('Terminal');
     });
 
-    test.skip('should access xterm-addon-fit from CDN', async () => {
-      const result = await fetch('https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js');
+    test('should serve vendored xterm-addon-fit.js', async () => {
+      const result = await fetch(`${BASE_URL}/libs/xterm/xterm-addon-fit.js`);
       expect(result.status).toBe(200);
       expect(result.data).toContain('FitAddon');
     });
 
-    test.skip('should access xterm-addon-web-links from CDN', async () => {
-      const result = await fetch('https://unpkg.com/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.js');
+    test('should serve vendored xterm.css', async () => {
+      const result = await fetch(`${BASE_URL}/libs/xterm/xterm.css`);
       expect(result.status).toBe(200);
-    });
-
-    test.skip('should access xterm-addon-search from CDN', async () => {
-      const result = await fetch('https://unpkg.com/xterm-addon-search@0.13.0/lib/xterm-addon-search.js');
-      expect(result.status).toBe(200);
-    });
-
-    test.skip('should access xterm CSS from CDN', async () => {
-      const result = await fetch('https://unpkg.com/xterm@5.3.0/css/xterm.css');
-      expect(result.status).toBe(200);
+      expect(result.data.length).toBeGreaterThan(0);
     });
   });
 
