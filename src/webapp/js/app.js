@@ -756,7 +756,7 @@ class SSHIFTClient {
     // Update active sessions:
     // 1. Make the moved tab active in the target panel
     this.switchTab(sessionId, targetPanelId);
-    
+
     // 2. Activate the first remaining tab in the source panel (if any)
     if (sourceTabs.length > 0) {
       const firstRemainingSessionId = sourceTabs[0].dataset.sessionId;
@@ -770,6 +770,38 @@ class SSHIFTClient {
     
     // Update server panel map for mobile preservation
     this._serverPanelMap.set(sessionId, targetPanelId);
+
+    // After moving the terminal wrapper to a new container, the
+    // terminal's internal canvas/renderer dimensions are still tied
+    // to the old panel's size. The WebGL atlas has glyphs rasterised
+    // for the old cell size. If we fit() immediately the browser
+    // hasn't committed the new layout yet, so fit() measures stale
+    // dimensions — producing the interlaced/alternating-black-band
+    // rendering bug. Fix: double-RAF to let the browser commit the
+    // new layout, then fit + clear atlas + force refresh.
+    // Also refit ALL terminals (the source panel's remaining tab may
+    // have changed container size too).
+    const session = this.sessions.get(sessionId);
+    if (session && session.terminal && session.fitAddon && session.isController) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (!session.terminal || !session.fitAddon || !session.isController) return;
+          // Re-measure char size (font may have loaded differently in
+          // the new container) then fit, clear atlas, and refresh.
+          const core = session.terminal._core;
+          if (core && core._charSizeService && typeof core._charSizeService.measure === 'function') {
+            try { core._charSizeService.measure(); } catch (_) {}
+          }
+          this._fitTerminal(session);
+          this._resetWebGLAtlas(session);
+        });
+      });
+    }
+
+    // Refit ALL visible terminals — the source panel's remaining tab
+    // may have a different container width now that the moved tab is
+    // gone. Use the existing staggered refit helper.
+    this.refitAllTerminals();
   }
 
   // Hide empty state for a specific panel
