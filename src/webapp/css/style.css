@@ -2360,6 +2360,7 @@ body.dragging-tabs .tabs-container {
   pointer-events: auto !important;
   transition: none !important;
   background-color: var(--terminal-scrollbar-track, #151b23) !important;
+  width: 8px !important;
 }
 
 .terminal-container .xterm-scrollable-element > .scrollbar.invisible {
@@ -2378,9 +2379,19 @@ body.dragging-tabs .tabs-container {
 .terminal-container .xterm-scrollable-element > .scrollbar > .slider {
   border-radius: 3px;
   background-color: var(--terminal-scrollbar-thumb, #3d444d) !important;
+  width: 8px !important;
+  min-width: 8px !important;
+  max-width: 8px !important;
 }
 
 .terminal-container .xterm-scrollable-element > .shadow {
+  display: none !important;
+}
+
+/* Hide the overview ruler canvas — it creates a visible white strip
+   when the terminal has no scrollback or on blur. The custom scrollbar
+   already shows scroll position. */
+.terminal-container .xterm-decoration-overview-ruler {
   display: none !important;
 }
 
@@ -3296,6 +3307,37 @@ body.dragging-tabs .tabs-container {
   :root {
     --sidebar-width: 100%;
     --header-height: 43px;
+  }
+
+  /* Thinner xterm scrollbar on mobile */
+  .terminal-container .xterm-scrollable-element > .scrollbar {
+    width: 4px !important;
+    min-width: 4px !important;
+    max-width: 4px !important;
+  }
+  .terminal-container .xterm-scrollable-element > .scrollbar.vertical {
+    width: 4px !important;
+    min-width: 4px !important;
+    max-width: 4px !important;
+  }
+  .terminal-container .xterm-scrollable-element > .scrollbar > .slider {
+    width: 4px !important;
+    min-width: 4px !important;
+    max-width: 4px !important;
+    border-radius: 2px !important;
+    /* Match the track background so the scrollbar blend in and doesn't
+       look like a white line against the dark terminal background. */
+    background-color: var(--terminal-scrollbar-track, #151b23) !important;
+  }
+  /* Also hide the viewport scrollbar more aggressively on mobile */
+  .terminal-container .xterm-viewport {
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+  .terminal-container .xterm-viewport::-webkit-scrollbar {
+    width: 0 !important;
+    height: 0 !important;
+    display: none !important;
   }
 
   .header {

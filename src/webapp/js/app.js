@@ -2928,20 +2928,59 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
         element.addEventListener('touchmove', (e) => {
           if (e.touches.length === 1 && session.isScrolling) {
             e.preventDefault();
-            
+
             const currentTouchY = e.touches[0].clientY;
             const touchDiff = session.lastTouchY - currentTouchY;
             session.lastTouchY = currentTouchY;
             session.touchAccumulator += touchDiff;
-            
+
             const lineHeight = terminal._core?._renderService?.dimensions?.css?.cell?.height || 20;
             const lineH = Math.max(lineHeight, 14);
-            
-            const linesToScroll = Math.trunc(Math.abs(session.touchAccumulator) / lineH);
-            if (linesToScroll > 0) {
-              const direction = session.touchAccumulator > 0 ? 1 : -1;
-              terminal.scrollLines(direction * linesToScroll);
-              session.touchAccumulator -= direction * linesToScroll * lineH;
+
+            // When a TUI app has mouse tracking enabled (DECSET
+            // 1000/1002/1003), scrolling should send mouse wheel
+            // escape sequences directly to the PTY. Instead of
+            // dispatching synthetic WheelEvents (which xterm's own
+            // document-level touch handler can interfere with), we
+            // generate the SGR mouse format ourselves and emit it via
+            // ssh-data. SGR format: \x1b[<button;col;row;M
+            // Wheel up = button 64, wheel down = button 65.
+            const mouseProtocol = terminal._core?.coreMouseService?.activeProtocol;
+            const tuiMouseActive = mouseProtocol && mouseProtocol !== 'NONE';
+
+            if (tuiMouseActive) {
+              if (Math.abs(session.touchAccumulator) >= lineH) {
+                // Compute the terminal cell under the touch point.
+                const screenEl = terminal.element?.querySelector('.xterm-screen');
+                if (screenEl) {
+                  const rect = screenEl.getBoundingClientRect();
+                  const cellW = terminal._core?._renderService?.dimensions?.css?.cell?.width || 8;
+                  const cellH = lineHeight;
+                  const touchX = e.touches[0].clientX - rect.left;
+                  const touchY = e.touches[0].clientY - rect.top;
+                  const col = Math.max(1, Math.min(terminal.cols, Math.floor(touchX / cellW) + 1));
+                  const row = Math.max(1, Math.min(terminal.rows, Math.floor(touchY / cellH) + 1));
+
+                  const scrollLines = Math.trunc(Math.abs(session.touchAccumulator) / lineH);
+                  const direction = session.touchAccumulator > 0 ? 1 : -1; // 1 = scroll down, -1 = scroll up
+                  for (let i = 0; i < scrollLines; i++) {
+                    // button 64 = wheel up, 65 = wheel down
+                    const button = direction > 0 ? 65 : 64;
+                    const seq = `\x1b[<${button};${col};${row}M`;
+                    if (session.connected && session.isController) {
+                      this.socket.emit('ssh-data', { sessionId, data: seq });
+                    }
+                  }
+                  session.touchAccumulator = 0;
+                }
+              }
+            } else {
+              const linesToScroll = Math.trunc(Math.abs(session.touchAccumulator) / lineH);
+              if (linesToScroll > 0) {
+                const direction = session.touchAccumulator > 0 ? 1 : -1;
+                terminal.scrollLines(direction * linesToScroll);
+                session.touchAccumulator -= direction * linesToScroll * lineH;
+              }
             }
           } else if (e.touches.length === 2 && session.isPinching) {
             e.preventDefault();
@@ -3026,16 +3065,24 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     
 const wheelHandler = (e) => {
       if (e.deltaY === 0) return;
-      
+
       // If the event target is inside the custom scrollbar,
       // let xterm's ScrollableElement handle it to avoid double-scroll
       const target = e.target;
       if (target && target.closest && target.closest('.xterm-scrollable-element')) {
         return;
       }
-      
+
+      // When a TUI app has mouse tracking enabled, let xterm's own
+      // wheel handler process the event so it translates to mouse
+      // tracking escape sequences sent to the PTY. Don't intercept.
+      const mouseProtocol = terminal._core?.coreMouseService?.activeProtocol;
+      if (mouseProtocol && mouseProtocol !== 'NONE') {
+        return;
+      }
+
       e.preventDefault();
-      
+
       let lines = 1;
       if (e.deltaMode === 1) {
         lines = Math.abs(e.deltaY);
@@ -3045,14 +3092,14 @@ const wheelHandler = (e) => {
       } else {
         lines = Math.abs(e.deltaY) * terminal.rows;
       }
-      
+
       const fastScrollModifier = terminal.options.fastScrollModifier;
       if (fastScrollModifier === 'alt' && e.altKey ||
           fastScrollModifier === 'ctrl' && e.ctrlKey ||
           fastScrollModifier === 'shift' && e.shiftKey) {
         lines *= (terminal.options.fastScrollSensitivity || 5);
       }
-      
+
       terminal.scrollLines((e.deltaY > 0 ? 1 : -1) * lines);
     };
     
@@ -4474,11 +4521,11 @@ const wheelHandler = (e) => {
         }
       } else if (data.advisory) {
         // Advisory errors (rate-limit, invalid payload, bufferFull, etc.)
-        // are non-fatal — warn via toast but DO NOT close the tab. Closing
-        // the tab on every rate-limited ssh-request-sync would kill the
-        // very session the user was trying to refresh / switch to.
+        // are operational warnings — log them but do NOT show a toast.
+        // Showing toasts for every rate-limited sync or buffer-full event
+        // is extremely annoying during normal usage like scrolling in a
+        // TUI app.
         console.warn('[SSHIFT] Advisory ssh-error (tab kept open):', data.message);
-        this.showToast(data.message, 'warning');
       } else {
         this.showToast(data.message, 'error');
       }
@@ -7334,7 +7381,7 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
         fastScrollModifier: 'alt',
         fastScrollSensitivity: 5,
         smoothScrollDuration: 80,
-        overviewRuler: { width: 14 },
+        overviewRuler: { width: 0 },
         customGlyphs: true
       });
 
@@ -7843,40 +7890,35 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
         }
       });
 
-      // Defensive activation on user interaction.
+      // Defensive activation: clear stuck `isResyncing` on user interaction.
       // Backgrounded / throttled browser tabs can leave `isResyncing` set
       // (setTimeout was deferred by the browser's power saver) which
-      // suppresses onResize emits. Some browsers also move focus to the
-      // body when the tab is hidden, and xterm's mouse input + IME only
-      // fire while the terminal's element / hidden textarea has focus.
-      // Result: after a period of inactivity on a TUI app, mouse clicks
-      // and scroll stop working until the user refreshes. Fix: on every
-      // mouse / touch / wheel interaction with the terminal, re-focus
-      // xterm and clear any stuck isResyncing flag so subsequent resize
-      // events (and TUI mouse-tracking escape sequences) flow through.
-      const activateSession = () => {
+      // suppresses onResize emits. After inactivity on a TUI app, mouse
+      // clicks and scroll can stop working until the user refreshes.
+      // Fix: on mouse/wheel interaction (desktop), clear the flag AND
+      // re-focus the terminal so xterm's mouse-service fires.
+      // On mobile touch, ONLY clear the flag — do NOT re-focus the
+      // hidden textarea because that would pop the on-screen keyboard
+      // on every scroll drag. The mobile handler manages keyboard
+      // visibility separately.
+      const clearResyncing = () => {
         if (!session) return;
         if (session.isResyncing) {
-          // setTimeout was probably deferred by background throttling.
-          // Releasing here lets the next user-initiated resize flow.
           session.isResyncing = false;
         }
-        // Re-focus the terminal so xterm's mouse-service fires. Use
-        // requestAnimationFrame to avoid stealing focus mid-click on
-        // the active selection.
+      };
+      const activateAndFocus = () => {
+        clearResyncing();
         requestAnimationFrame(() => {
-          if (session.terminal) {
-            if (this.isMobile && session.mobileHandler && session.mobileHandler.hiddenTextarea) {
-              session.mobileHandler._focusHiddenTextarea();
-            } else {
-              try { session.terminal.focus(); } catch (_) {}
-            }
+          if (session.terminal && !this.isMobile) {
+            try { session.terminal.focus(); } catch (_) {}
           }
         });
       };
-      container.addEventListener('mousedown', activateSession, true);
-      container.addEventListener('touchstart', activateSession, true);
-      container.addEventListener('wheel', activateSession, true);
+      container.addEventListener('mousedown', activateAndFocus, true);
+      container.addEventListener('wheel', clearResyncing, true);
+      // On mobile, only clear isResyncing on touchstart — do NOT focus.
+      container.addEventListener('touchstart', clearResyncing, true);
 
       session.terminal = terminal;
       session.fitAddon = fitAddon;
@@ -7932,11 +7974,75 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
       resizeObserver.observe(wrapper);
       session.resizeObserver = resizeObserver;
 
+      // Keep xterm's scrollbar dimensions + slider bg consistent.
+      // xterm sets inline width: 14px and bg: rgb(73,77,83) on the
+      // slider every time it re-renders; a MutationObserver catches
+      // each change and overrides it back.
+      {
+        const targetW = this.isMobile ? '4px' : '8px';
+        const fixScrollbar = () => {
+          const sbs = wrapper.querySelectorAll('.xterm-scrollable-element > .scrollbar.vertical');
+          sbs.forEach(sb => {
+            if (sb.style.width !== targetW) {
+              sb.style.width = targetW;
+              sb.style.minWidth = targetW;
+              sb.style.maxWidth = targetW;
+            }
+            const slider = sb.querySelector('.slider');
+            if (slider) {
+              if (slider.style.width !== targetW) {
+                slider.style.width = targetW;
+                slider.style.minWidth = targetW;
+                slider.style.maxWidth = targetW;
+              }
+              // Override xterm's inline !important bg (lighter shade
+              // that looks like a white line) with a dark thumb color.
+              slider.style.setProperty('background-color', '#3d444d', 'important');
+            }
+          });
+        };
+        requestAnimationFrame(fixScrollbar);
+        const mo = new MutationObserver(fixScrollbar);
+        const scrollableEl = wrapper.querySelector('.xterm-scrollable-element');
+        if (scrollableEl) {
+          mo.observe(scrollableEl, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
+        }
+        session._scrollbarObserver = mo;
+      }
+
       // Setup mobile scroll behavior after terminal is ready
       // Use requestAnimationFrame to ensure terminal.element is available
       requestAnimationFrame(() => {
         this.setupMobileScrollBehavior(sessionId);
         this.setupWheelScroll(sessionId);
+
+        // Force thinner scrollbar on mobile. xterm v6 sets an inline
+        // width: 14px on the vertical scrollbar AND its slider — override
+        // both via inline style since CSS !important on the slider doesn't
+        // always survive against xterm's re-renders.
+        // On desktop, override the slider bg color which xterm sets inline
+        // to rgb(73,77,83) — a lighter shade that looks like a white line
+        // against the dark terminal background.
+        const targetWidth = this.isMobile ? '4px' : '8px';
+        {
+          const scrollbars = wrapper.querySelectorAll('.xterm-scrollable-element > .scrollbar');
+          scrollbars.forEach(sb => {
+            if (sb.classList.contains('vertical')) {
+              sb.style.width = targetWidth;
+              sb.style.minWidth = targetWidth;
+              sb.style.maxWidth = targetWidth;
+              const slider = sb.querySelector('.slider');
+              if (slider) {
+                slider.style.width = targetWidth;
+                slider.style.minWidth = targetWidth;
+                slider.style.maxWidth = targetWidth;
+                // Override xterm's inline !important bg with a dark shade
+                // that's visible but doesn't look like a white line.
+                slider.style.setProperty('background-color', '#3d444d', 'important');
+              }
+            }
+          });
+        }
       });
 
       console.log('[SSHIFT] Terminal initialized for session:', sessionId);
@@ -9202,6 +9308,11 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
       if (session.resizeTimeout) {
         clearTimeout(session.resizeTimeout);
         session.resizeTimeout = null;
+      }
+      // Clean up scrollbar MutationObserver (mobile-only)
+      if (session._scrollbarObserver) {
+        session._scrollbarObserver.disconnect();
+        session._scrollbarObserver = null;
       }
       // Clean up write buffer RAF
       if (session.writeRAF) {
