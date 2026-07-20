@@ -202,11 +202,24 @@ try {
           return;
         }
 
+        // Return the raw ssh2 Stats object so callers can use the
+        // standard `stats.isDirectory()` / `stats.isFile()` METHODS
+        // (not properties). The previous normalized return shape
+        // (`{ isDirectory: bool, isFile: bool }`) broke callers —
+        // notably `sftp-download` at src/server/endpoints/ws/sftp.js
+        // which calls `stats.isDirectory()` as a function and crashed
+        // with "stats.isDirectory is not a function" on every file
+        // download attempt. We add normalized properties as aliases
+        // so existing callers that read them as booleans still work.
         resolve({
+          // Raw ssh2 Stats methods (primary API).
+          isDirectory: () => stats.isDirectory(),
+          isFile: () => stats.isFile(),
+          // Aliased scalar fields for callers that read these as values.
           size: stats.size,
           modifyTime: stats.mtime * 1000,
-          isDirectory: stats.isDirectory(),
-          isFile: stats.isFile()
+          isDirectoryValue: stats.isDirectory(),
+          isFileValue: stats.isFile()
         });
       });
     });

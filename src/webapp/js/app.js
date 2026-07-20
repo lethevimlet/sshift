@@ -4107,10 +4107,22 @@ const wheelHandler = (e) => {
             try {
               // Set resyncing flag BEFORE calling resize to prevent resize feedback loop
               session.isResyncing = true;
-              
+
               session.terminal.resize(data.cols, data.rows);
               console.log('[SSHIFT] Terminal resized to match server dimensions:', data.cols, 'x', data.rows);
-              
+
+              // The serialized state was just written into a fresh
+              // buffer + the terminal was just resized. The WebGL
+              // renderer's glyph atlas still holds glyphs rasterised
+              // at the pre-resize cell size — painting them now would
+              // produce the "interlaced / every-other-row blank" bug
+              // (visible after "Take Control" on a just-refreshed
+              // browser tab; fixed when the user manually resizes the
+              // window because that re-runs _fitTerminal → _resetWebGLAtlas).
+              // Clear the atlas here so the renderer re-rasterises at
+              // the post-sync cell dimensions.
+              this._resetWebGLAtlas(session);
+
               // Clear the resyncing flag after a short delay
               setTimeout(() => {
                 session.isResyncing = false;
@@ -7830,6 +7842,41 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
           session.terminal.refresh(0, session.terminal.rows - 1);
         }
       });
+
+      // Defensive activation on user interaction.
+      // Backgrounded / throttled browser tabs can leave `isResyncing` set
+      // (setTimeout was deferred by the browser's power saver) which
+      // suppresses onResize emits. Some browsers also move focus to the
+      // body when the tab is hidden, and xterm's mouse input + IME only
+      // fire while the terminal's element / hidden textarea has focus.
+      // Result: after a period of inactivity on a TUI app, mouse clicks
+      // and scroll stop working until the user refreshes. Fix: on every
+      // mouse / touch / wheel interaction with the terminal, re-focus
+      // xterm and clear any stuck isResyncing flag so subsequent resize
+      // events (and TUI mouse-tracking escape sequences) flow through.
+      const activateSession = () => {
+        if (!session) return;
+        if (session.isResyncing) {
+          // setTimeout was probably deferred by background throttling.
+          // Releasing here lets the next user-initiated resize flow.
+          session.isResyncing = false;
+        }
+        // Re-focus the terminal so xterm's mouse-service fires. Use
+        // requestAnimationFrame to avoid stealing focus mid-click on
+        // the active selection.
+        requestAnimationFrame(() => {
+          if (session.terminal) {
+            if (this.isMobile && session.mobileHandler && session.mobileHandler.hiddenTextarea) {
+              session.mobileHandler._focusHiddenTextarea();
+            } else {
+              try { session.terminal.focus(); } catch (_) {}
+            }
+          }
+        });
+      };
+      container.addEventListener('mousedown', activateSession, true);
+      container.addEventListener('touchstart', activateSession, true);
+      container.addEventListener('wheel', activateSession, true);
 
       session.terminal = terminal;
       session.fitAddon = fitAddon;
