@@ -322,6 +322,9 @@
                 <button class="btn btn-sm" id="specialKeysBtn" title="Special Keys">
                   <i class="fas fa-keyboard"></i>
                 </button>
+                <button class="btn btn-sm" id="speechToTextBtn" title="Speech to Text">
+                  <i class="fas fa-microphone"></i>
+                </button>
               </div>
             </div>
 
@@ -698,6 +701,43 @@
     </div>
   </div>
 
+  <!-- Speech-to-Text Modal -->
+  <div class="modal" id="speechToTextModal">
+    <div class="modal-content modal-md">
+      <div class="modal-header">
+        <h2><i class="fas fa-microphone"></i> Speech to Text</h2>
+        <button class="modal-close" id="closeSpeechToTextModal" title="Close">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <div class="modal-body speech-to-text-body">
+        <div class="speech-to-text-controls">
+          <button class="btn btn-sm stt-record-btn" id="sttRecordBtn" title="Start / Pause / Resume recording">
+            <i class="fas fa-microphone"></i>
+            <span class="stt-btn-label">Record</span>
+          </button>
+          <button class="btn btn-sm stt-wand-btn" id="sttWandBtn" title="Process with AI wand">
+            <i class="fas fa-magic"></i>
+            <span class="stt-btn-label">Wand</span>
+          </button>
+          <span class="stt-status" id="sttStatus" hidden>
+            <i class="fas fa-spinner fa-spin"></i>
+            <span class="stt-status-label">Transcribing…</span>
+          </span>
+        </div>
+        <textarea class="speech-to-text-transcript" id="sttTranscript" placeholder="Transcribed speech will appear here..." rows="6"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="sttCancelBtn" title="Cancel">
+          <i class="fas fa-times"></i> Cancel
+        </button>
+        <button class="btn btn-primary" id="sttSendBtn" title="Send text to terminal">
+          <i class="fas fa-paper-plane"></i> Send
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- SFTP Browser Modal -->
   <div class="modal" id="sftpModal">
     <div class="modal-content modal-lg">
@@ -763,6 +803,9 @@
           <button class="settings-nav-item" data-category="system">
             <i class="fas fa-server"></i> <span>System</span>
           </button>
+          <button class="settings-nav-item" data-category="speech-ai">
+            <i class="fas fa-microphone"></i> <span>Speech &amp; AI</span>
+          </button>
           <button class="settings-nav-item" data-category="plugins">
             <i class="fas fa-puzzle-piece"></i> <span>Plugins</span>
           </button>
@@ -775,6 +818,7 @@
             <option value="mobile">Mobile</option>
             <option value="security">Security</option>
             <option value="system">System</option>
+            <option value="speech-ai">Speech &amp; AI</option>
             <option value="plugins">Plugins</option>
           </select>
           <div class="settings-category" id="settings-category-sessions">
@@ -955,6 +999,118 @@
                 <button class="btn btn-secondary" id="showDebugInfoBtn">
                   <i class="fas fa-info-circle"></i> View Paths
                 </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-category" id="settings-category-speech-ai" style="display:none;">
+            <h3 class="settings-category-title"><i class="fas fa-microphone"></i> Speech &amp; AI</h3>
+
+            <!-- Speech-to-Text (STT) Endpoint -->
+            <div class="setting-subgroup">
+              <h4 class="setting-subgroup-title">
+                <i class="fas fa-microphone-alt"></i> Speech-to-Text Endpoint
+              </h4>
+              <div class="setting-item">
+                <label class="setting-label">
+                  <i class="fas fa-link"></i> STT Endpoint URL
+                </label>
+                <div class="setting-description">
+                  The HTTPS endpoint that accepts an audio stream and returns transcribed text (e.g. WebSocket or HTTP streaming endpoint).
+                </div>
+                <div class="setting-control">
+                  <input type="url" id="sttEndpoint" class="setting-input" placeholder="https://api.example.com/stt/v1/stream">
+                </div>
+              </div>
+              <div class="setting-item">
+                <label class="setting-label">
+                  <i class="fas fa-key"></i> STT Auth Key
+                </label>
+                <div class="setting-description">
+                  Bearer token / API key sent in the Authorization header when calling the STT endpoint. Stored locally on this device only.
+                </div>
+                <div class="setting-control password-input">
+                  <input type="password" id="sttAuthKey" class="setting-input" placeholder="sk-...">
+                  <button type="button" class="password-toggle" id="toggleSttAuthKey" title="Show/Hide">
+                    <i class="fas fa-eye"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="setting-item">
+                <label class="setting-label">
+                  <i class="fas fa-language"></i> STT Language
+                </label>
+                <div class="setting-description">
+                  Optional language/locale hint (e.g. <code>en-US</code>, <code>es-ES</code>). Leave blank for auto-detect.
+                </div>
+                <div class="setting-control">
+                  <input type="text" id="sttLanguage" class="setting-input" placeholder="en-US">
+                </div>
+              </div>
+            </div>
+
+            <!-- LLM Endpoint (OpenAI-compatible, used by Wand) -->
+            <div class="setting-subgroup">
+              <h4 class="setting-subgroup-title">
+                <i class="fas fa-magic"></i> LLM Endpoint (Wand)
+              </h4>
+              <div class="setting-item">
+                <label class="setting-label">
+                  <i class="fas fa-link"></i> LLM Endpoint URL
+                </label>
+                <div class="setting-description">
+                  OpenAI-compatible chat completions endpoint (e.g. <code>https://api.openai.com/v1/chat/completions</code>). Used by the Wand button to clean up transcribed text.
+                </div>
+                <div class="setting-control">
+                  <input type="url" id="llmEndpoint" class="setting-input" placeholder="https://api.openai.com/v1/chat/completions">
+                </div>
+              </div>
+              <div class="setting-item">
+                <label class="setting-label">
+                  <i class="fas fa-key"></i> LLM Auth Key
+                </label>
+                <div class="setting-description">
+                  Bearer token / API key sent in the Authorization header (e.g. <code>Bearer sk-...</code>). Stored locally on this device only.
+                </div>
+                <div class="setting-control password-input">
+                  <input type="password" id="llmAuthKey" class="setting-input" placeholder="sk-...">
+                  <button type="button" class="password-toggle" id="toggleLlmAuthKey" title="Show/Hide">
+                    <i class="fas fa-eye"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="setting-item">
+                <label class="setting-label">
+                  <i class="fas fa-cube"></i> LLM Model
+                </label>
+                <div class="setting-description">
+                  Model name to request (e.g. <code>gpt-4o-mini</code>, <code>llama-3.1-8b-instruct</code>).
+                </div>
+                <div class="setting-control">
+                  <input type="text" id="llmModel" class="setting-input" placeholder="gpt-4o-mini">
+                </div>
+              </div>
+            </div>
+
+            <!-- Wand System Prompt -->
+            <div class="setting-subgroup">
+              <h4 class="setting-subgroup-title">
+                <i class="fas fa-wand-magic-sparkles"></i> Wand System Prompt
+              </h4>
+              <div class="setting-item">
+                <label class="setting-label">
+                  <i class="fas fa-comment-dots"></i> System Prompt
+                </label>
+                <div class="setting-description">
+                  Instructions sent to the LLM when the Wand button is pressed. The transcribed speech is passed as the user message; the LLM should return a clean, ready-to-send version of the same intent.
+                </div>
+                <div class="setting-control stt-prompt-control">
+                  <textarea id="wandSystemPrompt" class="setting-input stt-prompt-textarea" rows="6"
+                    placeholder="You are an assistant that cleans up transcribed speech for terminal input. Rewrite the user's speech as a clear, well-punctuated, ready-to-send command or text. Fix typos, remove filler words, hesitations, stutters and false starts, and preserve the user's intent exactly. Do not add quotes, explanations, or markdown. Output only the corrected text."></textarea>
+                  <button type="button" class="btn btn-sm btn-secondary stt-prompt-reset" id="resetWandPromptBtn" title="Reset to default prompt">
+                    <i class="fas fa-rotate-left"></i> Reset
+                  </button>
+                </div>
               </div>
             </div>
           </div>

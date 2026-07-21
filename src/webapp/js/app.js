@@ -2458,6 +2458,13 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     specialKeysBtn.title = 'Special Keys';
     specialKeysBtn.innerHTML = '<i class="fas fa-keyboard"></i>';
     actions.appendChild(specialKeysBtn);
+
+    const speechToTextBtn = document.createElement('button');
+    speechToTextBtn.className = 'btn btn-sm';
+    speechToTextBtn.id = isSingle ? 'speechToTextBtn' : `${panelId}-speechToTextBtn`;
+    speechToTextBtn.title = 'Speech to Text';
+    speechToTextBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+    actions.appendChild(speechToTextBtn);
     
     container.appendChild(actions);
     
@@ -2507,22 +2514,13 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       increaseBtn.addEventListener('click', () => this.handleFontSizeChange(panelId, 1));
     }
     
-    // Special keys button
+    // Special keys button — touch + click pattern so it works on mobile & desktop
     const specialKeysBtn = document.getElementById(isSingle ? 'specialKeysBtn' : `${panelId}-specialKeysBtn`);
-    if (specialKeysBtn) {
-      specialKeysBtn.setAttribute('tabindex', '-1');
-      specialKeysBtn.addEventListener('focus', () => {
-        specialKeysBtn.blur();
-        if (this.isMobile) this.focusTerminal();
-      });
-      specialKeysBtn.addEventListener('touchstart', (e) => {
-        if (this.isMobile) e.preventDefault();
-      }, { passive: false });
-      specialKeysBtn.addEventListener('mousedown', (e) => {
-        if (this.isMobile) e.preventDefault();
-      });
-      specialKeysBtn.addEventListener('click', () => this.handleSpecialKeys(panelId));
-    }
+    this._wireActionBtn(specialKeysBtn, () => this.handleSpecialKeys(panelId));
+
+    // Speech-to-text button (terminal tabs only — gating handled in handler)
+    const speechToTextBtn = document.getElementById(isSingle ? 'speechToTextBtn' : `${panelId}-speechToTextBtn`);
+    this._wireActionBtn(speechToTextBtn, () => this.handleSpeechToText(panelId));
     
     // Quick SSH/SFTP buttons in empty state
     const quickSshBtn = document.getElementById(isSingle ? 'quickSshBtn' : `${panelId}-quickSshBtn`);
@@ -2659,6 +2657,348 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     
     // Open the special keys modal
     this.openModal('specialKeysModal');
+  }
+
+  handleSpeechToText(panelId) {
+    console.log('[SSHIFT] Open speech-to-text for panel:', panelId);
+
+    const activeSessionId = this.activeSessionsByPanel.get(panelId);
+
+    if (!activeSessionId) {
+      this.showToast('No active session in this panel', 'warning');
+      return;
+    }
+
+    const session = this.sessions.get(activeSessionId);
+    if (!session || session.type !== 'ssh') {
+      this.showToast('Speech to text only works in SSH sessions', 'warning');
+      return;
+    }
+
+    // Set this as the active session so Send writes to the right terminal
+    this.activeSessionId = activeSessionId;
+
+    // Reset transcript + record button state for a fresh session
+    const transcript = document.getElementById('sttTranscript');
+    if (transcript) transcript.value = '';
+    this._resetSttRecordButton();
+
+    // Open the speech-to-text modal (TTS/record/wand logic comes later)
+    this.openModal('speechToTextModal');
+  }
+
+  // Wire a tab-action button (keyboard, mic, etc.) with the standard
+  // touch+click pattern used throughout the app. On touch devices, the
+  // action fires from touchend (with a dedupe flag so the synthetic
+  // click doesn't double-fire). On non-touch devices, the action fires
+  // from click. The focus handler keeps focus on the terminal so the
+  // virtual keyboard never pops up when the user taps a tab-action button.
+  _wireActionBtn(btn, action) {
+    if (!btn) return;
+    btn.setAttribute('tabindex', '-1');
+    btn.addEventListener('focus', () => {
+      btn.blur();
+      if (this.isMobile) this.focusTerminal();
+    });
+    let touchHandled = false;
+    btn.addEventListener('touchstart', (e) => {
+      if (this.isMobile) e.preventDefault();
+      touchHandled = true;
+    }, { passive: false });
+    btn.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      touchHandled = true;
+      action();
+    }, { passive: false });
+    btn.addEventListener('mousedown', (e) => {
+      if (this.isMobile) e.preventDefault();
+    });
+    btn.addEventListener('click', () => {
+      if (touchHandled) { touchHandled = false; return; }
+      action();
+    });
+  }
+
+  // Cycle the merged Record/Pause button. Solving for the cleanest UX:
+//   idle (label "Record") —— click ——> recording (label "Pause", red pulse)
+//   recording —— click ——> stop & transcribe ——> back to idle
+// "Pause" therefore really means "stop+transcribe", with the next Record
+// appending additional speech to the same transcript. This avoids a 4-state
+// cycle (record/pause/resume/stop) and matches the spec of "the same button
+// for record and pause depending on state" — when not recording it's Record,
+// when recording it's Pause.
+  async _toggleSttRecord() {
+    const btn = document.getElementById('sttRecordBtn');
+    if (!btn) return;
+    const labelEl = btn.querySelector('.stt-btn-label');
+    const iconEl = btn.querySelector('i');
+
+    if (btn.classList.contains('recording')) {
+      // recording -> stop & transcribe
+      btn.classList.remove('recording');
+      if (iconEl) iconEl.className = 'fas fa-microphone';
+      if (labelEl) labelEl.textContent = 'Record';
+      btn.title = 'Start / Pause / Resume recording';
+      btn.disabled = true;
+      try {
+        await this._sttStopAndTranscribe();
+      } finally {
+        btn.disabled = false;
+      }
+      return;
+    }
+
+    // idle -> recording
+    try {
+      await this._startSttRecording();
+      btn.classList.add('recording');
+      if (iconEl) iconEl.className = 'fas fa-pause';
+      if (labelEl) labelEl.textContent = 'Pause';
+      btn.title = 'Stop recording and transcribe';
+    } catch (err) {
+      console.error('[SSHIFT] STT start failed:', err);
+      this.showToast('Could not start recording: ' + (err.message || err), 'error');
+      this._resetSttRecordButton();
+    }
+  }
+
+  // Stop the recorder (without resetting the button UI) and return the
+  // resulting audio Blob. Resolves to null if nothing was recorded.
+  _stopSttRecording() {
+    return new Promise((resolve) => {
+      const rec = this._sttRecorder;
+      if (!rec || rec.state === 'inactive') {
+        resolve(null);
+        return;
+      }
+      const chunks = this._sttChunks || [];
+      const finish = () => {
+        try {
+          const type = rec.mimeType || 'audio/webm';
+          resolve(new Blob(chunks, { type }));
+        } catch (e) {
+          resolve(null);
+        }
+      };
+      rec.addEventListener('stop', finish, { once: true });
+      try { rec.requestData(); } catch (_) {}
+      try { rec.stop(); } catch (_) { resolve(null); }
+      if (this._sttStream) {
+        this._sttStream.getTracks().forEach(t => { try { t.stop(); } catch (_) {} });
+        this._sttStream = null;
+      }
+    });
+  }
+
+  async _startSttRecording() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('Microphone access is not available in this browser');
+    }
+
+    // Tear down any previous session first.
+    this._cleanupSttRecording();
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      video: false
+    });
+    this._sttStream = stream;
+    this._sttChunks = [];
+
+    // Pick a supported mime type: webm/opus first (Chrome), then ogg, then
+    // whatever the browser offers. DeepInfra's whisper endpoint accepts the
+    // common container formats.
+    const candidates = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/ogg;codecs=opus',
+      'audio/ogg',
+      'audio/mp4'
+    ];
+    const mimeType = candidates.find(c => window.MediaRecorder && MediaRecorder.isTypeSupported(c)) || '';
+
+    const recorder = mimeType
+      ? new MediaRecorder(stream, { mimeType })
+      : new MediaRecorder(stream);
+    this._sttRecorder = recorder;
+    this._sttRecorderMime = mimeType || recorder.mimeType || 'audio/webm';
+
+    recorder.addEventListener('dataavailable', (e) => {
+      if (e.data && e.data.size > 0) this._sttChunks.push(e.data);
+    });
+
+    recorder.start(1000); // collect data in 1s chunks so stop() is fast
+  }
+
+  _cleanupSttRecording() {
+    try {
+      if (this._sttRecorder && this._sttRecorder.state !== 'inactive') {
+        this._sttRecorder.stop();
+      }
+    } catch (_) {}
+    if (this._sttStream) {
+      this._sttStream.getTracks().forEach(t => { try { t.stop(); } catch (_) {} });
+      this._sttStream = null;
+    }
+    this._sttRecorder = null;
+    this._sttChunks = null;
+  }
+
+  // Transcribe whatever is currently recorded by sending it to the STT
+  // proxy. Appends the returned text to the transcript textarea.
+  async _sttStopAndTranscribe() {
+    const transcript = document.getElementById('sttTranscript');
+    const blob = await this._stopSttRecording();
+    this._resetSttRecordButton();
+    if (!blob || blob.size === 0) {
+      this.showToast('No audio to transcribe', 'warning');
+      return;
+    }
+    const ext = (this._sttRecorderMime || 'audio/webm').includes('mp4') ? 'm4a'
+              : (this._sttRecorderMime || '').includes('ogg') ? 'ogg'
+              : 'webm';
+    const filename = `sshift-recording-${Date.now()}.${ext}`;
+    // Show an inline spinner + "Transcribing…" label in the modal controls
+    // row instead of a toast, so the user sees feedback right where they
+    // clicked. Also disable the Record/Wand buttons while in flight.
+    const setStatus = (visible, label) => {
+      const s = document.getElementById('sttStatus');
+      if (s) {
+        s.hidden = !visible;
+        const l = s.querySelector('.stt-status-label');
+        if (l && label) l.textContent = label;
+      }
+      const recBtn = document.getElementById('sttRecordBtn');
+      const wandBtn = document.getElementById('sttWandBtn');
+      if (recBtn) recBtn.disabled = visible;
+      if (wandBtn) wandBtn.disabled = visible;
+    };
+    try {
+      setStatus(true, 'Transcribing…');
+      const res = await fetch('/api/speech-ai/stt', {
+        method: 'POST',
+        headers: {
+          'Content-Type': this._sttRecorderMime || 'audio/webm',
+          'X-Audio-Filename': filename
+        },
+        body: blob
+      });
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status} ${txt}`);
+      }
+      const data = await res.json();
+      const text = (data.text || '').trim();
+      if (!text) {
+        this.showToast('No speech detected', 'warning');
+        return;
+      }
+      if (transcript) {
+        const prev = transcript.value.trim();
+        transcript.value = prev ? (prev + ' ' + text) : text;
+        transcript.scrollTop = transcript.scrollHeight;
+      }
+    } catch (err) {
+      console.error('[SSHIFT] STT transcription failed:', err);
+      this.showToast('Transcription failed: ' + (err.message || err), 'error');
+    } finally {
+      setStatus(false, 'Transcribing…');
+    }
+  }
+
+  // Send the transcript to the Wand proxy and replace the textarea with the
+  // cleaned version returned by the LLM.
+  async _sttRunWand() {
+    const transcript = document.getElementById('sttTranscript');
+    if (!transcript) return;
+    const text = transcript.value.trim();
+    if (!text) {
+      this.showToast('Nothing to clean up yet', 'warning');
+      return;
+    }
+    const wandBtn = document.getElementById('sttWandBtn');
+    const setBusy = (busy) => {
+      if (!wandBtn) return;
+      wandBtn.disabled = busy;
+      wandBtn.style.opacity = busy ? '0.6' : '';
+      const iconEl = wandBtn.querySelector('i');
+      const labelEl = wandBtn.querySelector('.stt-btn-label');
+      if (busy) {
+        wandBtn.dataset.origIcon = iconEl ? iconEl.className : '';
+        if (iconEl) iconEl.className = 'fas fa-spinner fa-spin';
+        if (labelEl) labelEl.textContent = 'Cleaning…';
+      } else {
+        if (iconEl && wandBtn.dataset.origIcon) iconEl.className = wandBtn.dataset.origIcon;
+        if (labelEl) labelEl.textContent = 'Wand';
+      }
+    };
+    setBusy(true);
+    try {
+      const res = await fetch('/api/speech-ai/wand', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status} ${txt}`);
+      }
+      const data = await res.json();
+      const cleaned = (data.text || '').trim();
+      if (cleaned) {
+        transcript.value = cleaned;
+        transcript.scrollTop = transcript.scrollHeight;
+        this.showToast('Cleaned up', 'success');
+      } else {
+        this.showToast('Wand returned nothing', 'warning');
+      }
+    } catch (err) {
+      console.error('[SSHIFT] Wand failed:', err);
+      this.showToast('Wand failed: ' + (err.message || err), 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Reset the Record/Pause button to its idle state and stop any active
+  // mic stream. Used when the modal closes.
+  _resetSttRecordButton() {
+    this._cleanupSttRecording();
+    const btn = document.getElementById('sttRecordBtn');
+    if (!btn) return;
+    btn.classList.remove('recording', 'paused');
+    btn.disabled = false;
+    const labelEl = btn.querySelector('.stt-btn-label');
+    const iconEl = btn.querySelector('i');
+    if (iconEl) iconEl.className = 'fas fa-microphone';
+    if (labelEl) labelEl.textContent = 'Record';
+    btn.title = 'Start / Pause / Resume recording';
+  }
+
+  // Enable/disable terminal-only tab action buttons (keyboard + mic) based
+  // on the active session type for the given panel. SFTP tabs disable them.
+  updateTabActionButtons(panelId) {
+    const isSingle = panelId === 'panel-0';
+    const keysBtnId = isSingle ? 'specialKeysBtn' : `${panelId}-specialKeysBtn`;
+    const micBtnId = isSingle ? 'speechToTextBtn' : `${panelId}-speechToTextBtn`;
+
+    const keysBtn = document.getElementById(keysBtnId);
+    const micBtn = document.getElementById(micBtnId);
+
+    const activeSessionId = this.activeSessionsByPanel.get(panelId);
+    const session = activeSessionId ? this.sessions.get(activeSessionId) : null;
+    const enabled = !!(session && session.type === 'ssh');
+
+    [keysBtn, micBtn].forEach(btn => {
+      if (!btn) return;
+      if (enabled) {
+        btn.removeAttribute('disabled');
+        btn.classList.remove('disabled');
+      } else {
+        btn.setAttribute('disabled', 'disabled');
+        btn.classList.add('disabled');
+      }
+    });
   }
 
   async initLayoutSystem() {
@@ -5105,22 +5445,138 @@ const wheelHandler = (e) => {
       });
     });
 
-    // Special keys modal
+    // Special keys modal — panel-0 static instance uses the shared tap wiring
+    // so it behaves identically on mobile and desktop (same as mic button).
     const specialKeysBtnEl = document.getElementById('specialKeysBtn');
-    specialKeysBtnEl.setAttribute('tabindex', '-1');
-    specialKeysBtnEl.addEventListener('focus', () => {
-      specialKeysBtnEl.blur();
-      if (this.isMobile) this.focusTerminal();
-    });
-    specialKeysBtnEl.addEventListener('touchstart', (e) => {
-      if (this.isMobile) e.preventDefault();
-    }, { passive: false });
-    specialKeysBtnEl.addEventListener('mousedown', (e) => {
-      if (this.isMobile) e.preventDefault();
-    });
-    specialKeysBtnEl.addEventListener('click', () => {
-      this.handleSpecialKeys('panel-0');
-    });
+    this._wireActionBtn(specialKeysBtnEl, () => this.handleSpecialKeys('panel-0'));
+
+    // Speech-to-text button (panel-0 static instance) — wired the same way
+    // as the keyboard button so both behave the same on mobile & desktop.
+    const speechToTextBtnEl = document.getElementById('speechToTextBtn');
+    this._wireActionBtn(speechToTextBtnEl, () => this.handleSpeechToText('panel-0'));
+
+    // Speech-to-text modal close / cancel / send / record / wand handlers
+    const closeSttBtn = document.getElementById('closeSpeechToTextModal');
+    const sttCancelBtn = document.getElementById('sttCancelBtn');
+    const sttSendBtn = document.getElementById('sttSendBtn');
+    const sttRecordBtn = document.getElementById('sttRecordBtn');
+    const sttWandBtn = document.getElementById('sttWandBtn');
+
+    const closeSpeechToTextModal = () => {
+      this.closeModal('speechToTextModal');
+      const transcript = document.getElementById('sttTranscript');
+      if (transcript) transcript.value = '';
+      const status = document.getElementById('sttStatus');
+      if (status) status.hidden = true;
+      this._resetSttRecordButton();
+      // Always return focus to the terminal (desktop + mobile) so the user
+      // can keep typing/backspacing immediately after Send/Cancel/Close.
+      this.focusTerminal();
+    };
+
+    const attachSttClose = (btn) => {
+      if (!btn) return;
+      btn.setAttribute('tabindex', '-1');
+      btn.addEventListener('focus', () => {
+        btn.blur();
+        if (this.isMobile) this.focusTerminal();
+      });
+      btn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+      }, { passive: false });
+      btn.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+      });
+      btn.addEventListener('click', closeSpeechToTextModal);
+      btn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        closeSpeechToTextModal();
+      }, { passive: false });
+    };
+
+    attachSttClose(closeSttBtn);
+    attachSttClose(sttCancelBtn);
+
+    // Record / Pause / Resume toggle (STT endpoint wiring comes later).
+    // Uses a basic touch+click handler — no focus stealing since the modal
+    // is the topmost layer and we don't want to yank focus to the terminal.
+    const attachSttAction = (btn, action) => {
+      if (!btn) return;
+      btn.setAttribute('tabindex', '-1');
+      let touchHandled = false;
+      btn.addEventListener('touchstart', (e) => {
+        if (this.isMobile) e.preventDefault();
+        touchHandled = true;
+      }, { passive: false });
+      btn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        touchHandled = true;
+        action();
+      }, { passive: false });
+      btn.addEventListener('mousedown', (e) => {
+        if (this.isMobile) e.preventDefault();
+      });
+      btn.addEventListener('click', () => {
+        if (touchHandled) { touchHandled = false; return; }
+        action();
+      });
+    };
+
+    attachSttAction(sttRecordBtn, () => this._toggleSttRecord());
+    // Wand: pipe transcript through LLM proxy and replace text in place.
+    attachSttAction(sttWandBtn, () => this._sttRunWand());
+
+    if (sttSendBtn) {
+      sttSendBtn.setAttribute('tabindex', '-1');
+      const sendStt = async () => {
+        // If still recording/paused, stop the mic first (any pending audio
+        // that hasn't been transcribed yet is discarded — Send sends what's
+        // currently in the textarea).
+        if (this._sttRecorder && this._sttRecorder.state !== 'inactive') {
+          try { this._sttRecorder.stop(); } catch (_) {}
+          this._cleanupSttRecording();
+          this._resetSttRecordButton();
+        }
+        const transcript = document.getElementById('sttTranscript');
+        const text = transcript ? transcript.value : '';
+        if (text) {
+          const session = this.sessions.get(this.activeSessionId);
+          // Pipe text to the remote shell via the SSH socket channel so the
+          // shell actually receives it as input. terminal.write() would only
+          // paint pixels locally and the keystrokes would never reach the
+          // server (backspace/enter had no effect because the shell never
+          // saw the input).
+          if (session && session.type === 'ssh' && session.id && session.connected && session.isController) {
+            this.socket.emit('ssh-data', { sessionId: session.id, data: text });
+          } else if (session && session.type === 'ssh' && session.terminal) {
+            // Fallback (non-controller or disconnected): at least render
+            // locally so the user sees what would have been sent.
+            session.terminal.write(text);
+            this.showToast('Not connected as controller — text not sent', 'warning');
+          } else if (session && session.terminal) {
+            session.terminal.write(text);
+          }
+        }
+        closeSpeechToTextModal();
+      };
+      let sendTouchHandled = false;
+      sttSendBtn.addEventListener('touchstart', (e) => {
+        if (this.isMobile) e.preventDefault();
+        sendTouchHandled = true;
+      }, { passive: false });
+      sttSendBtn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        sendTouchHandled = true;
+        sendStt();
+      }, { passive: false });
+      sttSendBtn.addEventListener('mousedown', (e) => {
+        if (this.isMobile) e.preventDefault();
+      });
+      sttSendBtn.addEventListener('click', () => {
+        if (sendTouchHandled) { sendTouchHandled = false; return; }
+        sendStt();
+      });
+    }
 
     const closeSpecialKeysBtn = document.getElementById('closeSpecialKeysModal');
     closeSpecialKeysBtn.setAttribute('tabindex', '-1');
@@ -5143,6 +5599,42 @@ const wheelHandler = (e) => {
       this.closeModal('specialKeysModal');
       this.focusTerminal();
     });
+
+    // Speech & AI settings — show/hide auth key toggles + Reset wand prompt
+    const toggleSttAuth = document.getElementById('toggleSttAuthKey');
+    if (toggleSttAuth) {
+      toggleSttAuth.addEventListener('click', () => {
+        const input = document.getElementById('sttAuthKey');
+        const icon = toggleSttAuth.querySelector('i');
+        if (!input) return;
+        if (input.type === 'password') {
+          input.type = 'text';
+          if (icon) icon.classList.replace('fa-eye', 'fa-eye-slash');
+        } else {
+          input.type = 'password';
+          if (icon) icon.classList.replace('fa-eye-slash', 'fa-eye');
+        }
+      });
+    }
+    const toggleLlmAuth = document.getElementById('toggleLlmAuthKey');
+    if (toggleLlmAuth) {
+      toggleLlmAuth.addEventListener('click', () => {
+        const input = document.getElementById('llmAuthKey');
+        const icon = toggleLlmAuth.querySelector('i');
+        if (!input) return;
+        if (input.type === 'password') {
+          input.type = 'text';
+          if (icon) icon.classList.replace('fa-eye', 'fa-eye-slash');
+        } else {
+          input.type = 'password';
+          if (icon) icon.classList.replace('fa-eye-slash', 'fa-eye');
+        }
+      });
+    }
+    const resetWandBtn = document.getElementById('resetWandPromptBtn');
+    if (resetWandBtn) {
+      resetWandBtn.addEventListener('click', () => this.resetWandPromptToDefault());
+    }
 
     // Special key buttons
     const specialKeysModal = document.getElementById('specialKeysModal');
@@ -5188,6 +5680,10 @@ const wheelHandler = (e) => {
       // Use the handler for consistency
       this.handleFontSizeChange('panel-0', -1);
     });
+
+    // Initialise terminal-only tab action gating (disabled until an SSH
+    // session becomes active in the panel).
+    this.updateTabActionButtons('panel-0');
 
     // SFTP modal - now handled via tabs, keeping for backward compatibility
     // These event listeners are no longer needed but kept for reference
@@ -5403,11 +5899,99 @@ const wheelHandler = (e) => {
     
     // Load plugins
     this.loadPlugins();
-    
+
+    // Load Speech & AI config from server (auth keys are redacted by the
+    // server — we only get back a "set" flag and fill the auth inputs with
+    // the sentinel placeholder so unchanged values aren't overwritten on save).
+    this.loadSpeechAiConfig().catch(err => {
+      console.error('[SSHIFT] Failed to load Speech & AI config:', err);
+    });
+
     // Reset to first category
     this.switchSettingsCategory('sessions');
     
     this.openModal('settingsModal');
+  }
+
+  // ---- Speech & AI: settings load/save ---------------------------------
+  // Auth keys are never sent back to the client. When the user doesn't type
+  // a new one, we post the "__UNCHANGED__" sentinel so the server preserves
+  // the existing value.
+  async loadSpeechAiConfig() {
+    const res = await fetch('/api/speech-ai/config');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const cfg = await res.json();
+    this._speechAiConfig = cfg;
+
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+    set('sttEndpoint', cfg.sttEndpoint || '');
+    set('sttLanguage', cfg.sttLanguage || '');
+    set('llmEndpoint', cfg.llmEndpoint || '');
+    set('llmModel', cfg.llmModel || '');
+    set('wandSystemPrompt', cfg.wandSystemPrompt || '');
+
+    // Auth keys: redacted. Show a placeholder describing current state and
+    // leave the input blank so a Save without typing keeps the existing key.
+    const sttAuth = document.getElementById('sttAuthKey');
+    if (sttAuth) {
+      sttAuth.value = '';
+      sttAuth.placeholder = cfg.sttAuthKeySet
+        ? 'API key set — leave blank to keep'
+        : 'sk-...';
+    }
+    const llmAuth = document.getElementById('llmAuthKey');
+    if (llmAuth) {
+      llmAuth.value = '';
+      llmAuth.placeholder = cfg.llmAuthKeySet
+        ? 'API key set — leave blank to keep'
+        : 'sk-...';
+    }
+  }
+
+  async saveSpeechAiConfig() {
+    const val = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
+    const sttAuth = document.getElementById('sttAuthKey');
+    const llmAuth = document.getElementById('llmAuthKey');
+
+    // Sentinel preserves existing keys when the user didn't type a new one.
+    const sttAuthKey = (sttAuth && sttAuth.value.trim()) ? sttAuth.value.trim() : '__UNCHANGED__';
+    const llmAuthKey = (llmAuth && llmAuth.value.trim()) ? llmAuth.value.trim() : '__UNCHANGED__';
+
+    const body = {
+      sttEndpoint:     val('sttEndpoint'),
+      sttLanguage:     val('sttLanguage'),
+      llmEndpoint:     val('llmEndpoint'),
+      llmModel:        val('llmModel'),
+      wandSystemPrompt:val('wandSystemPrompt'),
+      sttAuthKey,
+      llmAuthKey
+    };
+
+    const res = await fetch('/api/speech-ai/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`HTTP ${res.status} ${txt}`);
+    }
+    // Reload so the redacted placeholders reflect the new state.
+    return this.loadSpeechAiConfig();
+  }
+
+  async resetWandPromptToDefault() {
+    try {
+      const res = await fetch('/api/speech-ai/wand-default');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const ta = document.getElementById('wandSystemPrompt');
+      if (ta) ta.value = data.prompt || '';
+      this.showToast('Wand prompt reset to default', 'info');
+    } catch (err) {
+      console.error('[SSHIFT] Failed to load default wand prompt:', err);
+      this.showToast('Failed to load default prompt', 'error');
+    }
   }
 
   initSettingsModalHandlers() {
@@ -5542,6 +6126,14 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
         
         // Save all settings to config
         this.saveStickyConfig();
+
+        // Persist Speech & AI settings (server-side, redacted keys preserved
+        // when the user left the auth inputs blank).
+        this.saveSpeechAiConfig().catch(err => {
+          console.error('[SSHIFT] Failed to save Speech & AI config:', err);
+          this.showToast('Speech & AI settings failed to save', 'error');
+        });
+
         console.log('[SSHIFT] Settings saved - sticky:', this.sticky, 
                     'takeControlDefault:', this.takeControlDefault,
                     'keepaliveInterval:', this.sshKeepaliveInterval,
@@ -9310,6 +9902,9 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     
     // Update mobile tabs dropdown for this panel
     this.updateMobileTabsDropdown(panelId);
+    
+    // Enable/disable terminal-only tab actions (keyboard + mic) for this panel
+    this.updateTabActionButtons(panelId);
     
     // Save tabs
     this.saveTabs();

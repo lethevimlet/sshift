@@ -10,6 +10,7 @@ const { registerPluginEndpoints } = require('./plugins');
 const { registerSessionsEndpoints } = require('./sessions');
 const { registerSystemEndpoints } = require('./system');
 const { registerUtilsEndpoints } = require('./utils');
+const { registerSpeechAiEndpoints } = require('./speech-ai');
 const { registerAuthEndpoints, isValidAuthToken } = require('./auth');
 
 function registerAllRestEndpoints(app, io) {
@@ -21,6 +22,7 @@ function registerAllRestEndpoints(app, io) {
   registerSessionsEndpoints(app, io);
   registerSystemEndpoints(app, io);
   registerUtilsEndpoints(app, io);
+  registerSpeechAiEndpoints(app, io);
 }
 
 module.exports = {
@@ -31,6 +33,7 @@ module.exports = {
   registerSessionsEndpoints,
   registerSystemEndpoints,
   registerUtilsEndpoints,
+  registerSpeechAiEndpoints,
   registerAuthEndpoints,
   isValidAuthToken,
   registerAllRestEndpoints

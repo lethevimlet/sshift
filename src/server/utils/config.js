@@ -41,7 +41,16 @@ const defaultConfig = {
   passwordHash: null,
   scrollback: 10000,
   webglRenderer: true,
-  imageAddonEnabled: true
+  imageAddonEnabled: true,
+  // Speech & AI settings. Auth keys live in config.json (gitignored) and are
+  // never sent back to the browser on GET — only a "set" flag is exposed.
+  sttEndpoint: '',
+  sttAuthKey: '',
+  sttLanguage: '',
+  llmEndpoint: 'https://api.deepinfra.com/v1/openai/chat/completions',
+  llmAuthKey: '',
+  llmModel: 'meta-llama/Llama-3.3-70B-Instruct',
+  wandSystemPrompt: ''
 };
 
 /**
@@ -335,6 +344,52 @@ function removePassword() {
   return saveConfig(config);
 }
 
+// Speech & AI default system prompt for the Wand button.
+const DEFAULT_WAND_SYSTEM_PROMPT =
+  "You are an assistant that cleans up transcribed speech for terminal input. " +
+  "Rewrite the user's speech as a clear, well-punctuated, ready-to-send command or text. " +
+  "Fix typos, remove filler words, hesitations, stutters and false starts, and preserve " +
+  "the user's intent exactly. Do not add quotes, explanations, or markdown. " +
+  "Output only the corrected text.";
+
+/**
+ * Public speech-ai config — auth keys redacted to boolean flags.
+ * Used by GET /api/speech-ai/config so the browser can populate the
+ * settings modal without ever seeing the raw secrets.
+ */
+function getSpeechAiPublicConfig() {
+  const config = loadConfig();
+  return {
+    sttEndpoint: config.sttEndpoint || '',
+    sttLanguage: config.sttLanguage || '',
+    llmEndpoint: config.llmEndpoint || defaultConfig.llmEndpoint,
+    llmModel: config.llmModel || defaultConfig.llmModel,
+    wandSystemPrompt: config.wandSystemPrompt || '',
+    sttAuthKeySet: !!config.sttAuthKey,
+    llmAuthKeySet: !!config.llmAuthKey
+  };
+}
+
+/**
+ * Internal speech-ai config — includes raw auth keys. Server-side only.
+ */
+function getSpeechAiConfig() {
+  const config = loadConfig();
+  return {
+    sttEndpoint: config.sttEndpoint || '',
+    sttAuthKey: config.sttAuthKey || '',
+    sttLanguage: config.sttLanguage || '',
+    llmEndpoint: config.llmEndpoint || defaultConfig.llmEndpoint,
+    llmAuthKey: config.llmAuthKey || '',
+    llmModel: config.llmModel || defaultConfig.llmModel,
+    wandSystemPrompt: config.wandSystemPrompt || ''
+  };
+}
+
+function getDefaultWandSystemPrompt() {
+  return DEFAULT_WAND_SYSTEM_PROMPT;
+}
+
 module.exports = {
   defaultConfig,
   ensureConfig,
@@ -362,5 +417,8 @@ module.exports = {
   verifyPassword,
   setPassword,
   removePassword,
+  getSpeechAiPublicConfig,
+  getSpeechAiConfig,
+  getDefaultWandSystemPrompt,
   USER_INSTALL_DIR
 };

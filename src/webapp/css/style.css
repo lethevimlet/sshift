@@ -2163,6 +2163,14 @@ body.dragging-tabs .tabs-container {
   min-height: 32px;
 }
 
+/* Disabled state for terminal-only actions (e.g. on SFTP tabs) */
+.tabs-actions .btn-sm[disabled],
+.tabs-actions .btn-sm.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 /* Tabs scroll arrows - desktop only */
 .tabs-scroll-arrows {
   display: none;
@@ -2617,6 +2625,10 @@ body.dragging-tabs .tabs-container {
   max-height: 85svh;
 }
 
+.modal-content.modal-md {
+  max-width: 560px;
+}
+
 .modal-header {
   display: flex;
   align-items: center;
@@ -2987,6 +2999,99 @@ body.dragging-tabs .tabs-container {
   font-size: 10px;
   color: var(--text-secondary);
   margin-top: 2px;
+}
+
+/* Speech-to-Text Modal */
+.speech-to-text-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.speech-to-text-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.speech-to-text-controls .btn-sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+}
+
+.stt-btn-label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* Inline status indicator (spinner + label) shown in the controls row
+   instead of a toast while the audio is being transcribed. */
+.stt-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  margin-left: 4px;
+}
+
+.stt-status[hidden] {
+  display: none;
+}
+
+.stt-status i {
+  color: var(--accent-primary);
+}
+
+.stt-record-btn.recording {
+  background: var(--accent-danger, #da3633);
+  color: #fff;
+  border-color: var(--accent-danger, #da3633);
+}
+
+.stt-record-btn.recording i {
+  animation: stt-pulse 1.1s ease-in-out infinite;
+}
+
+.stt-record-btn.paused {
+  background: var(--accent-warning, #d18616);
+  color: #fff;
+  border-color: var(--accent-warning, #d18616);
+}
+
+.stt-record-btn.paused i {
+  animation: none;
+}
+
+@keyframes stt-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.speech-to-text-transcript {
+  width: 100%;
+  min-height: 140px;
+  resize: vertical;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.4;
+  box-sizing: border-box;
+  transition: var(--transition-fast);
+}
+
+.speech-to-text-transcript:focus {
+  outline: none;
+  border-color: var(--accent-primary);
 }
 
 /* SFTP Browser */
@@ -3829,6 +3934,69 @@ body.dragging-tabs .tabs-container {
 .setting-input::-webkit-outer-spin-button,
 .setting-input::-webkit-inner-spin-button {
   opacity: 1;
+}
+
+/* Settings subgroups (used by Speech & AI category) */
+.setting-subgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  margin-bottom: 18px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.setting-subgroup-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.setting-subgroup-title i {
+  color: var(--accent-primary);
+}
+
+/* Speech & AI category: URL / textarea inputs need full width */
+#settings-category-speech-ai .setting-control {
+  display: block;
+}
+
+#settings-category-speech-ai .setting-input,
+#settings-category-speech-ai .password-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+#settings-category-speech-ai .password-input {
+  display: flex;
+  align-items: center;
+}
+
+#settings-category-speech-ai .stt-prompt-control {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.stt-prompt-textarea {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  font-family: var(--font-mono, monospace);
+  line-height: 1.4;
+  padding: 10px 12px;
+  box-sizing: border-box;
+}
+
+.stt-prompt-reset {
+  align-self: flex-end;
 }
 
 .debug-info-list {
