@@ -1043,6 +1043,34 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     session.terminal.refresh(0, session.terminal.rows - 1);
   }
 
+  // Synchronously commit the renderer's cell dimensions after a font-size
+  // (or font-family) option change, then clear the glyph atlas.
+  //
+  // xterm.js v6 invalidates _renderService.dimensions ASYNCHRONOUSLY when an
+  // option like fontSize is set: the CharSizeService only re-measures on the
+  // next change tick.  If fitAddon.fit() runs in the same synchronous frame
+  // it reads the STALE (pre-invalidation) cell height/width, so cols/rows are
+  // computed for one cell size while the renderer later paints at another.
+  // That mismatch paints every other row as an empty black band — the
+  // "interlace" bug (see comments at the Terminal construction path and at
+  // _fitTerminal).  Calling _charSizeService.measure() fires
+  // onCharSizeChange synchronously, which the RenderService forwards to the
+  // renderer's handleCharSizeChanged so _updateDimensions runs BEFORE fit.
+  // This mirrors the proven fix used after document.fonts.ready at
+  // construction time.  Without this, switchTab/setSessionFontSize race the
+  // fit and the terminal renders interlaced until a window resize forces a
+  // clean re-fit.
+  _syncCharSizeThenClearAtlas(session) {
+    if (!session || !session.terminal) return;
+    const core = session.terminal._core;
+    if (core && core._charSizeService && typeof core._charSizeService.measure === 'function') {
+      try { core._charSizeService.measure(); } catch (_) {}
+    }
+    if (session.webglAddon) {
+      try { session.webglAddon.clearTextureAtlas(); } catch (_) {}
+    }
+  }
+
 // Sub-pixel seam mitigation is handled by canvas/WebGL renderer +
   // customGlyphs: true, which draws block/box characters as vector fills
   // that meet exactly.  letterSpacing nudging doesn't work because xterm.js
@@ -1342,10 +1370,101 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
 
     if (!wrapper.classList.contains('active')) {
       this.switchTab(sessionId);
-      setTimeout(() => this._fitTerminal(session), 50);
+      setTimeout(() => this.forceResizeLikeRefit(session), 50);
     } else {
-      this._fitTerminal(session);
+      // Use the resize-like refit (synchronous reflow + measure + fit +
+      // clearTextureAtlas + refresh) — this is the user-facing "terminal
+      // looks wrong, force a resize" button, so it should do everything a
+      // real window resize does, not just fit().
+      this.forceResizeLikeRefit(session);
     }
+  }
+
+  // Force a refit that behaves like a real window resize for one session.
+  //
+  // A real browser resize reliably clears the interlace ("black band")
+  // rendering artefact because it:
+  //   1. forces the browser to COMMIT any pending layout synchronously before
+  //      any handler reads dimensions, and
+  //   2. fires the terminal's ResizeObserver + the global `resize` event.
+  //
+  // The existing safety refits (setTimeout/requestAnimationFrame in switchTab
+  // and the take-control paths) can run BEFORE the browser has committed the
+  // post-visibility / post-font-swap layout, so _fitTerminal measures a
+  // transient container size and the WebGL atlas ends up rasterising glyphs
+  // at a cell pitch that no longer matches the committed cell layout → bands.
+  //
+  // This helper replicates the two guarantees of a real resize, in order:
+  //   a) read offsetWidth/offsetHeight on the wrapper AND container — a
+  //      synchronous reflow that forces layout to commit NOW,
+  //   b) synchronously commit the renderer's cell metrics (measure()) so
+  //      fit() reads the current cell size, not a stale one,
+  //   c) fitAddon.fit() (which internally calls resize() / onResize),
+  //   d) clearTextureAtlas() + refresh() so the WebGL glyph cache is rebuilt
+  //      at the committed cell pitch (this is what actually kills the bands),
+  //   e) notify the remote PTY of the corrected cols/rows if this is a
+  //      connected controller session.
+  //
+  // Returns true on success, false if the session/container isn't usable.
+  forceResizeLikeRefit(session, { emit = true } = {}) {
+    if (!session || !session.terminal || !session.fitAddon) return false;
+    const wrapper = document.getElementById(`terminal-wrapper-${session.id}`);
+    const container = document.getElementById(`terminal-${session.id}`);
+    if (!wrapper || !container) return false;
+
+    // (a) Synchronous reflow — force the browser to commit layout NOW.
+    //     This is what a real window resize does implicitly before handlers
+    //     run, and what setTimeout-based refits cannot guarantee.
+    void wrapper.offsetWidth;
+    void wrapper.offsetHeight;
+    void container.offsetWidth;
+    void container.offsetHeight;
+
+    // (b) Commit the renderer's cell metrics before fit reads them.
+    this._syncCharSizeThenClearAtlas(session);
+
+    // (c) Fit (resize the terminal buffer to the now-committed container).
+    let ok = false;
+    try {
+      session.fitAddon.fit();
+      ok = true;
+    } catch (e) {
+      console.warn('[SSHIFT] forceResizeLikeRefit: fit failed:', e.message);
+    }
+
+    // (d) Rebuild the WebGL glyph atlas at the committed cell pitch + repaint.
+    //     This is the step that actually clears the interlace bands: a stale
+    //     atlas rasters glyphs at the old (smaller) row pitch and the renderer
+    //     paints them at the new (taller) pitch, leaving every other row dark.
+    if (session.terminal) {
+      if (session.webglAddon) {
+        try { session.webglAddon.clearTextureAtlas(); } catch (_) {}
+      }
+      try { session.terminal.refresh(0, session.terminal.rows - 1); } catch (_) {}
+    }
+
+    // (e) Notify the remote PTY of the corrected dimensions.  Mirror the
+    //     debounced onResize handler but fire immediately so the server's
+    //     PTY matches our terminal within this frame.  Only emit for a
+    //     connected controller SSH/SFTP session (non-controllers get the
+    //     resize via the sticky sync).
+    if (emit && ok && session.connected && session.isController && session.terminal) {
+      const sid = session.id;
+      const cols = session.terminal.cols;
+      const rows = session.terminal.rows;
+      if (cols && rows) {
+        try {
+          if (session.resizeTimeout) {
+            clearTimeout(session.resizeTimeout);
+            session.resizeTimeout = null;
+          }
+          // Emit synchronously (we already debounced upstream by only calling
+          // this on discrete events: take-control / panel grab settlement).
+          this.socket.emit('ssh-resize', { sessionId: sid, cols, rows });
+        } catch (_) {}
+      }
+    }
+    return ok;
   }
 
   // Set font size for a specific session
@@ -1362,12 +1481,13 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     // Update session's font size
     session.fontSize = size;
     
-    // Update the terminal
+    // Update the terminal.  Setting fontSize async-invalidates the
+    // renderer dimensions; commit the new cell size synchronously
+    // (measure) before fit() reads it, otherwise cols/rows are
+    // computed from a stale cell height and the terminal paints
+    // interlaced black bands (the "interlace" bug).
     session.terminal.options.fontSize = size;
-
-    // Font-size changes invalidate the glyph atlas — clear it so
-    // glyphs are re-rasterised at the new size.
-    this._resetWebGLAtlas(session);
+    this._syncCharSizeThenClearAtlas(session);
 
     if (session.fitAddon && session.isController) {
       this._fitTerminal(session);
@@ -1392,11 +1512,13 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     
     this.terminalFontSize = size;
     
-    // Update all active SSH terminals
+    // Update all active SSH terminals.  Commit the new cell size
+    // synchronously (measure) before fit() so it doesn't read the
+    // stale pre-invalidation cell height and paint interlaced bands.
     this.sessions.forEach((session) => {
       if (session.terminal) {
         session.terminal.options.fontSize = size;
-        this._resetWebGLAtlas(session);
+        this._syncCharSizeThenClearAtlas(session);
         if (session.fitAddon && session.isController) {
           this._fitTerminal(session);
         }
@@ -1409,7 +1531,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     this.sftpSessions.forEach((session) => {
       if (session.terminal) {
         session.terminal.options.fontSize = size;
-        this._resetWebGLAtlas(session);
+        this._syncCharSizeThenClearAtlas(session);
         if (session.fitAddon) {
           this._fitTerminal(session);
         }
@@ -2619,10 +2741,12 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       const currentSize = sftpSession.fontSize || this.terminalFontSize;
       const newSize = currentSize + delta;
       
-      // Set font size for this SFTP session
+      // Set font size for this SFTP session.  Commit the new cell size
+      // synchronously (measure) before fit() so it doesn't read a stale
+      // cell height and paint interlaced black bands (the "interlace" bug).
       sftpSession.fontSize = Math.max(this.minFontSize, Math.min(this.maxFontSize, newSize));
       sftpSession.terminal.options.fontSize = sftpSession.fontSize;
-      this._resetWebGLAtlas(sftpSession);
+      this._syncCharSizeThenClearAtlas(sftpSession);
       
       if (sftpSession.fitAddon) {
         this._fitTerminal(sftpSession);
@@ -4667,6 +4791,14 @@ const wheelHandler = (e) => {
 
                   setTimeout(() => {
                     if (session.terminal && session.connected && session.isController) {
+                      // Force a resize-like refit before requesting the screen
+                      // sync: clearTextureAtlas()+refresh() at the committed
+                      // cell pitch clears the interlace "black band" artefact
+                      // that can form when becoming the controller (the take-
+                      // control overlay hide is a display change that can
+                      // leave the WebGL atlas desynced from the cell layout).
+                      console.log('[SSHIFT] Force-resize refit before screen sync after becoming controller');
+                      this.forceResizeLikeRefit(session);
                       console.log('[SSHIFT] Requesting screen sync after becoming controller to redraw at local dimensions');
                       this.requestScreenSync(data.sessionId);
                     }
@@ -4764,6 +4896,14 @@ const wheelHandler = (e) => {
 
                 setTimeout(() => {
                   if (session.terminal && session.connected && session.isController) {
+                    // Force a resize-like refit before requesting the screen
+                    // sync: clearTextureAtlas()+refresh() at the committed cell
+                    // pitch clears the interlace "black band" artefact that can
+                    // form on take-control (the control-overlay hide is a
+                    // display change that can leave the WebGL atlas desynced
+                    // from the cell layout — same family as the panel-grab bug).
+                    console.log('[SSHIFT] Force-resize refit before screen sync after taking control');
+                    this.forceResizeLikeRefit(session);
                     console.log('[SSHIFT] Requesting screen sync after taking control to redraw at local dimensions');
                     this.requestScreenSync(data.sessionId);
                   }
@@ -9817,9 +9957,15 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
           // Clearing + refreshing forces a clean redraw at the correct size.
           this._resetWebGLAtlas(session);
 
-          // Restore font size for this session
+          // Restore font size for this session.  Setting fontSize async-
+          // invalidates _renderService.dimensions; we must commit the new
+          // cell size synchronously (via _charSizeService.measure()) BEFORE
+          // fit() below reads it, otherwise fit computes cols/rows from a
+          // stale cell height and the renderer paints interlaced black bands
+          // (the "interlace" bug — see _syncCharSizeThenClearAtlas).
           if (session.fontSize && session.terminal) {
             session.terminal.options.fontSize = session.fontSize;
+            this._syncCharSizeThenClearAtlas(session);
             console.log('[SSHIFT] Restored font size', session.fontSize, 'for session', sessionId);
           }
 
@@ -9851,11 +9997,19 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
           // (e.g. 100×100px) because the browser hasn't fully committed the
           // display:none → display:flex layout change. A delayed refit
           // corrects this once the layout has settled.
+          //
+          // This uses forceResizeLikeRefit (not plain _fitTerminal) because
+          // it replicates what a real window resize does — a synchronous
+          // layout commit via offsetWidth reflow, then measure()+fit()+
+          // clearTextureAtlas() + refresh().  That is exactly what clears
+          // the interlace "black band" artefact after a panel/tab switch
+          // (the artefact self-heals on manual resize; this gives the same
+          // self-heal without requiring the user to resize).
           setTimeout(() => {
             if (!session.terminal || !session.fitAddon || !session.isController) return;
             const wrapper = document.getElementById(`terminal-wrapper-${session.id}`);
             if (wrapper && wrapper.classList.contains('active')) {
-              this._fitTerminal(session);
+              this.forceResizeLikeRefit(session);
             }
           }, 150);
 
@@ -9896,7 +10050,7 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     if (sftpSession && sftpSession.terminal) {
       if (sftpSession.fontSize) {
         sftpSession.terminal.options.fontSize = sftpSession.fontSize;
-        this._resetWebGLAtlas(sftpSession);
+        this._syncCharSizeThenClearAtlas(sftpSession);
       }
     }
     
