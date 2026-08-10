@@ -49,7 +49,7 @@ class SSHIFTClient {
     this.sftpClipboard = null; // For cut/copy/paste: { action: 'cut'|'copy', path: string, name: string, sessionId: string }
     this.terminalClipboardContent = null; // Pre-read clipboard content for context menu paste
     this.osc52Buffer = null; // Buffered OSC 52 clipboard content pending write
-    this.terminalColorOverride = true; // Default to true, will be loaded in initThemeAndAccent
+    this.terminalColorOverride = false; // Default OFF — loaded per theme in initThemeAndAccent
     this.terminalBgColor = '#0d1117';
     this.terminalFgColor = '#e6edf3';
     this.terminalSelectionColor = '#264f78';
@@ -1658,13 +1658,20 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       return defaultTheme;
     }
     
-    // When override is enabled, use custom colors from settings
+    // When override is enabled, use custom colors from settings.
+    // Sanitize each color: a corrupt value (e.g. the literal string
+    // "undefined" persisted by old buggy saves) is truthy, so a plain
+    // `value || default` passes it straight to xterm.js — which renders
+    // unparseable colors as #000000 (black-on-black = "override broken").
+    const bg = this._sanitizeHexColor(this.terminalBgColor, '#0d1117');
+    const fg = this._sanitizeHexColor(this.terminalFgColor, '#e6edf3');
+    const sel = this._sanitizeHexColor(this.terminalSelectionColor, '#264f78');
     const customTheme = {
-      background: this.terminalBgColor || '#0d1117',
-      foreground: this.terminalFgColor || '#e6edf3',
+      background: bg,
+      foreground: fg,
       cursor: '#c10059',
-      cursorAccent: this.terminalBgColor || '#0d1117',
-      selectionBackground: this.hexToRgba(this.terminalSelectionColor || '#264f78', 0.5),
+      cursorAccent: bg,
+      selectionBackground: this.hexToRgba(sel, 0.5),
       black: isDark ? '#484f58' : '#6e7681',
       red: '#f85149',
       green: '#3fb950',
@@ -4437,6 +4444,12 @@ const wheelHandler = (e) => {
           this.theme = data.theme;
           this.saveTheme(data.theme);
           this.updateThemeIcon(data.theme);
+          // Terminal color settings are stored PER THEME — load the new
+          // theme's set before repainting, otherwise the previous theme's
+          // override/colors leak into this theme (and a later save would
+          // persist them under the wrong key).
+          this.loadTerminalColorSettings();
+          this.updateTerminalColorOverrideUI();
           this.updateTerminalThemes(data.theme);
         }
       }
@@ -4581,6 +4594,11 @@ const wheelHandler = (e) => {
         this.theme = data.theme;
         this.saveTheme(data.theme);
         this.updateThemeIcon(data.theme);
+        // Load the new theme's per-theme terminal color settings before
+        // repainting (mirrors toggleTheme) so override/colors don't leak
+        // between themes.
+        this.loadTerminalColorSettings();
+        this.updateTerminalColorOverrideUI();
         this.updateTerminalThemes(data.theme);
       }
     });
@@ -7484,46 +7502,84 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     }
   }
 
-  saveTerminalColorSettings() {
-    // Save settings for current theme
-    const themeKey = this.theme; // 'dark' or 'light'
-    localStorage.setItem(`terminalColorOverride_${themeKey}`, this.terminalColorOverride);
-    localStorage.setItem(`terminalBgColor_${themeKey}`, this.terminalBgColor);
-    localStorage.setItem(`terminalFgColor_${themeKey}`, this.terminalFgColor);
-    localStorage.setItem(`terminalSelectionColor_${themeKey}`, this.terminalSelectionColor);
+  // Validate a persisted color value. Historically, saves could run while
+  // the color properties (or this.theme) were still undefined, writing the
+  // literal string "undefined" into localStorage. Such garbage is truthy,
+  // so it survived `value || default` fallbacks and reached xterm.js —
+  // which silently renders unparseable colors as #000000. With both bg and
+  // fg corrupted, enabling the override painted the terminal black-on-black
+  // (invisible), i.e. "the color override stopped working". Sanitizing on
+  // every load/save self-heals those clients.
+  _sanitizeHexColor(value, fallback) {
+    if (typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value.trim())) {
+      return value.trim().toLowerCase();
+    }
+    return fallback;
   }
 
-  loadTerminalColorSettings() {
-    // Load settings for current theme
-    const themeKey = this.theme; // 'dark' or 'light'
-    
-    // Default colors for each theme
+  _terminalColorDefaults(themeKey) {
+    // Default colors for each theme. Override defaults to OFF: out of the
+    // box the terminal keeps its standard colors and remote ANSI palette;
+    // the user opts in explicitly per theme.
     const defaults = {
       dark: {
-        override: true,
+        override: false,
         bg: '#0d1117',
         fg: '#e6edf3',
         selection: '#264f78'
       },
       light: {
-        override: true,
+        override: false,
         bg: '#ffffff',
         fg: '#1f2328',
         selection: '#b6e3ff'
       }
     };
-    
-    const defaultSet = defaults[themeKey] || defaults.dark;
-    
-    this.terminalColorOverride = localStorage.getItem(`terminalColorOverride_${themeKey}`) !== 'false';
-    // If not set, use default (true for both themes)
-    if (localStorage.getItem(`terminalColorOverride_${themeKey}`) === null) {
-      this.terminalColorOverride = defaultSet.override;
+    return defaults[themeKey] || defaults.dark;
+  }
+
+  saveTerminalColorSettings() {
+    // Save settings for current theme
+    const themeKey = this.theme; // 'dark' or 'light'
+    if (themeKey !== 'dark' && themeKey !== 'light') {
+      // this.theme not initialized yet — writing now would create
+      // "terminalBgColor_undefined" style keys (and losing the real ones).
+      console.warn('[SSHIFT] Skipping terminal color save — theme not initialized yet');
+      return;
     }
-    
-    this.terminalBgColor = localStorage.getItem(`terminalBgColor_${themeKey}`) || defaultSet.bg;
-    this.terminalFgColor = localStorage.getItem(`terminalFgColor_${themeKey}`) || defaultSet.fg;
-    this.terminalSelectionColor = localStorage.getItem(`terminalSelectionColor_${themeKey}`) || defaultSet.selection;
+    const defaultSet = this._terminalColorDefaults(themeKey);
+    // The override flag uses a v2 key: the legacy key was written as "true"
+    // by every color save while override still defaulted to ON, so it can't
+    // distinguish "user chose ON" from "old default". Ignoring it resets
+    // everyone to the new default (OFF) exactly once; an explicit toggle
+    // re-enables and persists under the v2 key.
+    localStorage.setItem(`terminalColorOverrideV2_${themeKey}`, this.terminalColorOverride ? 'true' : 'false');
+    localStorage.setItem(`terminalBgColor_${themeKey}`, this._sanitizeHexColor(this.terminalBgColor, defaultSet.bg));
+    localStorage.setItem(`terminalFgColor_${themeKey}`, this._sanitizeHexColor(this.terminalFgColor, defaultSet.fg));
+    localStorage.setItem(`terminalSelectionColor_${themeKey}`, this._sanitizeHexColor(this.terminalSelectionColor, defaultSet.selection));
+  }
+
+  loadTerminalColorSettings() {
+    // Load settings for current theme
+    const themeKey = (this.theme === 'dark' || this.theme === 'light') ? this.theme : 'dark';
+    const defaultSet = this._terminalColorDefaults(themeKey);
+
+    // Clean up junk keys written by historical saves that ran before
+    // this.theme was initialized (e.g. "terminalBgColor_undefined").
+    try {
+      ['terminalColorOverride', 'terminalColorOverrideV2', 'terminalBgColor', 'terminalFgColor', 'terminalSelectionColor']
+        .forEach(k => localStorage.removeItem(`${k}_undefined`));
+    } catch (_) {}
+
+    // Override is opt-in: only an explicit persisted 'true' (v2 key) turns
+    // it on. Anything else — missing key, legacy key, garbage — means OFF.
+    this.terminalColorOverride = localStorage.getItem(`terminalColorOverrideV2_${themeKey}`) === 'true';
+
+    // Colors: sanitize persisted values so corrupt entries (e.g. the
+    // literal string "undefined") can never reach xterm.js again.
+    this.terminalBgColor = this._sanitizeHexColor(localStorage.getItem(`terminalBgColor_${themeKey}`), defaultSet.bg);
+    this.terminalFgColor = this._sanitizeHexColor(localStorage.getItem(`terminalFgColor_${themeKey}`), defaultSet.fg);
+    this.terminalSelectionColor = this._sanitizeHexColor(localStorage.getItem(`terminalSelectionColor_${themeKey}`), defaultSet.selection);
   }
 
   updateTerminalColors() {
