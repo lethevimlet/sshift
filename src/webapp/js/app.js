@@ -1858,6 +1858,27 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     this.updateTerminalThemes(currentTheme);
   }
 
+  // Restore a single terminal color to its per-theme default (the defaults
+  // differ between the dark and light themes — see _terminalColorDefaults).
+  // Used by the reset buttons next to each color picker in the terminal
+  // colors dropdown (desktop) and mobile overflow submenu.
+  resetTerminalColorToDefault(target) {
+    const themeKey = (this.theme === 'dark' || this.theme === 'light') ? this.theme : 'dark';
+    const defaults = this._terminalColorDefaults(themeKey);
+    if (target === 'bg') {
+      this.setTerminalBgColor(defaults.bg);
+    } else if (target === 'fg') {
+      this.setTerminalFgColor(defaults.fg);
+    } else if (target === 'selection') {
+      this.setTerminalSelectionColor(defaults.selection);
+    } else {
+      return;
+    }
+    // Sync both desktop and mobile pickers to the restored value.
+    this.updateTerminalColorOverrideUI();
+    console.log('[SSHIFT] Terminal color reset to default:', target, 'theme:', themeKey);
+  }
+
   updateTerminalColorOverrideUI() {
     // Desktop elements
     const checkbox = document.getElementById('terminalColorOverride');
@@ -5546,6 +5567,18 @@ const wheelHandler = (e) => {
         this.setTerminalSelectionColor(e.target.value);
       });
     }
+
+    // Per-picker "restore default" buttons (desktop dropdown + mobile
+    // overflow submenu share the same class + data attribute). Defaults
+    // are per theme (dark/light). stopPropagation keeps the dropdown/
+    // submenu open so the user sees the picker snap back.
+    document.querySelectorAll('.color-reset-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.resetTerminalColorToDefault(btn.dataset.colorTarget);
+      });
+    });
     
     // Initialize terminal color override UI state
     this.updateTerminalColorOverrideUI();
@@ -8036,6 +8069,7 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
       flushRemaining: null,
       originalScrollback: null,
       scrollbackRestoreTimer: null,
+      settleRefreshTimer: null,
       // Per-session buffer for OSC 52 / DCS sequences that arrive split
       // across two write-chunk frames (see _handleOsc52).
       pendingOsc52: null
@@ -9471,6 +9505,9 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
         if (session.terminal && session.originalScrollback) {
           session.terminal.options.scrollback = session.originalScrollback;
           session.originalScrollback = null;
+          // The scrollback option change adjusts the buffer; repaint the
+          // full viewport so no row is left showing pre-adjustment content.
+          try { session.terminal.refresh(0, session.terminal.rows - 1); } catch (_) {}
         }
         session.scrollbackRestoreTimer = null;
       }, 3000);
@@ -9497,6 +9534,40 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     } else {
       terminal.write(combined);
     }
+
+    // Guarantee the screen converges to the buffer once this output burst
+    // settles (see _scheduleSettleRefresh for the full rationale).
+    this._scheduleSettleRefresh(session);
+  }
+
+  // Full-viewport repaint shortly after an output burst settles.
+  //
+  // Under heavy output floods (TUI streaming + per-line scrollback trims
+  // while throttled + 32KB/frame capped writes) the WebGL renderer can
+  // miss dirty-row updates: some rows keep showing STALE content (old
+  // backgrounds / leftover fragments) even though the terminal BUFFER is
+  // correct. Line-diff TUI renderers (OpenCode, Bubble Tea apps, ...)
+  // never rewrite lines they consider unchanged, so those stale rows then
+  // persist indefinitely — visible as "interlaced black lines between
+  // text lines" where the app's painted background alternates with the
+  // terminal's default background. A font-size change or window resize
+  // "fixed" it because both force a full re-render from the buffer.
+  //
+  // This debounced refresh(0, rows-1) after the LAST write of a burst
+  // provides that same guarantee automatically: within ~350ms of any
+  // burst ending, every row is re-rendered from the (correct) buffer.
+  // Cost: one extra full-viewport render per burst — negligible.
+  _scheduleSettleRefresh(session) {
+    if (!session || !session.terminal) return;
+    if (session.settleRefreshTimer) {
+      clearTimeout(session.settleRefreshTimer);
+    }
+    session.settleRefreshTimer = setTimeout(() => {
+      session.settleRefreshTimer = null;
+      const term = session.terminal;
+      if (!term) return;
+      try { term.refresh(0, term.rows - 1); } catch (_) {}
+    }, 350);
   }
 
   // SFTP Session Management
@@ -10399,6 +10470,11 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
         clearTimeout(session.scrollbackRestoreTimer);
         session.scrollbackRestoreTimer = null;
       }
+      // Clean up settle-refresh timer
+      if (session.settleRefreshTimer) {
+        clearTimeout(session.settleRefreshTimer);
+        session.settleRefreshTimer = null;
+      }
       // Restore scrollback if it was dynamically reduced
       if (session.originalScrollback && session.terminal) {
         session.terminal.options.scrollback = session.originalScrollback;
@@ -10498,6 +10574,7 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
       this.socket.emit('ssh-disconnect', { sessionId });
       if (session.writeRAF) cancelAnimationFrame(session.writeRAF);
       if (session.scrollbackRestoreTimer) clearTimeout(session.scrollbackRestoreTimer);
+      if (session.settleRefreshTimer) clearTimeout(session.settleRefreshTimer);
       if (session.originalScrollback && session.terminal) {
         session.terminal.options.scrollback = session.originalScrollback;
       }

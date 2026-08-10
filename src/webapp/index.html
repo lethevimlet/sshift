@@ -125,15 +125,30 @@
               <div class="terminal-color-options" id="terminalColorOptions">
                 <div class="terminal-color-option">
                   <label for="terminalBgColor">Background</label>
-                  <input type="color" id="terminalBgColor" class="color-input" value="#0d1117">
+                  <div class="color-input-group">
+                    <input type="color" id="terminalBgColor" class="color-input" value="#0d1117">
+                    <button type="button" class="color-reset-btn" data-color-target="bg" title="Restore default background">
+                      <i class="fas fa-rotate-left"></i>
+                    </button>
+                  </div>
                 </div>
                 <div class="terminal-color-option">
                   <label for="terminalFgColor">Foreground</label>
-                  <input type="color" id="terminalFgColor" class="color-input" value="#e6edf3">
+                  <div class="color-input-group">
+                    <input type="color" id="terminalFgColor" class="color-input" value="#e6edf3">
+                    <button type="button" class="color-reset-btn" data-color-target="fg" title="Restore default foreground">
+                      <i class="fas fa-rotate-left"></i>
+                    </button>
+                  </div>
                 </div>
                 <div class="terminal-color-option">
                   <label for="terminalSelectionColor">Selection</label>
-                  <input type="color" id="terminalSelectionColor" class="color-input" value="#264f78">
+                  <div class="color-input-group">
+                    <input type="color" id="terminalSelectionColor" class="color-input" value="#264f78">
+                    <button type="button" class="color-reset-btn" data-color-target="selection" title="Restore default selection color">
+                      <i class="fas fa-rotate-left"></i>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -219,15 +234,30 @@
                 <div class="terminal-color-options" id="mobileTerminalColorOptions">
                   <div class="terminal-color-option">
                     <label for="mobileTerminalBgColor">Background</label>
-                    <input type="color" id="mobileTerminalBgColor" class="color-input" value="#0d1117">
+                    <div class="color-input-group">
+                      <input type="color" id="mobileTerminalBgColor" class="color-input" value="#0d1117">
+                      <button type="button" class="color-reset-btn" data-color-target="bg" title="Restore default background">
+                        <i class="fas fa-rotate-left"></i>
+                      </button>
+                    </div>
                   </div>
                   <div class="terminal-color-option">
                     <label for="mobileTerminalFgColor">Foreground</label>
-                    <input type="color" id="mobileTerminalFgColor" class="color-input" value="#e6edf3">
+                    <div class="color-input-group">
+                      <input type="color" id="mobileTerminalFgColor" class="color-input" value="#e6edf3">
+                      <button type="button" class="color-reset-btn" data-color-target="fg" title="Restore default foreground">
+                        <i class="fas fa-rotate-left"></i>
+                      </button>
+                    </div>
                   </div>
                   <div class="terminal-color-option">
                     <label for="mobileTerminalSelectionColor">Selection</label>
-                    <input type="color" id="mobileTerminalSelectionColor" class="color-input" value="#264f78">
+                    <div class="color-input-group">
+                      <input type="color" id="mobileTerminalSelectionColor" class="color-input" value="#264f78">
+                      <button type="button" class="color-reset-btn" data-color-target="selection" title="Restore default selection color">
+                        <i class="fas fa-rotate-left"></i>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

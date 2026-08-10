@@ -868,12 +868,47 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
 }
 
 .terminal-color-options label {
   font-size: 13px;
   color: var(--text-secondary);
   flex-shrink: 0;
+}
+
+/* Color picker + its restore-default button, kept together on the right */
+.color-input-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.color-reset-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+  transition: var(--transition-fast);
+}
+
+.color-reset-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-primary);
+}
+
+.color-reset-btn:active {
+  transform: scale(0.94);
 }
 
 .color-input {
