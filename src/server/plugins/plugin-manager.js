@@ -9,6 +9,7 @@
  *   - onSessionDisconnect(sessionId)             - SSH session closed
  *   - onData(sessionId, data)                    - Raw terminal output data
  *   - onTerminalLine(sessionId, line)            - Individual terminal lines
+ *   - onUserInput(sessionId, data)               - User keystrokes/input sent to the session
  *
  * Plugin actions (via context object):
  *   - ctx.flashTab(sessionId, options)           - Flash a tab to get attention
@@ -32,6 +33,7 @@ class PluginManager {
       onSessionDisconnect: [],
       onData: [],
       onTerminalLine: [],
+      onUserInput: [],
     };
     this.io = null;
     this.sshManager = null;
@@ -300,6 +302,13 @@ _stripAnsi(str) {
   onData(sessionId, data) {
     this.emit('onData', sessionId, data);
     this._processLineBuffer(sessionId, data);
+  }
+
+  // User keystrokes / input written to the session (via ssh-manager.write).
+  // Lets attention-style plugins know the user is actively present so they
+  // can stop flashing and suppress false "needs attention" transitions.
+  onUserInput(sessionId, data) {
+    this.emit('onUserInput', sessionId, data);
   }
 
   onSessionConnect(sessionId, sessionInfo) {

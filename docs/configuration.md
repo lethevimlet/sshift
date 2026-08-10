@@ -463,20 +463,30 @@ SSHIFT supports a plugin system that can observe SSH session data and terminal o
 
 ### Built-in Plugins
 
+Both attention plugins share the same state-transition engine: the tab flashes **only when the agent transitions from working to idle** (reply finished, or a permission/question dialog is waiting). Detection is verified against the live terminal viewport — there are no default prompt-text patterns (strings like `(y/n)`, `press enter` or `❯` appear routinely in chat prose, code and shell prompts and used to cause false flashes). App detection is non-sticky: when the app leaves the screen (you exit to the shell), all state resets. User keystrokes stop an active flash immediately and suppress flashing while you're typing. A flash is also suppressed client-side when the terminal is already visible in a focused browser window.
+
 #### OpenCode Attention (`opencode-attention`)
 
-Detects when [OpenCode](https://opencode.ai) is waiting for user input and flashes the browser tab. Tracks OpenCode's spinner characters (⬝ ■ ▣) and prompt patterns. When the spinner stops or a prompt is detected, the tab flashes until you focus it.
+Flashes the browser tab when [OpenCode](https://opencode.ai) finishes working and is waiting for you. OpenCode is detected by its wordmark in the status bar (case-sensitive `OpenCode`); the working state is tracked via spinner glyphs (any braille spinner, legacy ⬝ ■ ▣) and `esc to interrupt` hints in the viewport footer, plus sustained agent-driven output.
 
 **Configuration options:**
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `debounceMs` | number | `300` | Milliseconds between full-state checks |
 | `flashDuration` | number | `0` | Flash duration in ms. `0` = flash until focused |
-| `checkInterval` | number | `2000` | Milliseconds between periodic terminal state checks |
-| `idleThreshold` | number | `3000` | Milliseconds without spinner before considered idle |
-| `patterns` | string[] | — | Additional regex patterns to detect attention |
-| `excludePatterns` | string[] | — | Regex patterns to exclude from detection |
+| `checkInterval` | number | `2000` | Milliseconds between periodic viewport checks |
+| `idleThreshold` | number | `2500` | Milliseconds without a work signal before OpenCode is considered idle/finished |
+| `cooldownMs` | number | `3000` | Milliseconds to suppress flashing after user input or after a flash stops |
+| `debounceMs` | number | `300` | Debounce for output-driven evaluations |
+| `footerLines` | number | `8` | Viewport bottom lines scanned for working indicators / custom patterns |
+| `userEchoWindowMs` | number | `1200` | Output arriving within this window after a keystroke counts as echo, not agent work |
+| `minWorkBytes` | number | `600` | Agent-driven bytes within `workWindowMs` that mark the session as working |
+| `workWindowMs` | number | `2000` | Rolling window for `minWorkBytes` |
+| `appMissLimit` | number | `3` | Consecutive checks without the app signature before state resets |
+| `appPatterns` | string[] | `["OpenCode"]` | Regexes replacing the default app signature (case-sensitive) |
+| `workingPatterns` | string[] | braille, ⬝■▣, esc-to-interrupt | Regexes replacing the default working indicators |
+| `patterns` | string[] | — | Extra attention regexes (matched on footer lines while idle) |
+| `excludePatterns` | string[] | — | Remove patterns (by regex source) from all lists |
 
 **Example:**
 
@@ -485,28 +495,17 @@ Detects when [OpenCode](https://opencode.ai) is waiting for user input and flash
   "name": "opencode-attention",
   "enabled": true,
   "config": {
-    "debounceMs": 300,
     "flashDuration": 0,
-    "idleThreshold": 3000
+    "idleThreshold": 2500
   }
 }
 ```
 
 #### Claude Attention (`claude-attention`)
 
-Detects when [Claude Code](https://claude.ai) is waiting for user input and flashes the browser tab. Tracks Claude's spinner characters (braille spinners ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⠽⠛ and v2 spinners ·✢✳✶✻✽) and prompt patterns like "❯", "Do you want", "Allow", and "Esc to cancel". Only activates detection once a Claude session is confirmed. While Claude is actively working (spinner active), all flashing is suppressed to avoid false positives.
+Flashes the browser tab when [Claude Code](https://claude.ai) finishes working and is waiting for you (reply complete, or a permission dialog such as "Do you want to make this edit?"). Claude Code is detected by its wordmark and persistent footer hints (`? for shortcuts`, `esc to interrupt`, edit-mode hints); the working state is tracked via spinner glyphs (braille spinners, the ✢✳✶✻✽ sparkle frames — the ubiquitous `·` separator is deliberately **not** treated as a spinner anymore) and the `esc to interrupt` hint shown for the whole duration of a run.
 
-**Configuration options:**
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `debounceMs` | number | `300` | Milliseconds between full-state checks |
-| `flashDuration` | number | `0` | Flash duration in ms. `0` = flash until focused |
-| `checkInterval` | number | `2000` | Milliseconds between periodic terminal state checks |
-| `idleThreshold` | number | `3000` | Milliseconds without spinner before considered idle |
-| `cooldownMs` | number | `1000` | Milliseconds to suppress re-flash after spinner stops a flash |
-| `patterns` | string[] | — | Additional regex patterns to detect attention |
-| `excludePatterns` | string[] | — | Regex patterns to exclude from detection |
+**Configuration options:** identical to `opencode-attention` above, with Claude-specific defaults for `appPatterns` and `workingPatterns`.
 
 **Example:**
 
@@ -515,10 +514,9 @@ Detects when [Claude Code](https://claude.ai) is waiting for user input and flas
   "name": "claude-attention",
   "enabled": true,
   "config": {
-    "debounceMs": 300,
     "flashDuration": 0,
-    "idleThreshold": 3000,
-    "cooldownMs": 1000
+    "idleThreshold": 2500,
+    "cooldownMs": 3000
   }
 }
 ```
@@ -532,18 +530,17 @@ Detects when [Claude Code](https://claude.ai) is waiting for user input and flas
       "name": "opencode-attention",
       "enabled": true,
       "config": {
-        "debounceMs": 300,
-        "flashDuration": 0
+        "flashDuration": 0,
+        "idleThreshold": 2500
       }
     },
     {
       "name": "claude-attention",
       "enabled": true,
       "config": {
-        "debounceMs": 300,
         "flashDuration": 0,
-        "idleThreshold": 3000,
-        "cooldownMs": 1000
+        "idleThreshold": 2500,
+        "cooldownMs": 3000
       }
     }
   ]

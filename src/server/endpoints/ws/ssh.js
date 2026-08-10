@@ -5,6 +5,7 @@
 const { loadConfig, getStickySetting, getScrollback } = require('../../utils/config');
 const { addTab, getTab, addSocketToTab, removeSocketFromTab, removeTab, getTabOrder, setCloseTimer, clearCloseTimer, getCloseTimer } = require('../../utils/tab-manager');
 const { sshManager } = require('../../services');
+const pluginManager = require('../../plugins/plugin-manager');
 
 // Per-session rate limiting for ssh-request-sync. A non-controller could
 // otherwise trigger a 1MB serialization + base64 + emit on every
@@ -159,6 +160,10 @@ function registerSSHHandlers(socket, io) {
     }
     try {
       sshManager.write(data.sessionId, data.data);
+      // Notify plugins that the user is actively typing in this session
+      // (attention plugins use this to stop flashing / suppress false
+      // "needs attention" transitions while the user is present).
+      try { pluginManager.onUserInput(data.sessionId, data.data); } catch (_) {}
     } catch (err) {
       console.error(`[SSH] ssh-data: write failed for ${data.sessionId}:`, err.message);
       socket.emit('ssh-error', {

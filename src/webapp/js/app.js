@@ -10167,6 +10167,17 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
 // Tab Management
 
   startTabFlash(sessionId, options = {}) {
+    // Don't flash a terminal the user is already looking at: its wrapper is
+    // visible (active in some panel) AND this browser window is focused and
+    // visible. Each client decides locally, so a background device still
+    // flashes while the one you're staring at stays quiet.
+    const wrapper = document.getElementById(`terminal-wrapper-${sessionId}`);
+    if (wrapper && wrapper.classList.contains('active') &&
+        document.hasFocus() && !document.hidden) {
+      console.log('[SSHIFT] Suppressing tab flash for visible+focused session:', sessionId);
+      return;
+    }
+
     const flashingSessions = this._flashingSessions || (this._flashingSessions = new Set());
     flashingSessions.add(sessionId);
 
