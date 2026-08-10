@@ -18,7 +18,16 @@
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
-const { loadConfig, saveConfig, getSpeechAiConfig, getDefaultWandSystemPrompt } = require('../../utils/config');
+const {
+  loadConfig,
+  saveConfig,
+  getSpeechAiConfig,
+  getDefaultWandSystemPrompt,
+  listSpeechAiProfiles,
+  saveSpeechAiProfile,
+  loadSpeechAiProfile,
+  deleteSpeechAiProfile
+} = require('../../utils/config');
 
 // Use the global fetch (Node 18+) for proxying. Fall back to undici/https for
 // ancient environments — but Node >=20 is the project floor, so global fetch
@@ -88,6 +97,68 @@ function registerSpeechAiEndpoints(app, io) {
     res.json({ prompt: getDefaultWandSystemPrompt() });
   });
 
+  // ---- Profiles ------------------------------------------------------------
+  // Named snapshots of the speech-ai settings for fast swapping between
+  // endpoint setups (e.g. local Whisper/LLM stack vs a cloud provider).
+  // Saving snapshots the ACTIVE server config (raw keys included — they are
+  // already server-side); loading applies a snapshot back onto the active
+  // config. Raw auth keys never travel through the browser either way.
+
+  // List profile names.
+  app.get('/api/speech-ai/profiles', (req, res) => {
+    try {
+      res.json({ profiles: listSpeechAiProfiles() });
+    } catch (err) {
+      console.error('[SPEECH-AI] Failed to list profiles:', err);
+      res.status(500).json({ error: 'Failed to list profiles' });
+    }
+  });
+
+  // Save (or overwrite) the current active settings as a named profile.
+  app.post('/api/speech-ai/profiles', (req, res) => {
+    const name = sanitizeProfileName(req.body && req.body.name);
+    if (!name) return res.status(400).json({ error: 'Invalid profile name' });
+    try {
+      if (!saveSpeechAiProfile(name)) {
+        return res.status(500).json({ error: 'Failed to save profile' });
+      }
+      res.json({ ok: true, profiles: listSpeechAiProfiles() });
+    } catch (err) {
+      console.error('[SPEECH-AI] Failed to save profile:', err);
+      res.status(500).json({ error: 'Failed to save profile' });
+    }
+  });
+
+  // Apply a named profile to the active settings.
+  app.post('/api/speech-ai/profiles/load', (req, res) => {
+    const name = sanitizeProfileName(req.body && req.body.name);
+    if (!name) return res.status(400).json({ error: 'Invalid profile name' });
+    try {
+      if (!loadSpeechAiProfile(name)) {
+        return res.status(404).json({ error: 'Profile not found' });
+      }
+      res.json({ ok: true, config: getPublicSpeechAiConfigSafe() });
+    } catch (err) {
+      console.error('[SPEECH-AI] Failed to load profile:', err);
+      res.status(500).json({ error: 'Failed to load profile' });
+    }
+  });
+
+  // Delete a named profile.
+  app.delete('/api/speech-ai/profiles/:name', (req, res) => {
+    const name = sanitizeProfileName(req.params.name);
+    if (!name) return res.status(400).json({ error: 'Invalid profile name' });
+    try {
+      if (!deleteSpeechAiProfile(name)) {
+        return res.status(404).json({ error: 'Profile not found' });
+      }
+      res.json({ ok: true, profiles: listSpeechAiProfiles() });
+    } catch (err) {
+      console.error('[SPEECH-AI] Failed to delete profile:', err);
+      res.status(500).json({ error: 'Failed to delete profile' });
+    }
+  });
+
   // ---- STT proxy -----------------------------------------------------------
   // Body: raw audio bytes (any mimetype MediaRecorder produces). We forward
   // to <sttEndpoint> as multipart/form-data with model=openai/whisper-large-v3
@@ -110,6 +181,15 @@ function registerSpeechAiEndpoints(app, io) {
       res.status(502).json({ error: 'LLM wand proxy failed', detail: String(err.message || err) });
     });
   });
+}
+
+// Profile names: non-empty trimmed strings up to 64 chars. Anything else
+// (objects, empty strings, oversized names) is rejected with a 400.
+function sanitizeProfileName(raw) {
+  if (typeof raw !== 'string') return null;
+  const name = raw.trim();
+  if (!name || name.length > 64) return null;
+  return name;
 }
 
 // Local helper so a save failure (or any error) never crashes the route —

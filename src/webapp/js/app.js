@@ -932,9 +932,22 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     data = data.replace(/\r\n/g, '\r').replace(/\n/g, '\r');
 
     // Wrap in bracketed paste sequences so the remote shell treats this as
-    // a single paste rather than individual keystrokes.
-    const BP_START = '\x1b[200~';
-    const BP_END = '\x1b[201~';
+    // a single paste rather than individual keystrokes — but ONLY when the
+    // remote application has actually enabled bracketed paste mode
+    // (DECSET 2004). Real terminals never send the \x1b[200~ / \x1b[201~
+    // markers unconditionally: an application that hasn't opted in (e.g. a
+    // plain `read`/`input()` prompt like `gcloud auth login --no-browser`)
+    // receives them as literal input, showing "200~...201~" garbage around
+    // the pasted text. xterm.js tracks the mode from the output stream
+    // (terminal.modes.bracketedPasteMode), and the server's serialized
+    // screen-sync state replays DECSET 2004, so the flag stays accurate
+    // for joined/resynced sessions too.
+    let bracketed = false;
+    try {
+      bracketed = session.terminal?.modes?.bracketedPasteMode === true;
+    } catch (_) { bracketed = false; }
+    const BP_START = bracketed ? '\x1b[200~' : '';
+    const BP_END = bracketed ? '\x1b[201~' : '';
 
     const wrapped = BP_START + data + BP_END;
 
@@ -945,12 +958,13 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
 
     // For large pastes, send the start bracket, then chunk the content,
     // then send the end bracket. This keeps bracketed paste mode intact
-    // across all chunks.
+    // across all chunks. (When bracketed paste is off, BP_START/BP_END are
+    // empty strings and we skip emitting the trailing empty chunk.)
     let offset = 0;
     let isFirst = true;
     const sendNext = () => {
       if (offset >= data.length) {
-        this.socket.emit('ssh-data', { sessionId, data: BP_END });
+        if (BP_END) this.socket.emit('ssh-data', { sessionId, data: BP_END });
         return;
       }
       let end = Math.min(offset + chunkSize, data.length);
@@ -970,7 +984,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       this.socket.emit('ssh-data', { sessionId, data: chunk });
       if (offset < data.length) {
         setTimeout(sendNext, 5);
-      } else {
+      } else if (BP_END) {
         this.socket.emit('ssh-data', { sessionId, data: BP_END });
       }
     };
@@ -1069,6 +1083,45 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     if (session.webglAddon) {
       try { session.webglAddon.clearTextureAtlas(); } catch (_) {}
     }
+  }
+
+  // Force the renderer to fully recompute its dimensions and resize its
+  // canvases at the current cell metrics — even when cols/rows and the
+  // measured char size are UNCHANGED.
+  //
+  // Why this exists: both cheaper paths short-circuit in that case —
+  //  - fitAddon.fit() returns without calling _renderService.clear()/resize()
+  //    when the proposed cols/rows equal the current ones, and
+  //  - CharSizeService.measure() only fires onCharSizeChange when the
+  //    measured width/height actually changed.
+  // So after take-control / screen-sync, nothing forces the WebGL renderer to
+  // re-run _updateDimensions(): it keeps painting at a stale device cell
+  // pitch and the terminal shows the "interlaced black line" pattern.
+  // Pressing font +/- fixed it because an ACTUAL fontSize change fires
+  // handleCharSizeChanged → renderer.handleResize; a window resize fixed it
+  // because the changed container produces different cols/rows and a real
+  // resize. This helper invokes that same full path directly:
+  // _renderService.handleResize → renderer.handleResize →
+  // _updateDimensions() + device-pixel canvas resize + full refresh —
+  // identical to what xterm.js itself runs on a genuine resize event.
+  _forceRendererDimensionRecompute(session) {
+    if (!session || !session.terminal) return;
+    const term = session.terminal;
+    const core = term._core;
+    // Commit any pending char-size change first so the renderer recomputes
+    // from fresh metrics (no-op when the size didn't change).
+    if (core && core._charSizeService && typeof core._charSizeService.measure === 'function') {
+      try { core._charSizeService.measure(); } catch (_) {}
+    }
+    // Full renderer dimension recompute + canvas resize + full refresh.
+    if (core && core._renderService && typeof core._renderService.handleResize === 'function') {
+      try { core._renderService.handleResize(term.cols, term.rows); } catch (_) {}
+    }
+    // Rebuild the WebGL glyph atlas at the recomputed cell pitch.
+    if (session.webglAddon) {
+      try { session.webglAddon.clearTextureAtlas(); } catch (_) {}
+    }
+    try { term.refresh(0, term.rows - 1); } catch (_) {}
   }
 
 // Sub-pixel seam mitigation is handled by canvas/WebGL renderer +
@@ -1346,15 +1399,13 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
 
     console.log('[SSHIFT] Terminal fitted, cols:', terminal.cols, 'rows:', terminal.rows);
 
-    // Resize changes cell metrics; clear the WebGL atlas so glyphs are
-    // re-rasterised at the new size rather than stretched from the old cache.
-    this._resetWebGLAtlas(session);
-
-    // Force a full repaint to flush stale cells from the previous dimensions.
-    // This prevents bottom-row garbage and garbled status lines after resize.
-    try {
-      terminal.refresh(0, terminal.rows - 1);
-    } catch (_) {}
+    // Force a full renderer dimension recompute + atlas rebuild + repaint.
+    // A plain atlas clear is NOT enough when fit() proposed the same
+    // cols/rows (fitAddon short-circuits then and the renderer keeps its
+    // stale device cell pitch → interlaced black bands). The recompute
+    // also flushes stale cells from the previous dimensions, preventing
+    // bottom-row garbage and garbled status lines after resize.
+    this._forceRendererDimensionRecompute(session);
 
     return true;
   }
@@ -1432,16 +1483,14 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       console.warn('[SSHIFT] forceResizeLikeRefit: fit failed:', e.message);
     }
 
-    // (d) Rebuild the WebGL glyph atlas at the committed cell pitch + repaint.
-    //     This is the step that actually clears the interlace bands: a stale
-    //     atlas rasters glyphs at the old (smaller) row pitch and the renderer
-    //     paints them at the new (taller) pitch, leaving every other row dark.
-    if (session.terminal) {
-      if (session.webglAddon) {
-        try { session.webglAddon.clearTextureAtlas(); } catch (_) {}
-      }
-      try { session.terminal.refresh(0, session.terminal.rows - 1); } catch (_) {}
-    }
+    // (d) Force a full renderer dimension recompute + canvas resize + atlas
+    //     rebuild + repaint. This is the step that actually clears the
+    //     interlace bands. Crucially it also covers the case where fit()
+    //     produced the SAME cols/rows (fitAddon short-circuits then, so
+    //     nothing else would force the renderer to re-run
+    //     _updateDimensions(), and the stale device cell pitch keeps
+    //     painting every other row dark).
+    this._forceRendererDimensionRecompute(session);
 
     // (e) Notify the remote PTY of the corrected dimensions.  Mirror the
     //     debounced onResize handler but fire immediately so the server's
@@ -4258,6 +4307,63 @@ const wheelHandler = (e) => {
   }
 
   // Socket.IO Listeners
+  // Re-join all live sessions after a Socket.IO reconnect.
+  //
+  // A reconnect gives this client a NEW socket.id. Server-side, the old
+  // socket was removed from every `session-<id>` room and from
+  // session.sockets, and any controller slot it held was reassigned or
+  // cleared. Nothing re-registers the new socket automatically — so without
+  // this, the client keeps its terminal tabs but is no longer part of the
+  // session: it stops receiving reliable output, its controller state goes
+  // stale, and all input is silently dropped by the server's controller
+  // check ("can't type after a stale connection until page reload").
+  // A page reload "fixed" it because the restore path emits ssh-join; this
+  // makes a reconnect equivalent to that reload, without losing the tabs.
+  rejoinActiveSessions() {
+    this.sessions.forEach((session, sessionId) => {
+      // Sessions still mid-connect will complete via their own ssh-connect
+      // flow; only re-join sessions that were already live on the server.
+      if (!session.connected) return;
+      console.log('[SSHIFT] Rejoining SSH session after reconnect:', sessionId);
+
+      // If we held control before the connection dropped, re-take it after
+      // the rejoin completes (consumed by the ssh-joined handler; guarded
+      // there so we never steal control another client acquired meanwhile).
+      session._retakeControlOnRejoin = !!session.isController;
+
+      // Mark as restoring so a "Session not found" reply routes into the
+      // credential-based auto-reconnect path instead of closing the tab.
+      session.isRestoring = true;
+
+      // Block ssh-data writes until the fresh ssh-screen-sync (sent by the
+      // server on join) has been applied, with the same watchdog/retry
+      // pattern used by the createSSHTab restore path.
+      session.syncing = true;
+      session._syncRetries = 0;
+      if (session.syncTimeout) {
+        clearTimeout(session.syncTimeout);
+      }
+      session.syncTimeout = setTimeout(() => {
+        console.warn('[SSHIFT] Sync timeout after rejoin for session:', sessionId);
+        session.syncing = false;
+        if (session.connected) {
+          this.requestScreenSync(sessionId);
+        }
+      }, 5000);
+
+      this.socket.emit('ssh-join', { sessionId });
+    });
+
+    // SFTP sessions: re-register with the server-side session so viewer
+    // counting and sticky/grace teardown timers see this client again.
+    this.sftpSessions.forEach((session, sessionId) => {
+      if (session.connecting) return;
+      console.log('[SSHIFT] Rejoining SFTP session after reconnect:', sessionId);
+      session.isRestoring = true;
+      this.socket.emit('sftp-join', { sessionId });
+    });
+  }
+
   setupSocketListeners() {
     this.socket.on('connect', () => {
       console.log('[SSHIFT] Connected to server, socket ID:', this.socket.id);
@@ -4265,6 +4371,9 @@ const wheelHandler = (e) => {
       this._wasDisconnected = false;
       if (wasDisconnected && !this.isUpdating) {
         this.showToast('Reconnected to server', 'success');
+        // The new socket must re-join its sessions (rooms + controller
+        // state are keyed by socket.id and were lost with the old socket).
+        this.rejoinActiveSessions();
       } else if (!this.isUpdating) {
         this.showToast('Connected to server', 'success');
       }
@@ -4555,22 +4664,26 @@ const wheelHandler = (e) => {
         // Show/hide control overlay based on controller status
         this.updateControlOverlay(data.sessionId);
         
-        // If takeControlDefault is enabled and we're not the controller, take control
-        // BUT only if there's no controller OR we're the only client in the session
-        // This prevents "control wars" where multiple clients keep taking control from each other
-        if (this.takeControlDefault && !data.isController) {
+        // If takeControlDefault is enabled (or we held control before a
+        // socket reconnect — see rejoinActiveSessions) and we're not the
+        // controller, take control BUT only if there's no controller OR
+        // we're the only client in the session. This prevents "control wars"
+        // where multiple clients keep taking control from each other.
+        const retakeAfterRejoin = !!session._retakeControlOnRejoin;
+        session._retakeControlOnRejoin = false;
+        if ((this.takeControlDefault || retakeAfterRejoin) && !data.isController) {
           const noController = !data.controllerSocket;
           const onlyClient = data.socketCount === 1;
           
           if (noController || onlyClient) {
-            console.log('[SSHIFT] takeControlDefault enabled, taking control (no controller or only client)...');
+            console.log('[SSHIFT] Taking control (takeControlDefault:', this.takeControlDefault, 'retakeAfterRejoin:', retakeAfterRejoin, ')...');
             // Delay to ensure the session is fully set up
             const delay = 100 + Math.random() * 200; // 100-300ms
             setTimeout(() => {
-              this.requestTakeControl(sessionId);
+              this.requestTakeControl(data.sessionId);
             }, delay);
           } else {
-            console.log('[SSHIFT] takeControlDefault enabled but not taking control - another client is already in control');
+            console.log('[SSHIFT] Not taking control - another client is already in control');
           }
         }
         
@@ -4661,10 +4774,13 @@ const wheelHandler = (e) => {
               // produce the "interlaced / every-other-row blank" bug
               // (visible after "Take Control" on a just-refreshed
               // browser tab; fixed when the user manually resizes the
-              // window because that re-runs _fitTerminal → _resetWebGLAtlas).
-              // Clear the atlas here so the renderer re-rasterises at
-              // the post-sync cell dimensions.
-              this._resetWebGLAtlas(session);
+              // window because that re-runs the renderer resize path).
+              // Note: when the terminal is ALREADY at data.cols/rows the
+              // resize() above short-circuits inside xterm.js, so a plain
+              // atlas clear is not enough — force the full renderer
+              // dimension recompute (same path as a real resize) so the
+              // device cell pitch is recomputed and the atlas rebuilt.
+              this._forceRendererDimensionRecompute(session);
 
               // Clear the resyncing flag after a short delay
               setTimeout(() => {
@@ -6047,6 +6163,11 @@ const wheelHandler = (e) => {
       console.error('[SSHIFT] Failed to load Speech & AI config:', err);
     });
 
+    // Load Speech & AI profile names into the fast-swap dropdown.
+    this.loadSpeechAiProfiles().catch(err => {
+      console.error('[SSHIFT] Failed to load Speech & AI profiles:', err);
+    });
+
     // Reset to first category
     this.switchSettingsCategory('sessions');
     
@@ -6134,6 +6255,120 @@ const wheelHandler = (e) => {
     }
   }
 
+  // ---- Speech & AI: settings profiles -----------------------------------
+  // Named snapshots of the Speech & AI tab, stored server-side (auth keys
+  // included — they never travel through the browser). The dropdown swaps
+  // the active settings in one click; Save snapshots the current fields
+  // under a name; Delete removes a snapshot.
+
+  async loadSpeechAiProfiles(selectedName = null) {
+    const select = document.getElementById('speechAiProfileSelect');
+    if (!select) return;
+
+    const res = await fetch('/api/speech-ai/profiles');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const profiles = Array.isArray(data.profiles) ? data.profiles : [];
+
+    const keep = selectedName !== null ? selectedName : select.value;
+
+    select.innerHTML = '';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = '— Select profile —';
+    select.appendChild(placeholder);
+
+    for (const name of profiles) {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      select.appendChild(opt);
+    }
+
+    select.value = (keep && profiles.includes(keep)) ? keep : '';
+  }
+
+  initSpeechAiProfileHandlers() {
+    const select = document.getElementById('speechAiProfileSelect');
+    const nameInput = document.getElementById('speechAiProfileName');
+    const saveBtn = document.getElementById('saveSpeechAiProfileBtn');
+    const deleteBtn = document.getElementById('deleteSpeechAiProfileBtn');
+
+    // Selecting a profile applies it immediately (fast swap): the server
+    // copies the snapshot into the active config, then we re-fetch the
+    // (redacted) config so the tab fields reflect the loaded profile.
+    if (select) {
+      select.addEventListener('change', async () => {
+        const name = select.value;
+        if (nameInput) nameInput.value = name;
+        if (!name) return;
+        try {
+          const res = await fetch('/api/speech-ai/profiles/load', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          await this.loadSpeechAiConfig();
+          this.showToast(`Loaded Speech & AI profile "${name}"`, 'success');
+        } catch (err) {
+          console.error('[SSHIFT] Failed to load Speech & AI profile:', err);
+          this.showToast('Failed to load profile', 'error');
+        }
+      });
+    }
+
+    if (saveBtn) {
+      saveBtn.addEventListener('click', async () => {
+        const name = ((nameInput && nameInput.value) || (select && select.value) || '').trim();
+        if (!name) {
+          this.showToast('Enter a profile name first', 'warning');
+          return;
+        }
+        try {
+          // Persist the on-screen fields to the active config first so the
+          // profile snapshots exactly what the user sees. Auth keys left
+          // blank are preserved server-side via the __UNCHANGED__ sentinel.
+          await this.saveSpeechAiConfig();
+          const res = await fetch('/api/speech-ai/profiles', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          await this.loadSpeechAiProfiles(name);
+          this.showToast(`Saved Speech & AI profile "${name}"`, 'success');
+        } catch (err) {
+          console.error('[SSHIFT] Failed to save Speech & AI profile:', err);
+          this.showToast('Failed to save profile', 'error');
+        }
+      });
+    }
+
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', async () => {
+        const name = ((select && select.value) || (nameInput && nameInput.value) || '').trim();
+        if (!name) {
+          this.showToast('Select a profile to delete', 'warning');
+          return;
+        }
+        if (!confirm(`Delete Speech & AI profile "${name}"? The active settings are not changed.`)) return;
+        try {
+          const res = await fetch(`/api/speech-ai/profiles/${encodeURIComponent(name)}`, {
+            method: 'DELETE'
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          if (nameInput) nameInput.value = '';
+          await this.loadSpeechAiProfiles('');
+          this.showToast(`Deleted profile "${name}"`, 'success');
+        } catch (err) {
+          console.error('[SSHIFT] Failed to delete Speech & AI profile:', err);
+          this.showToast('Failed to delete profile', 'error');
+        }
+      });
+    }
+  }
+
   initSettingsModalHandlers() {
     // Settings category navigation (sidebar + mobile dropdown)
     const navItems = document.querySelectorAll('.settings-nav-item');
@@ -6142,6 +6377,9 @@ const wheelHandler = (e) => {
         this.switchSettingsCategory(item.dataset.category);
       });
     });
+
+    // Speech & AI profile dropdown (load/save/delete)
+    this.initSpeechAiProfileHandlers();
     
     const categorySelect = document.getElementById('settingsCategorySelect');
     if (categorySelect) {

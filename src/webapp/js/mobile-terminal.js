@@ -55,11 +55,10 @@ class MobileTerminalHandler {
     this.contextMenu = null;
     this.hiddenTextarea = null;
     this._isComposing = false;
-    this._compositionText = '';
-    this._compositionEndTs = 0;
-    this._lastSentInput = '';
-    this._lastSentInputTs = 0;
-    this._previousTextareaValue = '';
+    // Full textarea content that has already been synced (sent) to the
+    // terminal. All input diffing runs against this persistent baseline —
+    // see _syncTextareaToTerminal().
+    this._sentValue = '';
     this.contextMenuUserPositioned = false; // Track if user has manually positioned the menu
     
     // Configuration
@@ -464,88 +463,47 @@ class MobileTerminalHandler {
     });
     
     // Handle input events (for virtual keyboard)
-    // We let the textarea accumulate text so that Gboard autocorrect can
-    // operate on it (replacing a misspelled word with the correction).
-    // Diff tracking between beforeinput and input events computes the delta
-    // to send to the terminal, handling insertText, deleteContentBackward,
-    // and insertReplacementText (Gboard autocorrect) uniformly.
-    this.hiddenTextarea.addEventListener('beforeinput', (e) => {
-      if (e.isComposing) return;
-      if (this._isComposing) return;
-      if (e.inputType === 'insertCompositionText') return;
-      this._previousTextareaValue = this.hiddenTextarea.value;
-    });
-
+    //
+    // The textarea accumulates what the user typed so IME/autocorrect
+    // keyboards (Gboard etc.) can operate on real text (replacing a
+    // misspelled word with the correction, inserting suggestions, ...).
+    //
+    // We mirror the textarea into the terminal by diffing its content
+    // against `_sentValue` — the content we've already sent — inside
+    // _syncTextareaToTerminal(). Diffing against a PERSISTENT baseline
+    // (instead of a per-event `beforeinput` snapshot) makes the sync
+    // idempotent: Gboard fires input/composition events in
+    // device-specific orders around suggestion taps, sometimes without a
+    // matching beforeinput, and any event sequence now converges to the
+    // textarea content being sent exactly once.
+    //
+    // This fixes the "each autocomplete tap re-types the whole line" loop:
+    // the old per-event snapshot was reset to '' after every input and on
+    // compositionend, so an input event arriving without a fresh snapshot
+    // treated the ENTIRE textarea as newly-appended text and re-sent it.
+    // Worse, a post-compositionend guard overwrote the textarea with that
+    // empty snapshot, desyncing Gboard's own state from the textarea and
+    // making it re-insert the full text on the next suggestion tap.
     this.hiddenTextarea.addEventListener('input', (e) => {
       if (this.touchState.isSelecting) {
         e.preventDefault();
-        this.hiddenTextarea.value = '';
-        this._previousTextareaValue = '';
+        this._resetInputTracking();
         return;
       }
 
-      if (e.isComposing) {
-        return;
-      }
-
-      if (this._isComposing) {
-        return;
-      }
-
-      if (e.inputType === 'insertCompositionText') {
-        return;
-      }
-
-      // Guard against double-sending after compositionend.
-      if (this._compositionEndTs && (Date.now() - this._compositionEndTs) < 300) {
-        this.hiddenTextarea.value = this._previousTextareaValue;
-        this._previousTextareaValue = '';
+      // While a composition is in flight we don't send anything; the
+      // textarea is synced once on compositionend. (Sending live
+      // composition updates would spam the terminal with backspace/retype
+      // churn while the IME reshapes the word.)
+      if (e.isComposing || this._isComposing || e.inputType === 'insertCompositionText') {
         return;
       }
 
       if (this.touchState.isDragging) {
-        this._previousTextareaValue = '';
         return;
       }
 
-      const prev = this._previousTextareaValue;
-      const curr = this.hiddenTextarea.value;
-
-      if (curr === prev) {
-        // No change, nothing to send.
-      } else if (curr.length > prev.length && curr.startsWith(prev)) {
-        // Simple append: previous text unchanged, new text appended.
-        this._sendToTerminal(curr.substring(prev.length));
-        this._lastSentInput = curr.substring(curr.length - 1);
-        this._lastSentInputTs = Date.now();
-      } else {
-        // Complex change (replacement, deletion, or mixed).
-        // Find common prefix and suffix to minimize the diff.
-        let prefixLen = 0;
-        while (prefixLen < prev.length && prefixLen < curr.length && prev[prefixLen] === curr[prefixLen]) {
-          prefixLen++;
-        }
-        let suffixLen = 0;
-        while (
-          suffixLen < (prev.length - prefixLen) &&
-          suffixLen < (curr.length - prefixLen) &&
-          prev[prev.length - 1 - suffixLen] === curr[curr.length - 1 - suffixLen]
-        ) {
-          suffixLen++;
-        }
-        const deletedCount = prev.length - prefixLen - suffixLen;
-        const inserted = curr.substring(prefixLen, curr.length - suffixLen);
-        if (deletedCount > 0) {
-          this._sendToTerminal('\x7f'.repeat(deletedCount));
-        }
-        if (inserted) {
-          this._sendToTerminal(inserted);
-        }
-        this._lastSentInput = inserted || '';
-        this._lastSentInputTs = Date.now();
-      }
-
-      this._previousTextareaValue = '';
+      this._syncTextareaToTerminal();
     });
     
     // Handle keydown for special keys
@@ -563,11 +521,10 @@ class MobileTerminalHandler {
       if (e.key === 'Enter') {
         e.preventDefault();
         this._sendToTerminal('\r');
-        this.hiddenTextarea.value = '';
-        this._previousTextareaValue = '';
+        this._resetInputTracking();
       } else if (e.key === 'Backspace') {
-        // Let the browser handle backspace in the textarea; the beforeinput/input
-        // diff will detect the deletion and send \x7f to the terminal.
+        // Let the browser handle backspace in the textarea; the input diff
+        // will detect the deletion and send \x7f to the terminal.
         // Only prevent default if the textarea is empty (nothing to delete).
         if (!this.hiddenTextarea.value) {
           e.preventDefault();
@@ -576,8 +533,7 @@ class MobileTerminalHandler {
       } else if (e.key === 'Tab') {
         e.preventDefault();
         this._sendToTerminal('\t');
-        this.hiddenTextarea.value = '';
-        this._previousTextareaValue = '';
+        this._resetInputTracking();
       }
     });
     
@@ -594,41 +550,100 @@ class MobileTerminalHandler {
     // Composition events for IME/autocomplete handling
     this.hiddenTextarea.addEventListener('compositionstart', () => {
       this._isComposing = true;
-      this._compositionText = '';
-      this._previousTextareaValue = '';
     });
 
-    this.hiddenTextarea.addEventListener('compositionupdate', (e) => {
-      this._compositionText = e.data || '';
-    });
-
-    this.hiddenTextarea.addEventListener('compositionend', (e) => {
+    this.hiddenTextarea.addEventListener('compositionend', () => {
       this._isComposing = false;
-      this._compositionEndTs = Date.now();
-      const composed = e.data || this._compositionText;
-      if (composed && !this.touchState.isDragging) {
-        // Avoid re-sending text that was already sent via an input event
-        // that fired before compositionstart (Gboard timing quirk).
-        if (this._lastSentInput && (Date.now() - this._lastSentInputTs) < 500) {
-          if (composed === this._lastSentInput) {
-            this._lastSentInput = '';
-            this._lastSentInputTs = 0;
-          } else if (composed.startsWith(this._lastSentInput)) {
-            this._sendToTerminal(composed.substring(this._lastSentInput.length));
-            this._lastSentInput = '';
-            this._lastSentInputTs = 0;
-          } else {
-            this._sendToTerminal(composed);
-          }
-        } else {
-          this._sendToTerminal(composed);
-        }
+      // Sync whatever the composition left in the textarea. Because the
+      // diff runs against the persistent _sentValue baseline, this is
+      // idempotent: text that was already sent by an input event firing
+      // before compositionstart (a Gboard timing quirk) is not re-sent,
+      // and a duplicate input event firing right after compositionend
+      // diffs to nothing.
+      if (!this.touchState.isDragging) {
+        this._syncTextareaToTerminal();
       }
-      this._compositionText = '';
-      this._lastSentInput = '';
-      this._lastSentInputTs = 0;
-      this._previousTextareaValue = '';
     });
+  }
+
+  /**
+   * Reset the textarea input tracking: clear the textarea and the
+   * synced-content baseline together so future diffs start from a clean
+   * state. Must be used everywhere the textarea is cleared — clearing one
+   * without the other makes the next diff re-send or drop text.
+   * @private
+   */
+  _resetInputTracking() {
+    if (this.hiddenTextarea) {
+      this.hiddenTextarea.value = '';
+    }
+    this._sentValue = '';
+  }
+
+  /**
+   * Diff the textarea content against what has already been sent to the
+   * terminal (_sentValue) and emit only the delta.
+   *
+   * The terminal cursor sits at the end of the text we've sent, so a
+   * change at position P is realised as: erase back to P with DEL (\x7f),
+   * then retype everything from P onward. (Erasing only the changed middle
+   * span — like the previous implementation did — is impossible with a
+   * cursor at the end and corrupted the line on mid-word autocorrect.)
+   *
+   * The sync is idempotent: calling it twice in a row sends nothing the
+   * second time. This property is what makes Gboard's unpredictable
+   * input/composition event interleavings safe.
+   * @private
+   */
+  _syncTextareaToTerminal() {
+    if (!this.hiddenTextarea) return;
+    const prev = this._sentValue;
+    const curr = this.hiddenTextarea.value;
+    if (curr === prev) return;
+
+    // Longest common prefix.
+    let prefixLen = 0;
+    const minLen = Math.min(prev.length, curr.length);
+    while (prefixLen < minLen && prev[prefixLen] === curr[prefixLen]) {
+      prefixLen++;
+    }
+    // Never split a surrogate pair: if the common prefix ends between a
+    // high and low surrogate, back off one unit so the deletion count and
+    // the retyped text operate on whole code points.
+    if (prefixLen > 0 && prefixLen < prev.length && prefixLen < curr.length) {
+      const beforeCode = prev.charCodeAt(prefixLen - 1);
+      if (beforeCode >= 0xD800 && beforeCode <= 0xDBFF) {
+        prefixLen--;
+      }
+    }
+
+    // Erase back to the divergence point. Count code points (not UTF-16
+    // units) so astral characters (emoji etc.) get one DEL each.
+    const removed = prev.substring(prefixLen);
+    const deleteCount = removed ? Array.from(removed).length : 0;
+
+    // Retype the remainder. Translate newlines (some keyboards commit
+    // Enter through the input path instead of a keydown) into \r.
+    let insert = curr.substring(prefixLen);
+    const hadNewline = /[\r\n]/.test(insert);
+    if (hadNewline) {
+      insert = insert.replace(/\r\n/g, '\r').replace(/\n/g, '\r');
+    }
+
+    if (deleteCount > 0) {
+      this._sendToTerminal('\x7f'.repeat(deleteCount));
+    }
+    if (insert) {
+      this._sendToTerminal(insert);
+    }
+
+    if (hadNewline) {
+      // The line was submitted — start from a clean slate (mirrors the
+      // Enter keydown path).
+      this._resetInputTracking();
+    } else {
+      this._sentValue = curr;
+    }
   }
   
   /**
@@ -1479,8 +1494,7 @@ class MobileTerminalHandler {
       // starts from a clean state. Gboard autocorrect operates on the
       // textarea content, so stale text from a previous focus would
       // produce incorrect diffs.
-      this.hiddenTextarea.value = '';
-      this._previousTextareaValue = '';
+      this._resetInputTracking();
       this.hiddenTextarea.focus();
     }
   }

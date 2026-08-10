@@ -2,23 +2,30 @@
  * Regression test for Bug 1 (interlaced lines after Take Control on a
  * refreshed browser tab).
  *
- * Root cause: when an ssh-screen-sync arrived, the handler at app.js:4082
- * wrote the serialized state, then called `terminal.resize(cols, rows)`
- * but did NOT clear the WebGL glyph atlas. The atlas held glyphs
- * rasterised at the PRE-sync cell size while the renderer now painted
- * them at the POST-sync cell size — every other row landed outside the
- * visible grid, producing the "interlaced / alternating black bands"
- * appearance. Resizing the browser window fixed it because that path
- * runs `_fitTerminal()` which calls `_resetWebGLAtlas()`.
+ * Root cause: when an ssh-screen-sync arrived, the handler wrote the
+ * serialized state, then called `terminal.resize(cols, rows)` but did NOT
+ * force the renderer to recompute its dimensions. The WebGL renderer kept
+ * painting at a stale device cell pitch — every other row landed outside
+ * the visible grid, producing the "interlaced / alternating black bands"
+ * appearance. Crucially, a plain atlas clear was NOT sufficient: when the
+ * terminal was already at the synced cols/rows, `terminal.resize()` and
+ * `fitAddon.fit()` both short-circuit inside xterm.js, so nothing re-ran
+ * the renderer's `_updateDimensions()`. Changing the font size fixed it
+ * (an actual fontSize change fires handleCharSizeChanged → renderer
+ * handleResize) and a real window resize fixed it (different cols/rows →
+ * real resize) — which is exactly what users reported.
  *
  * Fix: the screen-sync completion callback now invokes
- * `this._resetWebGLAtlas(session)` AFTER the resize so glyphs are
- * re-rasterised at the new cell dimensions.
+ * `this._forceRendererDimensionRecompute(session)` AFTER the resize. That
+ * helper drives the renderer's full resize path
+ * (_renderService.handleResize → _updateDimensions + device-pixel canvas
+ * resize) and rebuilds the glyph atlas — even when cols/rows are
+ * unchanged.
  *
  * This test exercises the production `on('ssh-screen-sync')` handler via
  * a stubbed socket and a fake xterm Terminal instance. The fake Terminal
- * records every call so we can assert that `_resetWebGLAtlas` runs after
- * `terminal.resize`.
+ * records every call so we can assert that
+ * `_forceRendererDimensionRecompute` runs after `terminal.resize`.
  */
 
 const path = require('path');
@@ -69,9 +76,11 @@ describe('Bug 1: screen-sync clears WebGL atlas after resize (no interlace)', ()
     socketHandlers = new Map();
     callLog = [];
 
-    // Stub _resetWebGLAtlas so we can assert on its invocation.
-    client._resetWebGLAtlas = (session) => {
-      callLog.push({ op: 'resetWebGLAtlas', sessionId: session && session.id });
+    // Stub _forceRendererDimensionRecompute so we can assert on its
+    // invocation (it supersedes the old plain _resetWebGLAtlas call —
+    // full renderer dimension recompute + atlas rebuild).
+    client._forceRendererDimensionRecompute = (session) => {
+      callLog.push({ op: 'forceRendererRecompute', sessionId: session && session.id });
     };
 
     // Inject a fake terminal whose write() and resize() record their ops.
@@ -109,7 +118,7 @@ describe('Bug 1: screen-sync clears WebGL atlas after resize (no interlace)', ()
     client.setupSocketListeners();
   });
 
-  test('ssh-screen-sync resets → writes → resizes → clears WebGL atlas (in this order)', (done) => {
+  test('ssh-screen-sync resets → writes → resizes → recomputes renderer dims (in this order)', (done) => {
     // Base64-encode a fake serialized state — the decode path uses atob.
     const fakeState = Buffer.from('hello world\r\n', 'utf-8').toString('base64');
 
@@ -129,21 +138,23 @@ describe('Bug 1: screen-sync clears WebGL atlas after resize (no interlace)', ()
       const resetIdx = ops.indexOf('reset');
       const writeIdx = ops.indexOf('write');
       const resizeIdx = ops.indexOf('resize');
-      const atlasIdx = ops.indexOf('resetWebGLAtlas');
+      const recomputeIdx = ops.indexOf('forceRendererRecompute');
 
       // The four operations must ALL have happened.
       expect(resetIdx).not.toBe(-1);
       expect(writeIdx).not.toBe(-1);
       expect(resizeIdx).not.toBe(-1);
-      expect(atlasIdx).not.toBe(-1);
+      expect(recomputeIdx).not.toBe(-1);
 
-      // Order assertion: reset → write → resize → atlas-clear.
-      // This is the regression-prevention pattern: the atlas MUST be
-      // cleared AFTER the resize so glyphs are re-rasterised at the
-      // new cell dimensions and don't paint at stale/interleaved rows.
+      // Order assertion: reset → write → resize → renderer recompute.
+      // This is the regression-prevention pattern: the renderer dimension
+      // recompute (which includes the atlas rebuild) MUST run AFTER the
+      // resize so glyphs are re-rasterised at the new cell dimensions and
+      // don't paint at stale/interleaved rows — including when resize()
+      // short-circuited because cols/rows were already equal.
       expect(resetIdx).toBeLessThan(writeIdx);
       expect(writeIdx).toBeLessThan(resizeIdx);
-      expect(resizeIdx).toBeLessThan(atlasIdx);
+      expect(resizeIdx).toBeLessThan(recomputeIdx);
 
       done();
     }, 20);

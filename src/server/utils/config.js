@@ -50,7 +50,12 @@ const defaultConfig = {
   llmEndpoint: 'https://api.deepinfra.com/v1/openai/chat/completions',
   llmAuthKey: '',
   llmModel: 'meta-llama/Llama-3.3-70B-Instruct',
-  wandSystemPrompt: ''
+  wandSystemPrompt: '',
+  // Named snapshots of the speech & AI settings above, keyed by profile
+  // name. Lets users fast-swap between endpoint setups (e.g. a local
+  // Whisper/LLM stack vs a cloud provider). Auth keys are stored inside
+  // the snapshots but, like the active keys, never leave the server.
+  speechAiProfiles: {}
 };
 
 /**
@@ -390,6 +395,81 @@ function getDefaultWandSystemPrompt() {
   return DEFAULT_WAND_SYSTEM_PROMPT;
 }
 
+// --- Speech & AI profiles ---------------------------------------------------
+// Named snapshots of the speech-ai settings (endpoints, auth keys, language,
+// model, wand prompt) stored server-side in config.json. Saving snapshots the
+// ACTIVE config values (which already hold the raw keys) and loading copies a
+// snapshot back into the active config — so raw auth keys never travel
+// through the browser in either direction.
+
+const SPEECH_AI_PROFILE_FIELDS = [
+  'sttEndpoint', 'sttAuthKey', 'sttLanguage',
+  'llmEndpoint', 'llmAuthKey', 'llmModel', 'wandSystemPrompt'
+];
+
+/**
+ * List saved speech-ai profile names (sorted).
+ * @returns {string[]} Profile names
+ */
+function listSpeechAiProfiles() {
+  const config = loadConfig();
+  const profiles = (config.speechAiProfiles && typeof config.speechAiProfiles === 'object')
+    ? config.speechAiProfiles
+    : {};
+  return Object.keys(profiles).sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Snapshot the current active speech-ai settings under a profile name.
+ * Overwrites an existing profile with the same name.
+ * @param {string} name - Profile name
+ * @returns {boolean} Success status
+ */
+function saveSpeechAiProfile(name) {
+  const config = loadConfig();
+  if (!config.speechAiProfiles || typeof config.speechAiProfiles !== 'object') {
+    config.speechAiProfiles = {};
+  }
+  const snapshot = {};
+  for (const field of SPEECH_AI_PROFILE_FIELDS) {
+    snapshot[field] = config[field] !== undefined ? config[field] : defaultConfig[field];
+  }
+  config.speechAiProfiles[name] = snapshot;
+  return saveConfig(config);
+}
+
+/**
+ * Apply a saved profile to the active speech-ai settings.
+ * @param {string} name - Profile name
+ * @returns {boolean} true if the profile existed and was applied
+ */
+function loadSpeechAiProfile(name) {
+  const config = loadConfig();
+  const profile = config.speechAiProfiles && config.speechAiProfiles[name];
+  if (!profile || typeof profile !== 'object') return false;
+  for (const field of SPEECH_AI_PROFILE_FIELDS) {
+    if (profile[field] !== undefined) {
+      config[field] = profile[field];
+    }
+  }
+  return saveConfig(config);
+}
+
+/**
+ * Delete a saved profile.
+ * @param {string} name - Profile name
+ * @returns {boolean} true if the profile existed and was deleted
+ */
+function deleteSpeechAiProfile(name) {
+  const config = loadConfig();
+  if (!config.speechAiProfiles || typeof config.speechAiProfiles !== 'object' ||
+      !(name in config.speechAiProfiles)) {
+    return false;
+  }
+  delete config.speechAiProfiles[name];
+  return saveConfig(config);
+}
+
 module.exports = {
   defaultConfig,
   ensureConfig,
@@ -420,5 +500,9 @@ module.exports = {
   getSpeechAiPublicConfig,
   getSpeechAiConfig,
   getDefaultWandSystemPrompt,
+  listSpeechAiProfiles,
+  saveSpeechAiProfile,
+  loadSpeechAiProfile,
+  deleteSpeechAiProfile,
   USER_INSTALL_DIR
 };

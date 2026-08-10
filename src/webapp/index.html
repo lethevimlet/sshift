@@ -1006,6 +1006,35 @@
           <div class="settings-category" id="settings-category-speech-ai" style="display:none;">
             <h3 class="settings-category-title"><i class="fas fa-microphone"></i> Speech &amp; AI</h3>
 
+            <!-- Settings Profiles -->
+            <div class="setting-subgroup">
+              <h4 class="setting-subgroup-title">
+                <i class="fas fa-layer-group"></i> Profiles
+              </h4>
+              <div class="setting-item">
+                <label class="setting-label">
+                  <i class="fas fa-bookmark"></i> Settings Profile
+                </label>
+                <div class="setting-description">
+                  Save all the fields below as a named profile and swap between endpoint setups (e.g. local vs cloud) in one click. Selecting a profile applies it immediately. Auth keys are stored server-side and never leave the server.
+                </div>
+                <div class="setting-control speech-ai-profile-row">
+                  <select id="speechAiProfileSelect" class="setting-input speech-ai-profile-select">
+                    <option value="">— Select profile —</option>
+                  </select>
+                </div>
+                <div class="setting-control speech-ai-profile-row">
+                  <input type="text" id="speechAiProfileName" class="setting-input speech-ai-profile-name" placeholder="Profile name" maxlength="64">
+                  <button type="button" class="btn btn-sm btn-secondary" id="saveSpeechAiProfileBtn" title="Save the current Speech &amp; AI fields under this profile name">
+                    <i class="fas fa-save"></i> Save
+                  </button>
+                  <button type="button" class="btn btn-sm btn-secondary" id="deleteSpeechAiProfileBtn" title="Delete the selected profile">
+                    <i class="fas fa-trash"></i> Delete
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <!-- Speech-to-Text (STT) Endpoint -->
             <div class="setting-subgroup">
               <h4 class="setting-subgroup-title">

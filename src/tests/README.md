@@ -13,10 +13,13 @@ src/tests/
 │   └── test-utils.js         # Socket.IO client + waitForEvent helpers
 ├── unit/                     # Pure-logic tests (no server, no SSH)
 │   ├── alternate-buffer.test.js     # xterm.js headless buffer / serialization
-│   ├── clipboard-streaming.test.js  # sendChunkedInput chunking
+│   ├── clipboard-streaming.test.js  # sendChunkedInput chunking + bracketed-paste gating
 │   ├── flush-chunks.test.js         # surrogate-pair + OSC 52 cross-chunk
+│   ├── mobile-input-diff.test.js    # Gboard textarea diff sync (autocomplete loop regression)
+│   ├── reconnect-rejoin.test.js     # session rejoin + control re-take after socket reconnect
 │   ├── save-tabs-dedup.test.js      # saveTabs debounce + signature dedup
 │   ├── server-robustness.test.js    # ssh-data/ssh-resize/ssh-request-sync validation
+│   ├── speech-ai-profiles.test.js   # Speech & AI settings profiles (save/load/delete)
 │   ├── sticky-session.test.js
 │   ├── tabs-handling.test.js        # handleTabOpened dedupe, idempotent createSSHTab
 │   ├── tabs-teardown.test.js        # Phase 7 sticky-close viewer-aware teardown

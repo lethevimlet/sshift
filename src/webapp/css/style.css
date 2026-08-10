@@ -3985,6 +3985,23 @@ body.dragging-tabs .tabs-container {
   align-items: flex-end;
 }
 
+/* Speech & AI settings profiles (fast-swap dropdown + save/delete row) */
+#settings-category-speech-ai .speech-ai-profile-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#settings-category-speech-ai .speech-ai-profile-row .setting-input {
+  flex: 1;
+  min-width: 0;
+}
+
+#settings-category-speech-ai .speech-ai-profile-row .btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .stt-prompt-textarea {
   width: 100%;
   min-height: 120px;

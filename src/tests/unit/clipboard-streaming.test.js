@@ -2,7 +2,12 @@
  * Unit tests for clipboard paste streaming (chunked input)
  * Tests that sendChunkedInput:
  *   1. Converts \n to \r for PTY compatibility
- *   2. Wraps text in bracketed paste sequences
+ *   2. Wraps text in bracketed paste sequences ONLY when the remote
+ *      application enabled bracketed paste mode (DECSET 2004) — real
+ *      terminals never send \x1b[200~/\x1b[201~ unconditionally; apps that
+ *      haven't opted in (plain read()/input() prompts such as
+ *      `gcloud auth login --no-browser`) would receive the markers as
+ *      literal "200~...201~" garbage around the pasted text
  *   3. Produces correct chunks that preserve line boundaries
  *   4. Reassembles to the original text (with \n→\r conversion)
  */
@@ -18,11 +23,16 @@ function generateTestData(lines = 500, lineLen = 100) {
   return lines_arr.join('\n') + '\n';
 }
 
-// Replicate sendChunkedInput logic as a pure function for testing
-function chunkInput(data, chunkSize = 2048) {
+// Replicate sendChunkedInput logic as a pure function for testing.
+// `bracketed` mirrors terminal.modes.bracketedPasteMode — the wrap is only
+// applied when the remote app actually enabled the mode.
+function chunkInput(data, chunkSize = 2048, bracketed = true) {
   data = data.replace(/\r\n/g, '\r').replace(/\n/g, '\r');
 
-  const wrapped = BP_START + data + BP_END;
+  const bpStart = bracketed ? BP_START : '';
+  const bpEnd = bracketed ? BP_END : '';
+
+  const wrapped = bpStart + data + bpEnd;
   if (wrapped.length <= chunkSize) return [wrapped];
 
   const chunks = [];
@@ -39,14 +49,14 @@ function chunkInput(data, chunkSize = 2048) {
     }
     let chunk = data.substring(offset, end);
     if (isFirst) {
-      chunk = BP_START + chunk;
+      chunk = bpStart + chunk;
       isFirst = false;
     }
     chunks.push(chunk);
     offset = end;
   }
 
-  chunks.push(BP_END);
+  if (bpEnd) chunks.push(bpEnd);
   return chunks;
 }
 
@@ -151,5 +161,41 @@ describe('Clipboard streaming chunking', () => {
     const ms = Number(end - start) / 1e6;
     expect(ms).toBeLessThan(50);
     expect(chunks.length).toBeGreaterThan(0);
+  });
+});
+
+describe('Clipboard streaming without bracketed paste mode (DECSET 2004 off)', () => {
+  test('paste is NOT wrapped when the app has not enabled bracketed paste', () => {
+    // Regression: pasting a gcloud auth token into a plain input() prompt
+    // showed "200~<token>201~" — the markers were sent unconditionally and
+    // echoed as literal input by the non-bracketed-paste-aware app.
+    const token = '4/0AeanS0bkFake-Token_string-1234567890';
+    const chunks = chunkInput(token, 2048, false);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toBe(token);
+    expect(chunks[0]).not.toContain('200~');
+    expect(chunks[0]).not.toContain('201~');
+  });
+
+  test('multi-chunk paste has no bracket markers and no trailing empty chunk', () => {
+    const data = generateTestData();
+    const chunks = chunkInput(data, 2048, false);
+    for (const chunk of chunks) {
+      expect(chunk).not.toContain(BP_START);
+      expect(chunk).not.toContain(BP_END);
+      expect(chunk.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('unbracketed reassembly matches original with \\n→\\r conversion', () => {
+    const data = generateTestData();
+    const chunks = chunkInput(data, 2048, false);
+    const expected = data.replace(/\r\n/g, '\r').replace(/\n/g, '\r');
+    expect(chunks.join('')).toBe(expected);
+  });
+
+  test('newline conversion still applies without bracketed paste', () => {
+    const chunks = chunkInput('hello\nworld\r\n!', 2048, false);
+    expect(chunks.join('')).toBe('hello\rworld\r!');
   });
 });
