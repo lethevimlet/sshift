@@ -27,18 +27,29 @@ function makeCtx() {
     stops: [],
     screenLines: [],
     screenRows: 24,
+    // Set to true to emulate a busy session where the full-scrollback
+    // serialization blows past its 1MB guard and returns null.
+    stateTooLarge: false,
+    // Raw override for the viewport string (alternate-buffer tests).
+    rawViewport: null,
     setScreen(lines, rows = 24) {
       ctx.screenLines = lines;
       ctx.screenRows = rows;
+      ctx.rawViewport = null;
     },
     flashTab(sessionId, options) { ctx.flashes.push({ sessionId, options, at: Date.now() }); },
     stopFlashTab(sessionId) { ctx.stops.push({ sessionId, at: Date.now() }); },
-    getTerminalState() {
+    _screenState() {
+      if (ctx.rawViewport !== null) {
+        return { state: ctx.rawViewport, rows: ctx.screenRows, cols: 80 };
+      }
       // Pad to a full viewport like the serialized state does.
       const lines = [...ctx.screenLines];
       while (lines.length < ctx.screenRows) lines.unshift('');
       return { state: lines.join('\n'), rows: ctx.screenRows, cols: 80 };
     },
+    getTerminalViewport() { return ctx._screenState(); },
+    getTerminalState() { return ctx.stateTooLarge ? null : ctx._screenState(); },
     getActiveSessions() { return [SID]; },
     getConfig() { return {}; },
     getPluginConfig() { return {}; },
@@ -167,8 +178,9 @@ describe('opencode-attention plugin', () => {
     jest.advanceTimersByTime(2000);
     streamBurst(plugin, 1000, 2);
     // Long thinking: no output, but the spinner stays on screen — the
-    // periodic viewport check must keep the session in working state.
-    jest.advanceTimersByTime(60000);
+    // periodic viewport check must keep the session in working state
+    // (up to workStaleMs, see the frozen-screen test below).
+    jest.advanceTimersByTime(45000);
     expect(ctx.flashes).toHaveLength(0);
   });
 
@@ -203,16 +215,114 @@ describe('opencode-attention plugin', () => {
     expect(ctx.flashes).toHaveLength(0);
   });
 
-  test('exiting OpenCode mid-episode resets state instead of flashing at the shell', () => {
+  test('exiting OpenCode mid-episode does not flash at the shell', () => {
     ctx.setScreen(OC_WORKING);
     plugin.onUserInput(SID, '\r');
     jest.advanceTimersByTime(2000);
     streamBurst(plugin, 2000, 4);
 
-    // User quits OpenCode; shell prompt now on screen (no wordmark).
-    ctx.setScreen(SHELL.slice(0, 2).concat(['user@host:~$ '])); 
+    // Quitting always goes through keystrokes (ctrl+c, /exit, ctrl+d) and
+    // those drop the working episode — that is what keeps the shell quiet.
+    plugin.onUserInput(SID, '\x03');
+    plugin.onUserInput(SID, 'exit\r');
+
+    // Shell prompt now on screen (no wordmark).
+    ctx.setScreen(SHELL.slice(0, 2).concat(['user@host:~$ ']));
     jest.advanceTimersByTime(30000);
     expect(ctx.flashes).toHaveLength(0);
+
+    // And plain shell output afterwards can't arm a new episode either.
+    streamBurst(plugin, 5000, 8);
+    jest.advanceTimersByTime(30000);
+    expect(ctx.flashes).toHaveLength(0);
+  });
+
+  test('REGRESSION: still works when the full-scrollback state is too large', () => {
+    // getTerminalState() returns null for busy sessions (>1MB serialized);
+    // the plugin must read the viewport-only accessor instead of going blind.
+    ctx.stateTooLarge = true;
+    ctx.setScreen(OC_WORKING);
+    plugin.onUserInput(SID, '\r');
+    jest.advanceTimersByTime(2000);
+    streamBurst(plugin, 3000, 6);
+
+    ctx.setScreen(OC_IDLE);
+    jest.advanceTimersByTime(8000);
+    expect(ctx.flashes).toHaveLength(1);
+  });
+
+  test('reads the alternate screen buffer, not the scrolled-away shell below it', () => {
+    // Serialized state = normal buffer + `\x1b[?1049h` + alt buffer (the
+    // full-screen TUI). Only the part after the marker is on screen.
+    const alt = (lines) => 'user@host:~$ opencode\n' + SHELL.join('\n') +
+      '\x1b[?1049h\x1b[H' + lines.join('\n');
+
+    ctx.rawViewport = alt(OC_WORKING);
+    plugin.onUserInput(SID, '\r');
+    plugin.onData(SID, '⠹ working... esc interrupt'); // TUI repaint
+    jest.advanceTimersByTime(2000);
+    expect(plugin._getSessionState(SID).working).toBe(true);
+
+    ctx.rawViewport = alt(OC_IDLE);
+    jest.advanceTimersByTime(8000);
+    expect(ctx.flashes).toHaveLength(1);
+  });
+
+  test('REGRESSION: a transition suppressed by the input cooldown is retried, not lost', () => {
+    ctx.setScreen(OC_WORKING);
+    jest.advanceTimersByTime(2000); // app detected + working
+
+    // User types a follow-up while the agent is still running: that starts
+    // a cooldown. The agent keeps working for a moment, then finishes
+    // INSIDE the cooldown window — the old engine dropped the event.
+    plugin.onUserInput(SID, 'hi\r');
+    jest.advanceTimersByTime(100);
+    plugin.onData(SID, '⠹ working... esc to interrupt');
+    ctx.setScreen(OC_IDLE);
+
+    jest.advanceTimersByTime(2600); // idle threshold met, still in cooldown
+    expect(ctx.flashes).toHaveLength(0);
+
+    jest.advanceTimersByTime(4000); // cooldown over -> queued flash goes out
+    expect(ctx.flashes).toHaveLength(1);
+  });
+
+  test('REGRESSION: a second episode flashes again even if the client never reported the first', () => {
+    ctx.setScreen(OC_WORKING);
+    plugin.onUserInput(SID, '\r');
+    jest.advanceTimersByTime(2000);
+    streamBurst(plugin, 2000, 4);
+    ctx.setScreen(OC_IDLE);
+    jest.advanceTimersByTime(8000);
+    expect(ctx.flashes).toHaveLength(1);
+
+    // No user input, no stop event: the client cleared the highlight on its
+    // own (tab was visible). A new working -> idle cycle must flash again.
+    ctx.setScreen(OC_WORKING);
+    jest.advanceTimersByTime(4000);
+    ctx.setScreen(OC_IDLE);
+    jest.advanceTimersByTime(8000);
+    expect(ctx.flashes).toHaveLength(2);
+  });
+
+  test('onSessionFocus clears the flash so later episodes can flash again', () => {
+    ctx.setScreen(OC_WORKING);
+    plugin.onUserInput(SID, '\r');
+    jest.advanceTimersByTime(2000);
+    streamBurst(plugin, 2000, 4);
+    ctx.setScreen(OC_IDLE);
+    jest.advanceTimersByTime(8000);
+    expect(ctx.flashes).toHaveLength(1);
+
+    plugin.onSessionFocus(SID);
+    expect(ctx.stops).toHaveLength(1);
+    expect(plugin._flashing.get(SID)).toBeUndefined();
+
+    ctx.setScreen(OC_WORKING);
+    jest.advanceTimersByTime(4000);
+    ctx.setScreen(OC_IDLE);
+    jest.advanceTimersByTime(8000);
+    expect(ctx.flashes).toHaveLength(2);
   });
 
   test('custom attention patterns from config still work (footer, idle only)', () => {
@@ -316,6 +426,54 @@ describe('claude-attention plugin', () => {
     expect(ctx.flashes).toHaveLength(0);
   });
 
+  test('a dialog that hides every Claude signature still flashes the armed episode', () => {
+    ctx.setScreen(CL_WORKING);
+    plugin.onUserInput(SID, '\r');
+    plugin.onData(SID, '✻ Deliberating… (1s · esc to interrupt)');
+    jest.advanceTimersByTime(2000); // working episode armed
+
+    // Full-screen confirmation view: no wordmark, no footer hints, no
+    // spinner. The old engine treated this as "Claude left the screen" and
+    // threw the episode away, so nothing ever flashed.
+    ctx.setScreen([
+      '  src/index.js',
+      '  1  - const a = 1;',
+      '  2  + const a = 2;',
+      '',
+      '  Apply this change?   Yes / No',
+    ]);
+    jest.advanceTimersByTime(8000);
+    expect(ctx.flashes).toHaveLength(1);
+  });
+
+  test('REGRESSION: still works when the full-scrollback state is too large', () => {
+    ctx.stateTooLarge = true;
+    ctx.setScreen(CL_WORKING);
+    plugin.onUserInput(SID, '\r');
+    jest.advanceTimersByTime(2000);
+    streamBurst(plugin, 3000, 6);
+
+    ctx.setScreen(CL_IDLE);
+    jest.advanceTimersByTime(8000);
+    expect(ctx.flashes).toHaveLength(1);
+  });
+
+  test('REGRESSION: a transition suppressed by the input cooldown is retried, not lost', () => {
+    ctx.setScreen(CL_WORKING);
+    jest.advanceTimersByTime(2000);
+
+    plugin.onUserInput(SID, 'go\r');
+    jest.advanceTimersByTime(100);
+    plugin.onData(SID, '✻ Deliberating… (1s · esc to interrupt)');
+    ctx.setScreen(CL_IDLE);
+
+    jest.advanceTimersByTime(2600);
+    expect(ctx.flashes).toHaveLength(0);
+
+    jest.advanceTimersByTime(4000);
+    expect(ctx.flashes).toHaveLength(1);
+  });
+
   test('braille spinner in the footer keeps the session in working state', () => {
     ctx.setScreen([
       '● Running tests...',
@@ -326,16 +484,56 @@ describe('claude-attention plugin', () => {
     plugin.onUserInput(SID, '\r');
     jest.advanceTimersByTime(2000);
     streamBurst(plugin, 1000, 2);
-    jest.advanceTimersByTime(60000);
+    jest.advanceTimersByTime(45000);
     expect(ctx.flashes).toHaveLength(0);
 
     const state = plugin._getSessionState(SID);
     expect(state.working).toBe(true);
   });
+
+  test('a screen frozen past workStaleMs is not treated as working forever', () => {
+    // A real run repaints its elapsed-time counter every second. A footer
+    // that still says "esc to interrupt" while the session has produced
+    // nothing for over a minute is a leftover — without this guard the
+    // session stayed "working" and never flashed again.
+    ctx.setScreen([
+      '● Running tests...',
+      '⠧ Running… (45s · esc to interrupt)',
+      '│ ❯                            │',
+      '  ? for shortcuts'
+    ]);
+    plugin.onUserInput(SID, '\r');
+    jest.advanceTimersByTime(2000);
+    streamBurst(plugin, 1000, 2);
+
+    jest.advanceTimersByTime(70000);
+    expect(ctx.flashes).toHaveLength(1);
+    expect(plugin._getSessionState(SID).working).toBe(false);
+  });
+
+  test('a leftover spinner glyph in the footer does not block the transition', () => {
+    // Claude finished and rendered a dialog; the last status line is still
+    // within the scanned footer region but nothing is repainting it.
+    ctx.setScreen(CL_WORKING);
+    plugin.onUserInput(SID, '\r');
+    jest.advanceTimersByTime(2000);
+    streamBurst(plugin, 2000, 4);
+
+    ctx.setScreen([
+      '✻ Deliberating… (12s · 2.1k tokens)',
+      '╭──────────────────────────────╮',
+      '│ Do you want to proceed?      │',
+      '│ ❯ 1. Yes                     │',
+      '│   2. No                      │',
+      '╰──────────────────────────────╯',
+    ]);
+    jest.advanceTimersByTime(8000);
+    expect(ctx.flashes).toHaveLength(1);
+  });
 });
 
-describe('plugin-manager onUserInput hook', () => {
-  test('hook is registered and dispatched to plugins', () => {
+describe('plugin-manager hooks', () => {
+  test('onUserInput hook is registered and dispatched to plugins', () => {
     jest.resetModules();
     const pluginManager = require('../../server/plugins/plugin-manager');
     expect(pluginManager.hooks.onUserInput).toBeDefined();
@@ -348,5 +546,29 @@ describe('plugin-manager onUserInput hook', () => {
     pluginManager.onUserInput('s-1', 'abc');
     expect(received).toEqual([{ sessionId: 's-1', data: 'abc' }]);
     pluginManager.hooks.onUserInput.length = 0;
+  });
+
+  test('onSessionFocus clears the server-side flash state and notifies clients', () => {
+    jest.resetModules();
+    const pluginManager = require('../../server/plugins/plugin-manager');
+    expect(pluginManager.hooks.onSessionFocus).toBeDefined();
+
+    const emitted = [];
+    pluginManager.io = { emit: (event, data) => emitted.push({ event, data }) };
+    pluginManager.flashingSessions.set('s-2', { duration: 0 });
+
+    const received = [];
+    pluginManager.hooks.onSessionFocus.push({
+      pluginName: 'test',
+      fn: (sessionId) => received.push(sessionId)
+    });
+
+    pluginManager.onSessionFocus('s-2');
+    expect(received).toEqual(['s-2']);
+    expect(pluginManager.flashingSessions.has('s-2')).toBe(false);
+    expect(emitted).toEqual([{ event: 'tab-flash-stop', data: { sessionId: 's-2' } }]);
+
+    pluginManager.hooks.onSessionFocus.length = 0;
+    pluginManager.io = null;
   });
 });

@@ -1,6 +1,6 @@
 {
   "name": "opencode-attention",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Flashes SSH tabs when OpenCode finishes working and is waiting for you (state-transition detection, no brittle prompt patterns)",
   "type": "sshift-plugin"
 }

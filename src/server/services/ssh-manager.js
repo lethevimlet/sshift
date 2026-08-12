@@ -655,6 +655,37 @@ if (this.io) {
     }
   }
 
+  // Get ONLY the visible viewport of a session (no scrollback).
+  //
+  // getTerminalState() serializes the full 10k-line scrollback, which for a
+  // busy session easily exceeds its 1MB guard — it then returns null. That
+  // is fine for the client sync path (a one-off manual refresh) but fatal
+  // for plugins that poll every couple of seconds to look at the screen:
+  // they went blind exactly in the sessions that produce the most output.
+  // This serializes the viewport only (~2KB instead of ~200KB), which is
+  // also two orders of magnitude cheaper to build.
+  getTerminalViewport(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session || !session.terminal || !session.serializeAddon) {
+      return null;
+    }
+
+    try {
+      // scrollback: 0 => last `rows` lines of the normal buffer. When the
+      // alternate buffer is active (full-screen TUIs) the addon appends it
+      // after a `\x1b[?1049h` marker, so the real screen is at the tail.
+      const state = session.serializeAddon.serialize({ scrollback: 0, excludeModes: true });
+      return {
+        state,
+        cols: session.cols,
+        rows: session.rows
+      };
+    } catch (err) {
+      console.error(`[SSH] Error getting terminal viewport:`, err.message);
+      return null;
+    }
+  }
+
   disconnect(sessionId) {
     const session = this.sessions.get(sessionId);
     if (session) {

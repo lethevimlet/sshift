@@ -463,7 +463,15 @@ SSHIFT supports a plugin system that can observe SSH session data and terminal o
 
 ### Built-in Plugins
 
-Both attention plugins share the same state-transition engine: the tab flashes **only when the agent transitions from working to idle** (reply finished, or a permission/question dialog is waiting). Detection is verified against the live terminal viewport — there are no default prompt-text patterns (strings like `(y/n)`, `press enter` or `❯` appear routinely in chat prose, code and shell prompts and used to cause false flashes). App detection is non-sticky: when the app leaves the screen (you exit to the shell), all state resets. User keystrokes stop an active flash immediately and suppress flashing while you're typing. A flash is also suppressed client-side when the terminal is already visible in a focused browser window.
+Both attention plugins share the same state-transition engine: the tab flashes **only when the agent transitions from working to idle** (reply finished, or a permission/question dialog is waiting). Detection is verified against the live terminal viewport — there are no default prompt-text patterns (strings like `(y/n)`, `press enter` or `❯` appear routinely in chat prose, code and shell prompts and used to cause false flashes). App detection is non-sticky: while the app is off screen (you exited to the shell) no new working episode can start. User keystrokes end the current episode, stop an active flash immediately and suppress flashing while you're typing — a running agent re-arms the episode with its next spinner frame. A flash is also suppressed client-side when the terminal is already visible in a focused browser window, and the client tells the server it was seen so the next event still flashes.
+
+How the engine avoids getting stuck (missed flashes):
+
+- The screen is read through a **viewport-only** serialization. The full-scrollback state used previously returns nothing past its 1MB guard, which made busy sessions — exactly the ones worth watching — invisible to the plugins.
+- Full-screen TUIs are read from the **alternate screen buffer**, not from the shell scrollback sitting below it.
+- A transition that lands inside the post-keystroke cooldown is **queued and retried** instead of dropped.
+- Losing the app signature (a permission dialog can cover the status bar and footer hints) no longer discards an armed episode — it only prevents new ones.
+- A bare spinner glyph counts as "working" only while output is actually flowing (`spinnerStaleMs`), and a screen that produces nothing at all for `workStaleMs` is never considered working. Leftover status lines therefore can't pin a session in the working state forever.
 
 #### OpenCode Attention (`opencode-attention`)
 
@@ -482,9 +490,12 @@ Flashes the browser tab when [OpenCode](https://opencode.ai) finishes working an
 | `userEchoWindowMs` | number | `1200` | Output arriving within this window after a keystroke counts as echo, not agent work |
 | `minWorkBytes` | number | `600` | Agent-driven bytes within `workWindowMs` that mark the session as working |
 | `workWindowMs` | number | `2000` | Rolling window for `minWorkBytes` |
-| `appMissLimit` | number | `3` | Consecutive checks without the app signature before state resets |
-| `appPatterns` | string[] | `["OpenCode"]` | Regexes replacing the default app signature (case-sensitive) |
-| `workingPatterns` | string[] | braille, ⬝■▣, esc-to-interrupt | Regexes replacing the default working indicators |
+| `appMissLimit` | number | `3` | Consecutive checks without the app signature before new episodes are blocked |
+| `spinnerStaleMs` | number | `2000` | A bare spinner glyph only counts as working if output arrived within this window |
+| `workStaleMs` | number | `60000` | A screen with no output at all for this long is never considered working |
+| `appPatterns` | string[] | `OpenCode`, `ctrl+p commands`, esc-interrupt hints | Regexes replacing the default app signatures (case-sensitive) |
+| `workingPatterns` | string[] | braille, ⬝■▣, ◐◓◑◒◜◝◞◟, esc-to-interrupt | Regexes replacing the default working indicators |
+| `workingHintPatterns` | string[] | esc-to-interrupt hints | Run hints that count as working even on a quiet screen |
 | `patterns` | string[] | — | Extra attention regexes (matched on footer lines while idle) |
 | `excludePatterns` | string[] | — | Remove patterns (by regex source) from all lists |
 
@@ -503,9 +514,9 @@ Flashes the browser tab when [OpenCode](https://opencode.ai) finishes working an
 
 #### Claude Attention (`claude-attention`)
 
-Flashes the browser tab when [Claude Code](https://claude.ai) finishes working and is waiting for you (reply complete, or a permission dialog such as "Do you want to make this edit?"). Claude Code is detected by its wordmark and persistent footer hints (`? for shortcuts`, `esc to interrupt`, edit-mode hints); the working state is tracked via spinner glyphs (braille spinners, the ✢✳✶✻✽ sparkle frames — the ubiquitous `·` separator is deliberately **not** treated as a spinner anymore) and the `esc to interrupt` hint shown for the whole duration of a run.
+Flashes the browser tab when [Claude Code](https://claude.ai) finishes working and is waiting for you (reply complete, or a permission dialog such as "Do you want to make this edit?"). Claude Code is detected by its wordmark, its persistent footer hints (`? for shortcuts`, `esc to interrupt`, edit-mode hints), the `⎿` tool-result marker and the permission-dialog headline/choices (`Do you want`, `❯ 1.`) — the last two matter because a dialog can push every other signature off the screen. The working state is tracked via spinner glyphs (braille spinners, the ✢✳✶✻✽ sparkle frames — the ubiquitous `·` separator is deliberately **not** treated as a spinner) and the `esc to interrupt` hint shown for the whole duration of a run.
 
-**Configuration options:** identical to `opencode-attention` above, with Claude-specific defaults for `appPatterns` and `workingPatterns`.
+**Configuration options:** identical to `opencode-attention` above, with Claude-specific defaults for `appPatterns`, `workingPatterns` and `workingHintPatterns`.
 
 **Example:**
 

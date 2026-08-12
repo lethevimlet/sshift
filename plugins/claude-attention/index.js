@@ -10,10 +10,10 @@
  *   1. App detection is NON-STICKY: Claude Code is considered present only
  *      while one of its UI signatures is visible in the CURRENT viewport of
  *      the headless terminal ("Claude", the "? for shortcuts" footer hint,
- *      "esc to interrupt", edit-mode hints). When the user exits back to a
- *      shell the signatures disappear and, after a few misses, all state
- *      resets — so a shell prompt can never flash the tab (the old sticky
- *      flag caused exactly that).
+ *      "esc to interrupt", the ⎿ tool-result marker, edit-mode hints...).
+ *      When the user exits back to a shell the signatures disappear and,
+ *      after a few misses, no NEW working episode can start — so a shell
+ *      prompt can never arm the engine.
  *
  *   2. "Working" is tracked from two signals:
  *        - working indicators visible in the viewport footer (braille
@@ -22,9 +22,8 @@
  *        - sustained agent-driven output: bytes that arrive while the user
  *          has NOT typed recently (echo/UI responses to keystrokes are
  *          ignored via userEchoWindowMs).
- *      NOTE: "·" is deliberately NOT a spinner char anymore — it appears in
- *      every status line ("3.2k tokens · esc to interrupt") and made the
- *      old working-detection fire on ordinary output.
+ *      NOTE: "·" is deliberately NOT a spinner char — it appears in every
+ *      status line ("3.2k tokens · esc to interrupt").
  *
  *   3. The tab flashes ONLY on the working → idle TRANSITION: a working
  *      episode was observed, the working indicator is gone, and no work
@@ -32,8 +31,29 @@
  *      permission dialog both look like this transition, so no brittle
  *      prompt regexes ("❯", "Do you want", "allow", ...) are needed.
  *
- *   4. User input (keystrokes) stops an active flash immediately and
- *      suppresses flashing for cooldownMs — the user is already there.
+ *   4. User input (keystrokes) ends the current working episode, stops an
+ *      active flash and suppresses flashing for cooldownMs — the user is
+ *      already there. A genuinely running agent re-arms the episode with
+ *      its very next spinner frame, so nothing is lost.
+ *
+ * Things that made v1.7.3 miss most "waiting for input" events, and how
+ * they are handled now:
+ *
+ *   - The viewport was read through getTerminalState(), which serializes
+ *     the whole 10k-line scrollback and returns NULL past its 1MB guard.
+ *     Busy agent sessions — exactly the ones worth watching — went blind.
+ *     Now it reads getTerminalViewport() (visible screen only) and follows
+ *     the alternate-screen marker when a full-screen TUI is active.
+ *   - A transition that landed inside the post-keystroke cooldown was
+ *     dropped and never retried. The engine now keeps a pendingAttention
+ *     flag and retries on every check until the flash actually goes out.
+ *   - Losing the app signature (a permission dialog can cover the footer
+ *     hints) wiped the pending episode. App misses now only stop NEW
+ *     episodes from starting; an armed one still gets to flash.
+ *   - A flash the user dismissed by simply looking at the tab left the
+ *     server stuck in "already flashing", swallowing every later event.
+ *     Clients now report onSessionFocus, and a fresh transition re-emits
+ *     the flash anyway.
  *
  * There are NO default attention text patterns: strings like "(y/n)",
  * "allow" or "❯ " routinely appear inside chat prose, code and shell
@@ -57,9 +77,15 @@
  *                                 mark the session as working (default: 600)
  *   - workWindowMs: number      - Rolling window for minWorkBytes (default: 2000)
  *   - appMissLimit: number      - Consecutive viewport checks without an app
- *                                 signature before state resets (default: 3)
+ *                                 signature before new episodes are blocked (default: 3)
  *   - appPatterns: string[]     - Regexes replacing the default app signatures
+ *   - spinnerStaleMs: number    - A bare spinner glyph only counts as "working" if
+ *                                 output arrived within this window (default: 2000)
+ *   - workStaleMs: number       - A screen with no output at all for this long is
+ *                                 never considered working (default: 60000)
  *   - workingPatterns: string[] - Regexes replacing the default working indicators
+ *   - workingHintPatterns: string[] - Regexes for run hints that count as working
+ *                                 even on a quiet screen (default: "esc to interrupt")
  *   - patterns: string[]        - Extra attention regexes (footer lines, idle only)
  *   - excludePatterns: string[] - Remove patterns (by source) from all lists
  */
@@ -78,22 +104,34 @@ class ClaudeAttentionPlugin {
       minWorkBytes: config.minWorkBytes || 600,
       workWindowMs: config.workWindowMs || 2000,
       appMissLimit: config.appMissLimit || 3,
+      spinnerStaleMs: config.spinnerStaleMs || 2000,
+      workStaleMs: config.workStaleMs || 60000,
     };
 
     // App signatures. Claude Code's welcome box scrolls away in long
     // sessions, so alongside the case-SENSITIVE "Claude" wordmark (keeps
     // lowercase shell text like `cd claude-project` from arming the
-    // engine) we accept the persistent footer hints. A false positive
-    // here only ARMS the engine; a flash still requires a real
-    // working → idle transition.
+    // engine) we accept the markers that survive on screen: the footer
+    // hints, the mode indicators, the ⎿ tool-result glyph and the
+    // permission-dialog headline/choices (a dialog can push every other
+    // hint off the viewport, which is precisely when we must flash).
+    // A false positive here only ARMS the engine; a flash still requires
+    // a real working → idle transition.
     this._appPatterns = this._compileList(
       config.appPatterns || [
         'Claude',
         '\\? for shortcuts',
         'esc to interrupt',
+        'esc to cancel',
         'accept edits',
         'plan mode',
         'bypass permissions',
+        'shift\\+tab to cycle',
+        'auto-compact',
+        '⎿',
+        '⏵⏵',
+        'Do you want',
+        '❯ \\d+\\.',
       ],
       'appPatterns',
       '' // case-sensitive
@@ -102,14 +140,26 @@ class ClaudeAttentionPlugin {
     // Working indicators, scanned over the viewport footer only:
     //  - the full braille block (U+2800–U+28FF) covers braille spinners,
     //  - ✢✳✶✻✽∗ are Claude Code's sparkle spinner frames,
+    //  - ◐◓◑◒◜◝◞◟ cover the arc/circle spinners used by some tools,
     //  - "esc to interrupt" is shown for the whole duration of a run.
     this._workingPatterns = this._compileList(
       config.workingPatterns || [
         '[\\u2800-\\u28FF]',
         '[✢✳✶✻✽∗]',
+        '[◐◓◑◒◜◝◞◟]',
         'esc to interrupt',
       ],
       'workingPatterns'
+    );
+
+    // Text hints that stay on screen for the WHOLE run ("esc to
+    // interrupt"). Unlike a spinner glyph these are unambiguous, so they
+    // count as "working" even when the screen is completely quiet.
+    this._workingHintPatterns = this._compileList(
+      config.workingHintPatterns || [
+        'esc to interrupt',
+      ],
+      'workingHintPatterns'
     );
 
     // Optional user-supplied attention patterns (none by default).
@@ -121,6 +171,7 @@ class ClaudeAttentionPlugin {
         const source = new RegExp(p).source;
         this._appPatterns = this._appPatterns.filter(r => r.source !== source);
         this._workingPatterns = this._workingPatterns.filter(r => r.source !== source);
+        this._workingHintPatterns = this._workingHintPatterns.filter(r => r.source !== source);
         this._attentionPatterns = this._attentionPatterns.filter(r => r.source !== source);
       } catch (e) {
         console.error(`[claude-attention] Invalid exclude pattern "${p}":`, e.message);
@@ -130,6 +181,7 @@ class ClaudeAttentionPlugin {
     this._sessionState = new Map();
     this._checkTimers = new Map();
     this._dataTimers = new Map();
+    this._idleTimers = new Map();
     this._flashing = new Map();
   }
 
@@ -148,7 +200,9 @@ class ClaudeAttentionPlugin {
       this._sessionState.set(sessionId, {
         appVisible: false,        // signature currently on screen
         appMissStreak: 0,         // consecutive checks without a signature
-        working: false,           // inside a working episode
+        working: false,           // working indicator seen recently
+        workEpisode: false,       // a working episode is armed (not yet consumed)
+        pendingAttention: false,  // wants to flash, hasn't managed to yet
         lastWorkSignalAt: 0,      // last time any work signal was seen
         lastUserInputAt: 0,       // last user keystroke
         lastOutputAt: 0,          // last output of any kind
@@ -178,32 +232,58 @@ class ClaudeAttentionPlugin {
     return false;
   }
 
-  // Extract the current viewport (last `rows` lines) from the serialized
-  // terminal state, ANSI-stripped, one entry per screen line.
+  // Extract the current viewport, ANSI-stripped, one entry per screen line.
+  //
+  // Prefers the cheap viewport-only serialization; getTerminalState() is a
+  // fallback for older hosts (it serializes the entire scrollback and
+  // returns null once that exceeds its size guard).
   _getViewportLines(sessionId) {
-    const state = this.ctx.getTerminalState(sessionId);
+    let state = null;
+    if (typeof this.ctx.getTerminalViewport === 'function') {
+      state = this.ctx.getTerminalViewport(sessionId);
+    }
+    if (!state || !state.state) {
+      state = this.ctx.getTerminalState(sessionId);
+    }
     if (!state || !state.state) return null;
+
     const rows = state.rows || 24;
-    const lines = state.state.split('\n');
+    let text = state.state;
+
+    // Full-screen TUIs run on the alternate buffer, which the serializer
+    // appends after a `\x1b[?1049h` marker — everything before it is the
+    // scrolled-away normal buffer, not what the user is looking at.
+    const altMarker = text.lastIndexOf('\x1b[?1049h');
+    if (altMarker !== -1) {
+      text = text.slice(altMarker);
+    }
+
+    const lines = text.split('\n');
     const viewport = lines.slice(-rows);
     return viewport.map(l => this._stripAnsi(l));
   }
 
-  _startFlash(sessionId) {
+  _startFlash(sessionId, { force = false } = {}) {
     const s = this._getSessionState(sessionId);
     const now = Date.now();
+    // Suppressed for now — pendingAttention keeps it queued for a retry
+    // instead of dropping the event on the floor.
     if (now < s.cooldownUntil) return;
     if (now - s.lastUserInputAt < this.config.userEchoWindowMs) return;
-    if (this._flashing.get(sessionId)) return;
+    // `force` is used for a fresh transition: re-emitting is harmless and
+    // recovers from a flash the client cleared without telling us.
+    if (!force && this._flashing.get(sessionId)) return;
     this._flashing.set(sessionId, true);
+    s.pendingAttention = false;
     this.ctx.flashTab(sessionId, { duration: this.config.flashDuration || 0 });
   }
 
   _stopFlash(sessionId, { cooldown = false } = {}) {
+    const s = this._getSessionState(sessionId);
     if (cooldown) {
-      const s = this._getSessionState(sessionId);
       s.cooldownUntil = Date.now() + this.config.cooldownMs;
     }
+    s.pendingAttention = false;
     if (!this._flashing.get(sessionId)) return;
     this._flashing.delete(sessionId);
     this.ctx.stopFlashTab(sessionId);
@@ -212,17 +292,30 @@ class ClaudeAttentionPlugin {
   _resetSession(sessionId) {
     this._stopFlash(sessionId);
     this._sessionState.delete(sessionId);
-    const dataTimer = this._dataTimers.get(sessionId);
-    if (dataTimer) {
-      clearTimeout(dataTimer);
-      this._dataTimers.delete(sessionId);
+    this._clearTimer(this._dataTimers, sessionId);
+    this._clearTimer(this._idleTimers, sessionId);
+  }
+
+  _clearTimer(map, sessionId) {
+    const timer = map.get(sessionId);
+    if (timer) {
+      clearTimeout(timer);
+      map.delete(sessionId);
     }
   }
 
-  _markWorking(s) {
-    const now = Date.now();
+  _markWorking(s, sessionId) {
     s.working = true;
-    s.lastWorkSignalAt = now;
+    s.workEpisode = true;
+    s.pendingAttention = false;
+    s.lastWorkSignalAt = Date.now();
+    // Re-evaluate as soon as the idle threshold could be met, so the flash
+    // doesn't wait for the next periodic check (up to checkInterval later).
+    this._clearTimer(this._idleTimers, sessionId);
+    this._idleTimers.set(sessionId, setTimeout(() => {
+      this._idleTimers.delete(sessionId);
+      this._evaluate(sessionId);
+    }, this.config.idleThreshold + 100));
   }
 
   // Core evaluation: reads the live viewport and drives the state machine.
@@ -242,40 +335,69 @@ class ClaudeAttentionPlugin {
     } else {
       s.appMissStreak++;
       if (s.appMissStreak >= this.config.appMissLimit) {
-        // Claude left the screen (user exited to shell, switched apps).
-        const wasFlashing = this._flashing.get(sessionId);
+        // Claude is off screen: no NEW working episode may start. An
+        // already armed episode is kept on purpose — a permission dialog
+        // can hide every signature, and an agent that exited on its own
+        // still deserves its one flash. Anything the user did to leave
+        // the app went through onUserInput, which clears the episode.
         s.appVisible = false;
         s.working = false;
-        if (wasFlashing) this._stopFlash(sessionId);
       }
-      return;
     }
 
-    // 2) Working indicator in the footer region.
+    // 2) Working indicator in the footer region, in two tiers:
+    //      - a run hint ("esc to interrupt") is unambiguous and counts even
+    //        on a completely quiet screen;
+    //      - a bare spinner glyph only counts while output is actually
+    //        flowing. A spinner that animates always produces output, so a
+    //        glyph with a quiet stream is a LEFTOVER (the finished status
+    //        line pushed up by a dialog, a braille graph, a progress bar).
+    //        Treating those as "still working" is what kept sessions
+    //        pinned in the working state and swallowed the flash.
     const footer = viewport.slice(-this.config.footerLines);
-    const workingVisible = footer.some(line => this._matchesAny(this._workingPatterns, line));
+    const hintVisible = footer.some(line => this._matchesAny(this._workingHintPatterns, line));
+    const glyphVisible = !hintVisible &&
+      footer.some(line => this._matchesAny(this._workingPatterns, line));
+    const spinnerLive = (now - s.lastOutputAt) < this.config.spinnerStaleMs;
+    // Last resort against a permanently stuck "working" state: a run that
+    // is really in progress keeps repainting its elapsed-time counter, so
+    // a screen that has produced NOTHING for workStaleMs is showing a
+    // leftover, not a live run.
+    const outputStale = (now - s.lastOutputAt) > this.config.workStaleMs;
+    const workingVisible = s.appVisible && !outputStale &&
+      (hintVisible || (glyphVisible && spinnerLive));
 
     if (workingVisible) {
-      this._markWorking(s);
+      const wasFlashing = this._flashing.get(sessionId) || s.pendingAttention;
+      this._markWorking(s, sessionId);
       // Working resumed — anything currently flashing is stale.
-      if (this._flashing.get(sessionId)) {
-        this._stopFlash(sessionId, { cooldown: true });
-      }
+      if (wasFlashing) this._stopFlash(sessionId, { cooldown: true });
       return;
     }
 
     // 3) Idle transition: a working episode ended (indicator gone AND no
     //    work signal for idleThreshold) → the reply finished or a
     //    permission dialog is waiting → flash.
-    if (s.working && (now - s.lastWorkSignalAt) >= this.config.idleThreshold) {
+    if (s.workEpisode && (now - s.lastWorkSignalAt) >= this.config.idleThreshold) {
+      s.workEpisode = false;
       s.working = false;
+      s.pendingAttention = true;
+      this._startFlash(sessionId, { force: true });
+      return;
+    }
+
+    // 4) A transition that was suppressed (cooldown after a keystroke)
+    //    stays queued and is retried until it goes out or the user shows up.
+    if (s.pendingAttention) {
       this._startFlash(sessionId);
       return;
     }
 
-    // 4) Optional custom attention patterns (config-supplied only),
+    // 5) Optional custom attention patterns (config-supplied only),
     //    evaluated against the footer while idle.
-    if (!s.working && this._attentionPatterns.length > 0) {
+    if (s.appVisible && !s.working && this._attentionPatterns.length > 0) {
+      // Level-triggered (the pattern stays on screen), so the dedupe in
+      // _startFlash must apply — no force here.
       if (footer.some(line => this._matchesAny(this._attentionPatterns, line))) {
         this._startFlash(sessionId);
       }
@@ -299,10 +421,9 @@ class ClaudeAttentionPlugin {
     // Cheap inline work signal: spinner/indicator glyphs in the stream
     // keep the working state fresh without waiting for a viewport check.
     if (s.appVisible && this._matchesAny(this._workingPatterns, data)) {
-      this._markWorking(s);
-      if (this._flashing.get(sessionId)) {
-        this._stopFlash(sessionId, { cooldown: true });
-      }
+      const wasFlashing = this._flashing.get(sessionId) || s.pendingAttention;
+      this._markWorking(s, sessionId);
+      if (wasFlashing) this._stopFlash(sessionId, { cooldown: true });
       return;
     }
 
@@ -315,10 +436,9 @@ class ClaudeAttentionPlugin {
       }
       s.agentBytes += data.length;
       if (s.appVisible && s.agentBytes >= this.config.minWorkBytes) {
-        this._markWorking(s);
-        if (this._flashing.get(sessionId)) {
-          this._stopFlash(sessionId, { cooldown: true });
-        }
+        const wasFlashing = this._flashing.get(sessionId) || s.pendingAttention;
+        this._markWorking(s, sessionId);
+        if (wasFlashing) this._stopFlash(sessionId, { cooldown: true });
       }
     }
 
@@ -330,7 +450,18 @@ class ClaudeAttentionPlugin {
   onUserInput(sessionId /*, data */) {
     const s = this._getSessionState(sessionId);
     s.lastUserInputAt = Date.now();
-    // The user is here — stop flashing and hold off for a while.
+    // The user is here — stop flashing and hold off for a while. The
+    // current episode is dropped as well: if the agent really is working,
+    // its next spinner frame re-arms it within milliseconds, and if the
+    // keystroke was the user quitting to a shell there is nothing left to
+    // announce.
+    s.workEpisode = false;
+    s.working = false;
+    this._stopFlash(sessionId, { cooldown: true });
+  }
+
+  // A client reported the user is looking at this tab.
+  onSessionFocus(sessionId) {
     this._stopFlash(sessionId, { cooldown: true });
   }
 

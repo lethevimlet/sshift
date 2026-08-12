@@ -4428,10 +4428,18 @@ const wheelHandler = (e) => {
         console.log('[SSHIFT] Tab visible and socket disconnected, triggering reconnect');
         this.socket.connect();
       }
+      this.clearFlashesForVisibleSessions();
       this._refreshAllWebGLSessions();
       // Refit visible terminals after tab becomes visible — the container
       // may have had zero dimensions while hidden (Bugs 1 & 2).
       requestAnimationFrame(() => this.handleResize());
+    });
+
+    // A window can stay "visible" while unfocused (second monitor, desktop
+    // app behind another window), so focus is its own signal that the user
+    // has now seen whatever tab is on screen.
+    window.addEventListener('focus', () => {
+      this.clearFlashesForVisibleSessions();
     });
 
     this.socket.on('connect_error', (error) => {
@@ -10175,6 +10183,10 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     if (wrapper && wrapper.classList.contains('active') &&
         document.hasFocus() && !document.hidden) {
       console.log('[SSHIFT] Suppressing tab flash for visible+focused session:', sessionId);
+      // Tell the server the flash was seen, otherwise it keeps this session
+      // marked as "flashing" forever and swallows every later attention
+      // event as a duplicate.
+      this.notifyTabSeen(sessionId);
       return;
     }
 
@@ -10207,6 +10219,29 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     if (!this._flashApplyTimer) this._flashApplyTimer = null;
     clearTimeout(this._flashApplyTimer);
     this._flashApplyTimer = setTimeout(() => this.applyFlashStates(), 150);
+  }
+
+  // Coming back to the window: any flashing tab that is actually on screen
+  // has now been seen — clear it here and on the server.
+  clearFlashesForVisibleSessions() {
+    const flashingSessions = this._flashingSessions;
+    if (!flashingSessions || flashingSessions.size === 0) return;
+    if (document.hidden) return;
+    for (const sessionId of Array.from(flashingSessions)) {
+      const wrapper = document.getElementById(`terminal-wrapper-${sessionId}`);
+      if (wrapper && wrapper.classList.contains('active')) {
+        this.stopTabFlash(sessionId);
+        this.notifyTabSeen(sessionId);
+      }
+    }
+  }
+
+  // Let the server (and its attention plugins) know the user has seen this
+  // tab. Clearing a flash only in the browser leaves the server-side plugin
+  // stuck in "already flashing" state.
+  notifyTabSeen(sessionId) {
+    if (!sessionId || !this.socket || !this.socket.connected) return;
+    this.socket.emit('tab-seen', { sessionId });
   }
 
   stopTabFlash(sessionId) {
@@ -10275,6 +10310,7 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     
     // Stop any active flash on this tab since user is viewing it
     this.stopTabFlash(sessionId);
+    this.notifyTabSeen(sessionId);
     
     // Determine which panel this session belongs to
     if (!panelId) {

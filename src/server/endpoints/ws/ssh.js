@@ -174,6 +174,15 @@ function registerSSHHandlers(socket, io) {
     }
   });
 
+  // The user is looking at this session's tab (switched to it, focused the
+  // window while it was visible, or a flash was suppressed because the tab
+  // was already on screen). Attention plugins use this to clear their
+  // "currently flashing" state so the NEXT event can flash again.
+  socket.on('tab-seen', (data) => {
+    if (!data || typeof data.sessionId !== 'string') return;
+    try { pluginManager.onSessionFocus(data.sessionId); } catch (_) {}
+  });
+
   // SSH take control
   socket.on('ssh-take-control', (data) => {
     console.log(`[SSH] Socket ${socket.id} requesting control of session ${data.sessionId}`);

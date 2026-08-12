@@ -24,6 +24,7 @@
   --accent-success: #3fb950;
   --accent-warning: #d29922;
   --accent-danger: #f85149;
+  --accent-danger-hover: #ff6b63;
   --accent-purple: #a371f2;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
@@ -52,6 +53,11 @@
   --text-primary: #1f2328;
   --text-secondary: #656d76;
   --text-muted: #8c959f;
+  /* Darker reds on light backgrounds: the dark-theme #f85149 only reaches
+     ~3.2:1 against the white label of .btn-danger (Logout), which is
+     unreadable on a light modal. #cf222e / #a40e26 give 4.8:1 / 7.6:1. */
+  --accent-danger: #cf222e;
+  --accent-danger-hover: #a40e26;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.1);
   --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.15);
   --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.2);
@@ -1134,8 +1140,9 @@ body {
 }
 
 .btn-danger:hover {
-  background: #ff6b63;
-  border-color: #ff6b63;
+  background: var(--accent-danger-hover);
+  border-color: var(--accent-danger-hover);
+  color: #fff;
 }
 
 /* Main Content */
@@ -4906,18 +4913,15 @@ body.dragging-tabs .tabs-container {
 }
 
 .session-close-btn:hover {
-  background: var(--danger-color);
-  color: white;
+  background: var(--accent-danger);
+  color: #fff;
 }
 
-.btn-danger {
-  background: var(--danger-color);
-  color: white;
-}
-
-.btn-danger:hover {
-  background: #b52628;
-}
+/* NOTE: .btn-danger is defined once, near the other button styles.
+   A second definition used to live here using an undefined
+   `--danger-color`; that made `background` invalid at computed-value
+   time (→ transparent) while still forcing `color: white`, so the
+   Logout button rendered as white text on the light modal background. */
 
 .btn-secondary {
   background: var(--bg-tertiary);

@@ -10,6 +10,7 @@
  *   - onData(sessionId, data)                    - Raw terminal output data
  *   - onTerminalLine(sessionId, line)            - Individual terminal lines
  *   - onUserInput(sessionId, data)               - User keystrokes/input sent to the session
+ *   - onSessionFocus(sessionId)                  - A client is looking at this session's tab
  *
  * Plugin actions (via context object):
  *   - ctx.flashTab(sessionId, options)           - Flash a tab to get attention
@@ -17,7 +18,8 @@
  *   - ctx.emitToSession(sessionId, event, data)  - Send WS event to session clients
  *   - ctx.emitToAll(event, data)                 - Broadcast WS event to all clients
  *   - ctx.writeToSession(sessionId, data)         - Write data to SSH session stdin
- *   - ctx.getTerminalState(sessionId)             - Get current terminal state
+ *   - ctx.getTerminalState(sessionId)             - Get current terminal state (full scrollback)
+ *   - ctx.getTerminalViewport(sessionId)          - Get the visible screen only (cheap)
  *   - ctx.getActiveSessions()                     - Get list of active session IDs
  *   - ctx.getConfig()                             - Get current server config
  */
@@ -34,6 +36,7 @@ class PluginManager {
       onData: [],
       onTerminalLine: [],
       onUserInput: [],
+      onSessionFocus: [],
     };
     this.io = null;
     this.sshManager = null;
@@ -231,6 +234,13 @@ class PluginManager {
         return null;
       },
 
+      getTerminalViewport(sessionId) {
+        if (self.sshManager && typeof self.sshManager.getTerminalViewport === 'function') {
+          return self.sshManager.getTerminalViewport(sessionId);
+        }
+        return null;
+      },
+
       getActiveSessions() {
         if (self.sshManager) {
           return Array.from(self.sshManager.sessions.keys());
@@ -309,6 +319,19 @@ _stripAnsi(str) {
   // can stop flashing and suppress false "needs attention" transitions.
   onUserInput(sessionId, data) {
     this.emit('onUserInput', sessionId, data);
+  }
+
+  // A client reported that the user is actually looking at this session's
+  // tab (it got focused, or a flash was suppressed because the tab was
+  // already visible). Without this the server keeps believing the tab is
+  // still flashing — clients clear the highlight locally — and every later
+  // "needs attention" event is swallowed as a duplicate.
+  onSessionFocus(sessionId) {
+    const wasFlashing = this.flashingSessions.delete(sessionId);
+    this.emit('onSessionFocus', sessionId);
+    if (wasFlashing && this.io) {
+      this.io.emit('tab-flash-stop', { sessionId });
+    }
   }
 
   onSessionConnect(sessionId, sessionInfo) {
