@@ -1618,11 +1618,17 @@ class MobileTerminalHandler {
       this.terminalElement.style.height = '';
     }
     
-    // Refit terminal
+    // Refit terminal. Prefer the app's guarded refit (it refuses to fit a
+    // hidden/unlaid-out container, which a bare fit() would resize to a
+    // bogus 10x5) and falls back to fit() when the app isn't reachable.
     if (this.session.fitAddon) {
       requestAnimationFrame(() => {
         try {
-          this.session.fitAddon.fit();
+          if (this.app && typeof this.app._fitTerminal === 'function') {
+            this.app._fitTerminal(this.session);
+          } else {
+            this.session.fitAddon.fit();
+          }
         } catch (err) {
           console.warn('[MobileTerminal] Failed to fit terminal:', err);
         }

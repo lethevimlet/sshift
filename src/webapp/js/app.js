@@ -1190,8 +1190,10 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
             if (session.terminal && !session.webglAddon && (session.webglContextLossCount || 0) < 3) {
               console.log('[SSHIFT] Attempting WebGL addon recreation after context loss');
               this._initWebGLAddon(session, false);
-              if (session.fitAddon && !document.hidden) {
-                try { session.fitAddon.fit(); } catch (_) {}
+              if (!document.hidden) {
+                // Guarded refit — see _refreshAllWebGLSessions for why a bare
+                // fitAddon.fit() on a hidden container is destructive.
+                this._fitTerminal(session);
               }
               // After context loss the local terminal's rasterised
               // cells may have been cleared; reconcile with the
@@ -1245,9 +1247,9 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       } else {
         try { webglAddon.clearTextureAtlas(); } catch (_) {}
         session.terminal.refresh(0, session.terminal.rows - 1);
-        if (session.fitAddon) {
-          try { session.fitAddon.fit(); } catch (_) {}
-        }
+        // Guarded refit — a bare fitAddon.fit() here would resize a hidden
+        // session to 10x5 (see _refreshAllWebGLSessions).
+        this._fitTerminal(session);
       }
 
       return true;
@@ -1276,9 +1278,14 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
           session.terminal.refresh(0, session.terminal.rows - 1);
         } else if ((session.webglContextLossCount || 0) < 3 && typeof window.WebglAddon === 'function') {
           this._initWebGLAddon(session, false);
-          if (session.fitAddon) {
-            try { session.fitAddon.fit(); } catch (_) {}
-          }
+          // Refit through _fitTerminal, never fitAddon.fit() directly: a raw
+          // fit() on a session whose wrapper is hidden reads the *computed*
+          // (not used) style of the container, so `height: 100%` parses as
+          // 100px and the terminal is resized to a bogus 10x5 — which the
+          // controller then pushes to the remote PTY, wrecking whatever is
+          // running in that background tab.  _fitTerminal refuses to fit a
+          // hidden or not-yet-laid-out container.
+          this._fitTerminal(session);
         }
       };
       this.sessions.forEach(refresh);
@@ -1332,6 +1339,14 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
   // retries on the next animation frame when it detects a bad fit.
   _fitTerminal(session, retryCount = 0) {
     if (!session || !session.fitAddon || !session.terminal) return false;
+
+    // Non-controllers must mirror the server's dimensions (they receive them
+    // via ssh-resize-sync); fitting them to the local container makes the
+    // shared session diverge and can start a resize war between clients.
+    if (session.isController === false) {
+      session.needsResize = true;
+      return false;
+    }
 
     const wrapper = document.getElementById(`terminal-wrapper-${session.id}`);
     const container = document.getElementById(`terminal-${session.id}`);
@@ -1407,7 +1422,42 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     // bottom-row garbage and garbled status lines after resize.
     this._forceRendererDimensionRecompute(session);
 
+    // Make sure the remote PTY actually learns about this size.  See
+    // syncRemoteTerminalSize — xterm only fires onResize when cols/rows
+    // change, so a fit that lands back on the dimensions the client already
+    // had never notifies the server, even when the server is still on the
+    // size it was given for the previous layout.
+    this.syncRemoteTerminalSize(session);
+
     return true;
+  }
+
+  // Push the terminal's current dimensions to the remote PTY when the server
+  // is not already known to be at that size.
+  //
+  // The only automatic notification path is xterm's onResize event, which
+  // fires ONLY when cols/rows actually change.  That is not enough:
+  //  - a refit after a layout change can land on the same cols/rows the
+  //    client already had while the server is still sized for the previous
+  //    layout (nothing is emitted, the remote program keeps its old shape);
+  //  - the onResize emit is debounced and can be lost if another resize
+  //    event cancels the timer before it fires.
+  // `remoteCols`/`remoteRows` track the last size the server is known to
+  // have, so this is a no-op in the common case and cheap when it is not.
+  syncRemoteTerminalSize(session) {
+    if (!session || !session.terminal || !session.connected) return;
+    if (!session.isController || session.isResyncing) return;
+    if (!this.socket || !this.socket.connected) return;
+
+    const cols = session.terminal.cols;
+    const rows = session.terminal.rows;
+    if (!cols || !rows) return;
+    if (session.remoteCols === cols && session.remoteRows === rows) return;
+
+    session.remoteCols = cols;
+    session.remoteRows = rows;
+    this.socket.emit('ssh-resize', { sessionId: session.id, cols, rows });
+    console.log('[SSHIFT] Synced remote PTY size for', session.id, `${cols}x${rows}`);
   }
 
   forceResizeTerminal(sessionId) {
@@ -1471,6 +1521,19 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     void container.offsetWidth;
     void container.offsetHeight;
 
+    // Same guard as _fitTerminal: a hidden pane reports its percentage CSS
+    // verbatim ("100%" → 100px) and a fit against it produces a ~10x5
+    // terminal that would be pushed straight to the remote PTY.
+    if (!wrapper.classList.contains('active')) {
+      session.needsResize = true;
+      return false;
+    }
+    const rect = container.getBoundingClientRect();
+    if (rect.width < 50 || rect.height < 50) {
+      session.needsResize = true;
+      return false;
+    }
+
     // (b) Commit the renderer's cell metrics before fit reads them.
     this._syncCharSizeThenClearAtlas(session);
 
@@ -1509,6 +1572,8 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
           }
           // Emit synchronously (we already debounced upstream by only calling
           // this on discrete events: take-control / panel grab settlement).
+          session.remoteCols = cols;
+          session.remoteRows = rows;
           this.socket.emit('ssh-resize', { sessionId: sid, cols, rows });
         } catch (_) {}
       }
@@ -2183,7 +2248,12 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       this.currentLayout = layout;
       // Pass syncedTabs to applyLayout which will handle distribution
       this.applyLayout(layout, syncedTabs);
-      
+
+      // Same staggered refit the local (dropdown) path gets — a client that
+      // receives the layout from another browser tab has to re-measure its
+      // panes just as thoroughly, or its terminals keep the previous shape.
+      this.refitAllTerminals();
+
       setTimeout(() => this.handleResize(), 50);
     }
   }
@@ -4876,6 +4946,10 @@ const wheelHandler = (e) => {
           // 3. This can cause resize feedback loops between clients
           // The controller is responsible for determining terminal dimensions
           session.terminal.resize(data.cols, data.rows);
+          // The server just told us the size it applied — remember it so we
+          // don't bounce it straight back via syncRemoteTerminalSize.
+          session.remoteCols = data.cols;
+          session.remoteRows = data.rows;
           console.log('[SSHIFT] Terminal resized to match server dimensions');
           
           // Clear the syncing flag after a delay to ensure resize events settle
@@ -8815,6 +8889,8 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
             clearTimeout(sess.resizeTimeout);
           }
           sess.resizeTimeout = setTimeout(() => {
+            sess.remoteCols = cols;
+            sess.remoteRows = rows;
             this.socket.emit('ssh-resize', { sessionId, cols, rows });
           }, 100); // 100ms debounce
         }
@@ -9047,14 +9123,23 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
       // Setup ResizeObserver to handle container size changes
       // This ensures the terminal is refitted when the container is resized
       // We observe the wrapper (parent) because it persists across layout changes
+      //
+      // NOTE: this debounce MUST use its own timer field.  It used to share
+      // `session.resizeTimeout` with the onResize handler above, which
+      // schedules the `ssh-resize` emit that tells the remote PTY about the
+      // new size.  fit() changes the wrapper's inner geometry, so it
+      // re-triggers this observer, which then cleared the *pending emit* and
+      // replaced it with another (no-op) fit — the server never learned the
+      // new size and the remote program kept drawing at the old width.  That
+      // is the "layout changed but the terminal keeps its previous shape" bug.
       const resizeObserver = new ResizeObserver((entries) => {
         // Only fit if this is the controller and terminal is visible
         if (session.isController && session.terminal && wrapper.classList.contains('active')) {
           try {
-            if (session.resizeTimeout) {
-              clearTimeout(session.resizeTimeout);
+            if (session.roFitTimeout) {
+              clearTimeout(session.roFitTimeout);
             }
-            session.resizeTimeout = setTimeout(() => {
+            session.roFitTimeout = setTimeout(() => {
               try {
                 if (session.fitAddon && session.terminal && wrapper.classList.contains('active')) {
                   this._fitTerminal(session);
@@ -10497,10 +10582,14 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
         session.resizeObserver.disconnect();
         session.resizeObserver = null;
       }
-      // Clean up resize timeout
+      // Clean up resize timeouts (emit debounce + ResizeObserver fit debounce)
       if (session.resizeTimeout) {
         clearTimeout(session.resizeTimeout);
         session.resizeTimeout = null;
+      }
+      if (session.roFitTimeout) {
+        clearTimeout(session.roFitTimeout);
+        session.roFitTimeout = null;
       }
       // Clean up scrollbar MutationObserver (mobile-only)
       if (session._scrollbarObserver) {
@@ -10632,6 +10721,10 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
       if (session.resizeTimeout) {
         clearTimeout(session.resizeTimeout);
         session.resizeTimeout = null;
+      }
+      if (session.roFitTimeout) {
+        clearTimeout(session.roFitTimeout);
+        session.roFitTimeout = null;
       }
       if (session.wheelHandler && session.wheelElement) {
         session.wheelElement.removeEventListener('wheel', session.wheelHandler);
