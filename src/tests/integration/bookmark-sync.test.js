@@ -64,7 +64,10 @@ describe('Bookmark Synchronization Tests', () => {
       fs.writeFileSync(BACKUP_CONFIG_PATH, configData);
     }
     
-    // Setup test config
+    // Setup test config. Create the .env directory first — it is not
+    // committed to the repo (gitignored), so a fresh CI checkout does not
+    // have it and writeFileSync would fail with ENOENT.
+    fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
     fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify(createTestConfig(), null, 2));
     
     // Wait for server to reload config
