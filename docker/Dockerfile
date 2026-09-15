@@ -37,6 +37,16 @@ RUN apk add --no-cache \
 RUN addgroup -g 1001 -S sshift && \
     adduser -S -D -H -u 1001 -h /app -s /sbin/nologin -G sshift -g sshift sshift
 
+# Persistent data directory. SSHIFT_DATA_DIR points the app at /data so
+# config.json (bookmarks, folders, settings) and self-signed certs are
+# written to a path intended for a named volume mount. The directory is
+# pre-created with sshift ownership so the volume is initialized with
+# the right owner on first use (Docker copies image content + ownership
+# into an empty named volume on first mount — a directory auto-created by
+# Docker would be root-owned and unwritable for the non-root user).
+RUN mkdir -p /data && chown -R sshift:sshift /data
+ENV SSHIFT_DATA_DIR=/data
+
 # Create app directory
 WORKDIR /app
 

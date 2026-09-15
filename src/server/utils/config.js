@@ -11,8 +11,16 @@ const crypto = require('crypto');
 // Get user's home directory
 const HOME_DIR = os.homedir();
 
-// User install directory for config
-const USER_INSTALL_DIR = path.join(HOME_DIR, '.local', 'share', 'sshift');
+// User install directory for config. SSHIFT_DATA_DIR overrides it — used
+// by the Docker image to point the app at a mounted volume so that
+// config.json (bookmarks, folders, settings) and the self-signed
+// certificates survive container recreation on image updates. Without
+// it, a Docker install writes to $HOME/.local/share/sshift inside the
+// container's ephemeral writable layer and loses everything whenever the
+// container is recreated (docker compose pull && up -d).
+const USER_INSTALL_DIR = process.env.SSHIFT_DATA_DIR
+  ? path.resolve(process.env.SSHIFT_DATA_DIR)
+  : path.join(HOME_DIR, '.local', 'share', 'sshift');
 
 // Config paths - prioritize package directory, then user install directory
 const PACKAGE_DIR = path.join(__dirname, '..', '..', '..');
@@ -302,7 +310,55 @@ function getDataDir() {
 }
 
 /**
- * Get the legacy data directory (package directory) used before
+ * Legacy package-directory config migration.
+ *
+ * Versions before ~v1.3.x (pre May 2026) created config.json INSIDE the
+ * npm package directory (<npm-global>/node_modules/@lethevimlet/sshift/).
+ * The search order still prefers those paths, so legacy installs keep
+ * working — but they are a time bomb: `npm install -g` (used by the GUI
+ * update and manual updates) replaces the package directory wholesale
+ * and DESTROYS such configs (verified: bookmarks vanish on update).
+ *
+ * This copies a legacy package-dir config to the user install directory
+ * (which survives npm updates) BEFORE an update can delete it. The
+ * package-dir file is left in place (it still wins the search order),
+ * but once an update removes it the user-space copy takes over
+ * seamlessly with all bookmarks/folders/settings intact.
+ *
+ * No-op when a user-space config already exists or when no package-dir
+ * config is present.
+ *
+ * @returns {string|null} Path the config was migrated to, or null
+ */
+function migrateLegacyPackageConfig() {
+  const userConfigPath = path.join(USER_INSTALL_DIR, '.env', 'config.json');
+  if (fs.existsSync(userConfigPath)) return null;
+
+  const legacyPaths = [
+    path.join(PACKAGE_DIR, '.env', 'config.json'),
+    path.join(PACKAGE_DIR, 'config.json'),
+  ];
+
+  for (const legacyPath of legacyPaths) {
+    if (fs.existsSync(legacyPath)) {
+      try {
+        fs.mkdirSync(path.dirname(userConfigPath), { recursive: true });
+        fs.copyFileSync(legacyPath, userConfigPath);
+        console.log('[CONFIG] Legacy package-directory config detected — copied to', userConfigPath);
+        console.log('[CONFIG] The package-dir copy is left in place; the user-space copy now');
+        console.log('[CONFIG] guarantees settings/bookmarks survive the next npm update.');
+        return userConfigPath;
+      } catch (e) {
+        console.warn('[CONFIG] Failed to migrate package-directory config:', e.message);
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Get legacy data directory (package directory) used before
  * certs were moved to user space. Used for migration only.
  * @returns {string|null} Path to legacy data directory, or null if N/A
  */
@@ -476,6 +532,7 @@ module.exports = {
   getConfigPath,
   loadConfig,
   saveConfig,
+  migrateLegacyPackageConfig,
   getPort,
   getBindAddress,
   getSSHKeepaliveSettings,

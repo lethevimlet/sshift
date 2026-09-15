@@ -17,6 +17,7 @@ docker pull ghcr.io/lethevimlet/sshift:latest
 docker run -d \
   --name sshift \
   -p 8022:8022 \
+  -v sshift-data:/data \
   ghcr.io/lethevimlet/sshift:latest
 
 # Access the application
@@ -45,13 +46,34 @@ docker-compose down
 | `PORT` | `8022` | Port to bind the server |
 | `BIND` | `0.0.0.0` | Address to bind (use `127.0.0.1` for localhost only) |
 | `NODE_ENV` | `production` | Node environment |
+| `SSHIFT_DATA_DIR` | `/data` (image default) | Directory for all persistent state: `config.json` (bookmarks, folders, settings) and self-signed certificates |
 
 ### Volumes
 
-The Docker image uses two volumes for persistent data:
+Mount a volume at `/data` (where `SSHIFT_DATA_DIR` points) to persist data
+across container recreation — **this is essential**, otherwise bookmarks and
+settings are lost whenever the container is recreated (e.g. on image
+updates):
 
-- **`sshift-config`**: Configuration files (bookmarks, settings)
-- **`sshift-data`**: Data files (certificates, keys)
+```bash
+-v sshift-data:/data
+```
+
+The config file inside the volume lives at `/data/.env/config.json`.
+
+> **Note for users of older releases:** images before v1.7.7 documented
+> `sshift-config:/app/config` and `sshift-data:/app/data` volume mounts.
+> Those paths were never written by the application — all state was silently
+> kept in the container's ephemeral layer and was lost when the container
+> was recreated. Update to v1.7.7+ and mount `/data` instead.
+>
+> **Lost bookmarks after an update?** If the old container still exists
+> (`docker ps -a`), the old config may be recoverable:
+> ```bash
+> docker cp <old-container>:/app/.local/share/sshift/.env/config.json ./config-backup.json
+> ```
+> Then place it at `/data/.env/config.json` in the new container's volume
+> and restart.
 
 ### Custom Configuration
 
@@ -61,8 +83,9 @@ Mount a custom configuration file:
 docker run -d \
   --name sshift \
   -p 8022:8022 \
-  -v /path/to/config.json:/app/config.json:ro \
-  lethevimlet/sshift:latest
+  -v /path/to/config.json:/data/.env/config.json:ro \
+  -v sshift-data:/data \
+  ghcr.io/lethevimlet/sshift:latest
 ```
 
 ### Environment File
@@ -156,9 +179,8 @@ docker run -d \
 docker run -d \
   --name sshift \
   -p 8022:8022 \
-  -v sshift-config:/app/config \
-  -v sshift-data:/app/data \
-  lethevimlet/sshift:latest
+  -v sshift-data:/data \
+  ghcr.io/lethevimlet/sshift:latest
 ```
 
 ### Using with Reverse Proxy
@@ -199,7 +221,7 @@ docker inspect sshift | grep -A 10 Health
 
 ```bash
 # Fix volume permissions
-docker exec -u root sshift chown -R sshift:sshift /app/config /app/data
+docker exec -u root sshift chown -R sshift:sshift /data
 ```
 
 ### Connection Refused

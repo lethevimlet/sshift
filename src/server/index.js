@@ -25,7 +25,7 @@ const selfsigned = require('selfsigned');
 const httpolyglot = require('httpolyglot');
 
 // Import utilities
-const { ensureConfig, loadConfig, getPort, getBindAddress, getEnableHttps, getHttpRedirect, getCertPath, getKeyPath, getDataDir, getLegacyDataDir, isPasswordSet, USER_INSTALL_DIR } = require('./utils/config');
+const { ensureConfig, loadConfig, getPort, getBindAddress, getEnableHttps, getHttpRedirect, getCertPath, getKeyPath, getDataDir, getLegacyDataDir, isPasswordSet, USER_INSTALL_DIR, migrateLegacyPackageConfig } = require('./utils/config');
 
 // Import services
 const { sshManager, sftpManager } = require('./services');
@@ -214,6 +214,11 @@ let actuallyHttps = false;
 
 // Async initialization function
 async function initializeServer() {
+  // Rescue legacy package-directory configs BEFORE anything else: they
+  // are destroyed by the next `npm install -g` (GUI update). Must run
+  // before ensureConfig(), which would otherwise consider the package-
+  // dir config "existing" and skip creating the durable user-space one.
+  migrateLegacyPackageConfig();
   ensureConfig();
 
   if (enableHttps) {
