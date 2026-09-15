@@ -385,15 +385,16 @@ async function initializeServer() {
   io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
 
-    // Send current open tabs to new client
-    const { getOpenTabs, getTabOrder, getCurrentTheme, getCurrentAccent, getActiveTabsByPanel } = require('./utils/tab-manager');
-    const { getCurrentLayout } = require('./endpoints/ws/layout');
+    // Send current open tabs to new client.
+    // NOTE: theme, accent and layout are deliberately NOT included —
+    // they are per-device preferences stored in each browser's
+    // localStorage (they survive server restarts and can differ per
+    // device). Broadcasting them here used to clobber every new client's
+    // own preference with the server's in-memory copy.
+    const { getOpenTabs, getTabOrder, getActiveTabsByPanel } = require('./utils/tab-manager');
     
     const openTabs = getOpenTabs();
     const tabOrder = getTabOrder();
-    const currentLayout = getCurrentLayout();
-    const currentTheme = getCurrentTheme();
-    const currentAccent = getCurrentAccent();
     const activeTabsByPanelMap = getActiveTabsByPanel();
     const activeTabsByPanel = Object.fromEntries(activeTabsByPanelMap);
     
@@ -438,10 +439,7 @@ async function initializeServer() {
     
     socket.emit('open-tabs', { 
       tabs: orderedTabs,
-      layout: currentLayout,
-      activeTabsByPanel,
-      theme: currentTheme,
-      accent: currentAccent
+      activeTabsByPanel
     });
 
     // Sync flash state for tabs that need attention

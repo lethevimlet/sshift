@@ -213,3 +213,134 @@ describe('Mobile textarea → terminal diff sync (_syncTextareaToTerminal)', () 
     expect(resent).toEqual([]);
   });
 });
+
+describe('Gboard refocus / composition reset hardening', () => {
+  let Cls;
+
+  beforeAll(() => {
+    Cls = loadMobileHandlerClass();
+  });
+
+  beforeEach(() => {
+    global.document = { activeElement: null, body: { appendChild() {} } };
+  });
+
+  afterAll(() => {
+    delete global.document;
+  });
+
+  function makeFocusableHandler() {
+    const h = Object.create(Cls.prototype);
+    h.hiddenTextarea = {
+      value: '',
+      focused: false,
+      removedReadonly: false,
+      focus() { this.focused = true; global.document.activeElement = this; },
+      blur() { this.focused = false; if (global.document.activeElement === this) global.document.activeElement = null; },
+      removeAttribute() { this.removedReadonly = true; },
+      setAttribute() {},
+      addEventListener() {},
+      style: {}
+    };
+    h._sentValue = '';
+    h._isComposing = false;
+    h.touchState = { isSelecting: false, isDragging: false };
+    h.selection = { active: false };
+    h.sent = [];
+    h._sendToTerminal = (text) => h.sent.push(text);
+    return h;
+  }
+
+  test('_resetInputTracking defers while a composition is in flight', () => {
+    const h = makeFocusableHandler();
+    h.hiddenTextarea.value = 'hel';
+    h._sentValue = 'hel';
+    h._isComposing = true;
+
+    h._resetInputTracking();
+    // Must NOT clear the field under the IME — that is invisible to Gboard
+    // and desyncs its cached model of the field (repetitive-text bug).
+    expect(h.hiddenTextarea.value).toBe('hel');
+    expect(h._sentValue).toBe('hel');
+    expect(h._pendingTrackingReset).toBe(true);
+
+    // compositionend fires: the deferred reset is applied, discarding
+    // the composition result instead of desyncing the IME mid-flight.
+    h._onCompositionEnd();
+    expect(h.hiddenTextarea.value).toBe('');
+    expect(h._sentValue).toBe('');
+    expect(h._pendingTrackingReset).toBe(false);
+  });
+
+  test('compositionend without a pending reset still syncs idempotently', () => {
+    const h = makeFocusableHandler();
+    h._isComposing = true;
+    h.hiddenTextarea.value = 'hello';
+    h._onCompositionEnd();
+    expect(h.sent).toEqual(['hello']);
+    // Duplicate input right after compositionend diffs to nothing.
+    h._syncTextareaToTerminal();
+    expect(h.sent).toEqual(['hello']);
+  });
+
+  test('_focusHiddenTextarea does NOT wipe the textarea on refocus (helhel regression)', () => {
+    const h = makeFocusableHandler();
+
+    // First focus: textarea empty, baseline empty — clean start.
+    h._focusHiddenTextarea();
+    expect(h.hiddenTextarea.focused).toBe(true);
+
+    // User types "hel"; it is sent and mirrored in the baseline.
+    h.hiddenTextarea.value = 'hel';
+    h._syncTextareaToTerminal();
+    expect(h.sent).toEqual(['hel']);
+
+    // Keyboard collapses (blur, e.g. terminal tap) then refocuses.
+    h.hiddenTextarea.blur();
+    h._focusHiddenTextarea();
+
+    // The old behaviour cleared the textarea here. Gboard still held
+    // "hel" in its own model, so the next suggestion tap re-inserted it
+    // and the diff re-sent it on top of the echoed "hel" → "helhel".
+    // Keeping the textarea intact keeps field, baseline and IME in sync.
+    expect(h.hiddenTextarea.value).toBe('hel');
+    expect(h._sentValue).toBe('hel');
+
+    // Suggestion tap now sends only the true delta.
+    h.hiddenTextarea.value = 'hello';
+    h._syncTextareaToTerminal();
+    expect(h.sent).toEqual(['hel', 'lo']);
+    expect(applyToLine(h.sent)).toBe('hello');
+  });
+
+  test('_focusHiddenTextarea is a no-op when the textarea is already focused', () => {
+    const h = makeFocusableHandler();
+    h._focusHiddenTextarea();
+    expect(h.hiddenTextarea.focused).toBe(true);
+    expect(h.hiddenTextarea.removedReadonly).toBe(true);
+
+    // Second call (e.g. after every mobile-keys-bar tap): nothing changes.
+    h.hiddenTextarea.removedReadonly = false;
+    h._focusHiddenTextarea();
+    expect(h.hiddenTextarea.removedReadonly).toBe(false);
+  });
+
+  test('screen-sync refocus mid-word keeps autocomplete deltas correct', () => {
+    const h = makeFocusableHandler();
+    h._focusHiddenTextarea();
+    h.hiddenTextarea.value = 'git st';
+    h._syncTextareaToTerminal();
+    expect(h.sent).toEqual(['git st']);
+
+    // A screen sync fires while the keyboard is open: app.js calls
+    // _focusHiddenTextarea() again. With the old wipe, Gboard's stale
+    // "git st" model got re-inserted and re-sent in full on the next
+    // suggestion tap. Now the baseline survives and only the delta goes.
+    h._focusHiddenTextarea();
+    h.hiddenTextarea.value = 'git status ';
+    h._syncTextareaToTerminal();
+    expect(applyToLine(h.sent)).toBe('git status ');
+    // ...and the correction was never re-sent as one big blob.
+    expect(h.sent.filter(s => s === 'git status ')).toHaveLength(0);
+  });
+});

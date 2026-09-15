@@ -1,7 +1,11 @@
 /**
  * Layout management WebSocket handlers
+ *
+ * The layout-change broadcast handler was removed: the preferred layout
+ * is a per-device preference stored in each browser's localStorage (it
+ * survives server restarts and can differ between devices). Only the
+ * per-tab panel ASSIGNMENTS are still synced (see tabs.js tabs-save).
  */
-
 let currentLayout = 'default';
 
 /**
@@ -26,14 +30,7 @@ function setCurrentLayout(layoutId) {
  * @param {Object} io - Socket.IO instance
  */
 function registerLayoutHandlers(socket, io) {
-  // Layout change - sync across all sessions
-  socket.on('layout-change', (data) => {
-    console.log('[LAYOUT] Layout change:', data.layoutId);
-    currentLayout = data.layoutId;
-    
-    // Broadcast to all other clients
-    socket.broadcast.emit('layout-changed', { layoutId: data.layoutId });
-  });
+  // No handlers: layout preference is per-device (client localStorage).
 }
 
 module.exports = { 

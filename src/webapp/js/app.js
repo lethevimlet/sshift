@@ -38,7 +38,6 @@ class SSHIFTClient {
     this.isRestoring = false; // Flag to prevent saving during restoration
     this.isSyncingTabs = false; // Flag to prevent saveTabs emission during tabs-sync
     this._serverPanelMap = new Map(); // sessionId -> panelId from server (preserved for mobile)
-    this._serverLayout = null; // Layout from server (preserved for mobile saves)
     this._initialSyncDone = false; // Whether initial open-tabs sync from server has completed
     this._serverSyncTimeout = null; // Timeout for fallback to localStorage restore
     // saveTabs dedup/debounce state — prevents redundant localStorage writes
@@ -93,8 +92,7 @@ class SSHIFTClient {
     
     // Layout system
     this.layouts = null; // Will be loaded from config/layouts.json
-    this.currentLayout = null; // Current active layout
-    this.pendingLayoutSync = null; // Queue for layout sync before layouts are loaded
+    this.currentLayout = null; // Current active layout (per-device, localStorage)
     
     console.log('[SSHIFT] Mobile detection - isMobile:', this.isMobile, 'window width:', window.innerWidth);
     
@@ -488,9 +486,11 @@ class SSHIFTClient {
       });
     });
 
-    // Save tabs with current layout (mobile saves server layout, not 'single')
+    // Save tabs with this device's layout. The layout field is kept for
+    // payload compatibility (the server relays it in tabs-sync) but no
+    // client applies it — layout is a per-device localStorage preference.
     const savedLayout = this.isMobile
-      ? (this._serverLayout || 'single')
+      ? 'single'
       : (this.currentLayout?.id || 'single');
     const tabsData = {
       tabs,
@@ -1194,6 +1194,12 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
                 // Guarded refit — see _refreshAllWebGLSessions for why a bare
                 // fitAddon.fit() on a hidden container is destructive.
                 this._fitTerminal(session);
+              } else {
+                // Refit as soon as the tab becomes visible again — the
+                // freshly recreated renderer would otherwise paint at the
+                // pre-loss cell pitch (interlace artefact) until a manual
+                // resize. The visibilitychange handler consumes this flag.
+                session.needsResize = true;
               }
               // After context loss the local terminal's rasterised
               // cells may have been cleared; reconcile with the
@@ -1274,8 +1280,13 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       const refresh = (session) => {
         if (!session || !session.terminal || !this.webglRenderer) return;
         if (session.webglAddon) {
-          try { session.webglAddon.clearTextureAtlas(); } catch (_) {}
-          session.terminal.refresh(0, session.terminal.rows - 1);
+          // Use the full recompute (the exact path a real window resize
+          // triggers), not just an atlas clear: while the tab was hidden
+          // the renderer's device cell pitch can go stale, and repainting
+          // at a stale pitch faithfully reproduces the interlace "black
+          // band" artefact. measure() + handleResize + atlas rebuild +
+          // refresh heals both stale glyphs AND pitch mismatches.
+          this._forceRendererDimensionRecompute(session);
         } else if ((session.webglContextLossCount || 0) < 3 && typeof window.WebglAddon === 'function') {
           this._initWebGLAddon(session, false);
           // Refit through _fitTerminal, never fitAddon.fit() directly: a raw
@@ -1802,12 +1813,11 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       
       // Update all terminal themes
       this.updateTerminalThemes(newTheme);
-      
-      // Sync theme to server for cross-device sync
-      if (this.socket && this.socket.connected) {
-        this.socket.emit('theme-change', { theme: newTheme });
-      }
-      
+
+      // Theme is a PER-DEVICE preference (localStorage only) — it is no
+      // longer synced through the server, so it survives server restarts
+      // and can differ between devices/browsers.
+
       // Fade out the wave
       wave.classList.add('fade-out');
       
@@ -2046,10 +2056,8 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       console.warn('[SSHIFT] Failed to re-apply terminal themes after accent change:', e.message);
     }
 
-    // Sync accent to server for cross-device sync
-    if (this.socket && this.socket.connected) {
-      this.socket.emit('accent-change', { accent: accent });
-    }
+    // Accent is a PER-DEVICE preference (localStorage only) — no longer
+    // synced through the server.
   }
 
   updateAccentPreview(accent) {
@@ -2213,50 +2221,26 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     console.log('[SSHIFT] Setting layout:', layoutId);
     this.saveCurrentLayout(layoutId);
     this.updateLayoutActiveState(layoutId);
-    
+
     // Find the layout definition
     const layout = this.layouts?.find(l => l.id === layoutId);
     if (layout) {
-      // Emit event for layout change (to be implemented later)
+      // Apply the layout locally
       this.onLayoutChange(layout);
     }
-    
-    // Sync layout to server for cross-tab sync
-    if (this.sticky && this.socket) {
-      this.socket.emit('layout-change', { layoutId });
-    }
+
+    // Layout preference is PER-DEVICE (localStorage only, survives server
+    // restarts, can differ between devices). Panel ASSIGNMENTS of tabs are
+    // still synced via saveTabs/tabs-sync; each device maps them into its
+    // own layout (tabs assigned to panels that don't exist locally fall
+    // back to the first panel — see distributeTabsToPanels).
   }
 
-  setLayoutFromServer(layoutId, syncedTabs = null) {
-    console.log('[SSHIFT] Setting layout from server:', layoutId);
-    
-    // If layouts aren't loaded yet, queue this for later
-    if (!this.layouts) {
-      console.log('[SSHIFT] Layouts not loaded yet, queuing layout sync for:', layoutId);
-      this.pendingLayoutSync = layoutId;
-      this.pendingLayoutTabs = syncedTabs;
-      return;
-    }
-    
-    // Don't sync back to server (avoid loop)
-    this.saveCurrentLayout(layoutId);
-    this.updateLayoutActiveState(layoutId);
-    
-    // Find the layout definition
-    const layout = this.layouts.find(l => l.id === layoutId);
-    if (layout) {
-      this.currentLayout = layout;
-      // Pass syncedTabs to applyLayout which will handle distribution
-      this.applyLayout(layout, syncedTabs);
-
-      // Same staggered refit the local (dropdown) path gets — a client that
-      // receives the layout from another browser tab has to re-measure its
-      // panes just as thoroughly, or its terminals keep the previous shape.
-      this.refitAllTerminals();
-
-      setTimeout(() => this.handleResize(), 50);
-    }
-  }
+  // setLayoutFromServer was removed: layout is now a per-device preference
+  // (localStorage only). Each device applies its own saved layout at
+  // startup (initLayoutSystem) and maps synced tab panel assignments into
+  // its local panels — panels that don't exist locally fall back to the
+  // first panel (distributeTabsToPanels).
 
   updateLayoutActiveState(layoutId) {
     document.querySelectorAll('.layout-option').forEach(option => {
@@ -3278,15 +3262,6 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     // Load layouts
     this.layouts = await this.loadLayouts();
     
-    // Apply any pending layout sync that arrived before layouts were loaded
-    if (this.pendingLayoutSync) {
-      console.log('[SSHIFT] Applying pending layout sync:', this.pendingLayoutSync);
-      const pendingLayoutId = this.pendingLayoutSync;
-      this.pendingLayoutSync = null;
-      this.setLayoutFromServer(pendingLayoutId);
-      return; // setLayoutFromServer handles everything
-    }
-    
     // Get saved layout or default to 'single'
     const savedLayoutId = this.loadCurrentLayout();
     const layout = this.layouts.find(l => l.id === savedLayoutId) || this.layouts[0];
@@ -3438,29 +3413,20 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       this._pendingOpenTabs = null;
       this._pendingOpenTabsIsInitial = null;
       
-      // Store server layout for mobile preservation
-      if (pendingData.layout) {
-        this._serverLayout = pendingData.layout;
-      }
-      
       // Prevent saveTabs from emitting to server during deferred sync
       const wasSyncingTabs = this.isSyncingTabs;
       this.isSyncingTabs = true;
       
       try {
         if (pendingData.tabs.length > 0) {
-          // Sync layout BEFORE tabs so panels exist before distribution
-          if (pendingData.layout && !this.isMobile) {
-            this.setLayoutFromServer(pendingData.layout);
-          }
+          // The local layout (per-device, applied by initLayoutSystem)
+          // already created the panels — just distribute the synced tabs
+          // into them.
           this.syncTabsFromServer(pendingData.tabs, isInitialSync, pendingData.activeTabsByPanel);
         } else {
           // Server has no tabs (e.g. right after restart). Treat it as a
           // fresh slate: clear stale localStorage and DO NOT resurrect
           // those sessions — they're gone on the server.
-          if (pendingData.layout && !this.isMobile) {
-            this.setLayoutFromServer(pendingData.layout);
-          }
           try { this.clearTabs(); } catch (_) {}
         }
       } finally {
@@ -3493,9 +3459,22 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       resizeTimeout = setTimeout(setViewportHeight, 100);
     });
     
-    // Update when virtual keyboard opens/closes on mobile
+    // Update when virtual keyboard opens/closes on mobile.
+    // visualViewport resize fires continuously on Android while the
+    // browser chrome hides/shows during scroll and during keyboard
+    // animations; writing --vh/--vvh on <html> invalidates every
+    // calc(var(--vh)*…) consumer → full-page relayout. Coalesce to one
+    // write per frame.
     if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', setViewportHeight);
+      let vvhRAF = null;
+      const setViewportHeightCoalesced = () => {
+        if (vvhRAF) return;
+        vvhRAF = requestAnimationFrame(() => {
+          vvhRAF = null;
+          setViewportHeight();
+        });
+      };
+      window.visualViewport.addEventListener('resize', setViewportHeightCoalesced);
     }
     
     // Update mobile detection on resize and re-apply layout if needed
@@ -3555,12 +3534,115 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
         
         console.log(`[SSHIFT] Setting up touch scroll handlers on ${elementName}`);
         
+        // Apply the accumulated touch delta to the terminal. Shared by the
+        // per-frame coalesced gesture scroll and the fling momentum loop.
+        // Coalescing matters: touchmove fires faster than frames on 90/120Hz
+        // phones, and terminal.scrollLines() is a synchronous buffer scroll +
+        // repaint — running it several times per frame was the single
+        // biggest source of scroll jank on mobile.
+        const applyScrollDelta = () => {
+          if (Math.abs(session.touchAccumulator) < 0.5) return;
+
+          const lineHeight = terminal._core?._renderService?.dimensions?.css?.cell?.height || 20;
+          const lineH = Math.max(lineHeight, 14);
+
+          // When a TUI app has mouse tracking enabled (DECSET
+          // 1000/1002/1003), scrolling should send mouse wheel
+          // escape sequences directly to the PTY. Instead of
+          // dispatching synthetic WheelEvents (which xterm's own
+          // document-level touch handler can interfere with), we
+          // generate the SGR mouse format ourselves and emit it via
+          // ssh-data. SGR format: \x1b[<button;col;row;M
+          // Wheel up = button 64, wheel down = button 65.
+          const mouseProtocol = terminal._core?.coreMouseService?.activeProtocol;
+          const tuiMouseActive = mouseProtocol && mouseProtocol !== 'NONE';
+
+          if (tuiMouseActive) {
+            if (Math.abs(session.touchAccumulator) >= lineH) {
+              // Compute the terminal cell under the touch point.
+              const screenEl = terminal.element?.querySelector('.xterm-screen');
+              if (screenEl) {
+                const rect = screenEl.getBoundingClientRect();
+                const cellW = terminal._core?._renderService?.dimensions?.css?.cell?.width || 8;
+                const cellH = lineHeight;
+                const touchX = session.lastTouchX - rect.left;
+                const touchY = session.lastTouchY - rect.top;
+                const col = Math.max(1, Math.min(terminal.cols, Math.floor(touchX / cellW) + 1));
+                const row = Math.max(1, Math.min(terminal.rows, Math.floor(touchY / cellH) + 1));
+
+                const scrollLines = Math.trunc(Math.abs(session.touchAccumulator) / lineH);
+                const direction = session.touchAccumulator > 0 ? 1 : -1; // 1 = scroll down, -1 = scroll up
+                for (let i = 0; i < scrollLines; i++) {
+                  // button 64 = wheel up, 65 = wheel down
+                  const button = direction > 0 ? 65 : 64;
+                  const seq = `\x1b[<${button};${col};${row}M`;
+                  if (session.connected && session.isController) {
+                    this.socket.emit('ssh-data', { sessionId, data: seq });
+                  }
+                }
+                session.touchAccumulator = 0;
+              }
+            }
+          } else {
+            const linesToScroll = Math.trunc(Math.abs(session.touchAccumulator) / lineH);
+            if (linesToScroll > 0) {
+              const direction = session.touchAccumulator > 0 ? 1 : -1;
+              terminal.scrollLines(direction * linesToScroll);
+              session.touchAccumulator -= direction * linesToScroll * lineH;
+            }
+          }
+        };
+
+        // Coalesced per-frame application of the touch delta.
+        const scheduleScrollApply = () => {
+          if (session.scrollApplyRAF) return;
+          session.scrollApplyRAF = requestAnimationFrame(() => {
+            session.scrollApplyRAF = null;
+            applyScrollDelta();
+          });
+        };
+
+        // Fling momentum: after a fast swipe, keep scrolling with an
+        // exponentially decaying velocity (the native-feeling "glide" that
+        // was missing — content used to halt instantly on finger lift).
+        // Gated: never in TUI mouse mode (wheel-mouse emulation should not
+        // synthesize fling events) and cancelled by any new touch.
+        const startMomentum = () => {
+          const step = () => {
+            session.momentumRAF = null;
+            const mouseProtocol = terminal._core?.coreMouseService?.activeProtocol;
+            if (mouseProtocol && mouseProtocol !== 'NONE') return;
+            session.scrollVelocity *= 0.94;
+            if (Math.abs(session.scrollVelocity) < 0.8) {
+              session.scrollVelocity = 0;
+              return;
+            }
+            session.touchAccumulator += session.scrollVelocity;
+            applyScrollDelta();
+            session.momentumRAF = requestAnimationFrame(step);
+          };
+          if (session.momentumRAF) cancelAnimationFrame(session.momentumRAF);
+          session.momentumRAF = requestAnimationFrame(step);
+        };
+
+        const cancelMomentum = () => {
+          if (session.momentumRAF) {
+            cancelAnimationFrame(session.momentumRAF);
+            session.momentumRAF = null;
+          }
+          session.scrollVelocity = 0;
+        };
+
         element.addEventListener('touchstart', (e) => {
           if (e.touches.length === 1) {
+            cancelMomentum();
             session.lastTouchY = e.touches[0].clientY;
+            session.lastTouchX = e.touches[0].clientX;
             session.isScrolling = true;
             session.touchAccumulator = 0;
+            session.scrollVelocity = 0;
           } else if (e.touches.length === 2) {
+            cancelMomentum();
             session.isPinching = true;
             session.isScrolling = false;
             session.initialPinchDistance = this.getPinchDistance(e.touches[0], e.touches[1]);
@@ -3575,56 +3657,14 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
             const currentTouchY = e.touches[0].clientY;
             const touchDiff = session.lastTouchY - currentTouchY;
             session.lastTouchY = currentTouchY;
+            session.lastTouchX = e.touches[0].clientX;
             session.touchAccumulator += touchDiff;
+            // Per-event velocity, smoothed; consumed by the fling momentum
+            // loop on touchend. Positive = finger moved up = scroll down.
+            session.scrollVelocity = 0.8 * (session.scrollVelocity || 0) + 0.2 * touchDiff;
 
-            const lineHeight = terminal._core?._renderService?.dimensions?.css?.cell?.height || 20;
-            const lineH = Math.max(lineHeight, 14);
-
-            // When a TUI app has mouse tracking enabled (DECSET
-            // 1000/1002/1003), scrolling should send mouse wheel
-            // escape sequences directly to the PTY. Instead of
-            // dispatching synthetic WheelEvents (which xterm's own
-            // document-level touch handler can interfere with), we
-            // generate the SGR mouse format ourselves and emit it via
-            // ssh-data. SGR format: \x1b[<button;col;row;M
-            // Wheel up = button 64, wheel down = button 65.
-            const mouseProtocol = terminal._core?.coreMouseService?.activeProtocol;
-            const tuiMouseActive = mouseProtocol && mouseProtocol !== 'NONE';
-
-            if (tuiMouseActive) {
-              if (Math.abs(session.touchAccumulator) >= lineH) {
-                // Compute the terminal cell under the touch point.
-                const screenEl = terminal.element?.querySelector('.xterm-screen');
-                if (screenEl) {
-                  const rect = screenEl.getBoundingClientRect();
-                  const cellW = terminal._core?._renderService?.dimensions?.css?.cell?.width || 8;
-                  const cellH = lineHeight;
-                  const touchX = e.touches[0].clientX - rect.left;
-                  const touchY = e.touches[0].clientY - rect.top;
-                  const col = Math.max(1, Math.min(terminal.cols, Math.floor(touchX / cellW) + 1));
-                  const row = Math.max(1, Math.min(terminal.rows, Math.floor(touchY / cellH) + 1));
-
-                  const scrollLines = Math.trunc(Math.abs(session.touchAccumulator) / lineH);
-                  const direction = session.touchAccumulator > 0 ? 1 : -1; // 1 = scroll down, -1 = scroll up
-                  for (let i = 0; i < scrollLines; i++) {
-                    // button 64 = wheel up, 65 = wheel down
-                    const button = direction > 0 ? 65 : 64;
-                    const seq = `\x1b[<${button};${col};${row}M`;
-                    if (session.connected && session.isController) {
-                      this.socket.emit('ssh-data', { sessionId, data: seq });
-                    }
-                  }
-                  session.touchAccumulator = 0;
-                }
-              }
-            } else {
-              const linesToScroll = Math.trunc(Math.abs(session.touchAccumulator) / lineH);
-              if (linesToScroll > 0) {
-                const direction = session.touchAccumulator > 0 ? 1 : -1;
-                terminal.scrollLines(direction * linesToScroll);
-                session.touchAccumulator -= direction * linesToScroll * lineH;
-              }
-            }
+            // Apply once per frame, not once per touchmove event.
+            scheduleScrollApply();
           } else if (e.touches.length === 2 && session.isPinching) {
             e.preventDefault();
             
@@ -3658,7 +3698,24 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
             session.isScrolling = false;
             session.initialPinchDistance = 0;
             session.lastPinchDistance = 0;
+            
+            // Apply any delta accumulated since the last frame now (the
+            // coalesced RAF may not have run yet), then hand over to the
+            // fling loop if the gesture ended with enough velocity.
+            if (session.scrollApplyRAF) {
+              cancelAnimationFrame(session.scrollApplyRAF);
+              session.scrollApplyRAF = null;
+            }
+            applyScrollDelta();
             session.touchAccumulator = 0;
+
+            const mouseProtocol = terminal._core?.coreMouseService?.activeProtocol;
+            const tuiMouseActive = mouseProtocol && mouseProtocol !== 'NONE';
+            if (!tuiMouseActive && Math.abs(session.scrollVelocity || 0) >= 3) {
+              startMomentum();
+            } else {
+              session.scrollVelocity = 0;
+            }
             
             setTimeout(() => {
               this.checkIfAtBottom(sessionId);
@@ -3668,8 +3725,10 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
             session.initialPinchDistance = 0;
             session.lastPinchDistance = 0;
             session.lastTouchY = e.touches[0].clientY;
+            session.lastTouchX = e.touches[0].clientX;
             session.isScrolling = true;
             session.touchAccumulator = 0;
+            session.scrollVelocity = 0;
           }
         }, { passive: true });
       };
@@ -3896,20 +3955,27 @@ const wheelHandler = (e) => {
     const session = this.sessions.get(sessionId);
     if (!session || !session.terminal) return;
     
+    const terminal = session.terminal;
+
     // Only auto-scroll if user is at the bottom
     // This allows users to scroll up and read previous output without being interrupted
     if (!session.isAtBottom) {
-      console.log('[SSHIFT] Not auto-scrolling - user has scrolled up');
       return;
     }
-    
-    const terminal = session.terminal;
-    
+
     try {
+      // xterm already pins the viewport to the bottom while writing when
+      // the user is at the bottom — calling scrollToBottom() on every data
+      // frame duplicated that work (plus scroll+render churn) on mobile.
+      // Only scroll when the viewport actually drifted off the bottom.
+      const buffer = terminal.buffer.active;
+      if (buffer.viewportY >= buffer.length - terminal.rows) {
+        return;
+      }
+
       // Use xterm.js scrollToBottom method
       if (typeof terminal.scrollToBottom === 'function') {
         terminal.scrollToBottom();
-        console.log('[SSHIFT] Auto-scrolled to bottom');
       }
     } catch (e) {
       console.warn('[SSHIFT] Error scrolling terminal:', e.message);
@@ -4105,7 +4171,21 @@ const wheelHandler = (e) => {
         }
       };
       
-      window.visualViewport.addEventListener('resize', updatePosition);
+      // Coalesce both visual-viewport listeners to one update per frame:
+      // on Android these fire continuously during keyboard animations and
+      // browser chrome show/hide; each handler does getComputedStyle calls
+      // and writes inline styles / CSS variables, which force relayouts.
+      let vvRAF = null;
+      const updatePositionCoalesced = () => {
+        if (vvRAF) return;
+        vvRAF = requestAnimationFrame(() => {
+          vvRAF = null;
+          updatePosition();
+          updateHeaderPosition();
+        });
+      };
+
+      window.visualViewport.addEventListener('resize', updatePositionCoalesced);
       
       // Also listen for visual viewport scroll to keep header/tabs pinned
       // Android can scroll the visual viewport when keyboard is open
@@ -4132,7 +4212,7 @@ const wheelHandler = (e) => {
         }
       };
       
-      window.visualViewport.addEventListener('scroll', updateHeaderPosition);
+      window.visualViewport.addEventListener('scroll', updatePositionCoalesced);
       
       // Initial update
       updatePosition();
@@ -4444,6 +4524,7 @@ const wheelHandler = (e) => {
       session.syncTimeout = setTimeout(() => {
         console.warn('[SSHIFT] Sync timeout after rejoin for session:', sessionId);
         session.syncing = false;
+        this._drainSyncBuffer(session);
         if (session.connected) {
           this.requestScreenSync(sessionId);
         }
@@ -4533,45 +4614,17 @@ const wheelHandler = (e) => {
         clearTimeout(this._serverSyncTimeout);
         this._serverSyncTimeout = null;
       }
-      
-      // Sync theme and accent from server
-      if (data.theme) {
-        const savedTheme = this.loadTheme();
-        if (savedTheme !== data.theme) {
-          console.log('[SSHIFT] Syncing theme from server:', data.theme);
-          document.documentElement.setAttribute('data-theme', data.theme);
-          this.theme = data.theme;
-          this.saveTheme(data.theme);
-          this.updateThemeIcon(data.theme);
-          // Terminal color settings are stored PER THEME — load the new
-          // theme's set before repainting, otherwise the previous theme's
-          // override/colors leak into this theme (and a later save would
-          // persist them under the wrong key).
-          this.loadTerminalColorSettings();
-          this.updateTerminalColorOverrideUI();
-          this.updateTerminalThemes(data.theme);
-        }
-      }
-      
-      if (data.accent) {
-        const savedAccent = this.loadAccent();
-        if (savedAccent !== data.accent) {
-          console.log('[SSHIFT] Syncing accent from server:', data.accent);
-          document.documentElement.setAttribute('data-accent', data.accent);
-          this.saveAccent(data.accent);
-          this.updateAccentPreview(data.accent);
-          this.updateAccentActiveState(data.accent);
-        }
-      }
-      
+
+      // Theme, accent and layout are PER-DEVICE preferences stored in
+      // localStorage only. The server no longer broadcasts them (they
+      // used to be clobbered here from its in-memory copy, which also
+      // meant they were lost on every server restart). initThemeAndAccent
+      // and initLayoutSystem apply the local values at startup.
+
       // Only sync if sticky is enabled and init has completed.
       // If init hasn't finished yet (DOM not ready), defer processing
       // until init completes and the open-tabs event queue is flushed.
       if (this.sticky) {
-        // Store server layout for mobile tab preservation
-        if (data.layout) {
-          this._serverLayout = data.layout;
-        }
         // Prevent saveTabs from emitting to server during initial sync
         // (the server is our source of truth; we don't want to broadcast
         // incomplete state back to other clients)
@@ -4586,10 +4639,8 @@ const wheelHandler = (e) => {
             this._initialSyncDone = true;
           } else if (data.tabs.length > 0) {
             const isInitialSync = !this._initialSyncDone;
-            // Sync layout BEFORE tabs so panels exist before distribution
-            if (data.layout && !this.isMobile) {
-              this.setLayoutFromServer(data.layout);
-            }
+            // The local per-device layout (initLayoutSystem) has already
+            // created the panels — distribute the synced tabs into them.
             this.syncTabsFromServer(data.tabs, isInitialSync, data.activeTabsByPanel);
           } else if (!this._initialSyncDone) {
             // Server has no tabs and this is the first sync. This is the
@@ -4599,13 +4650,7 @@ const wheelHandler = (e) => {
             // sessions are gone on the server, recreating them as new
             // connections silently spawns duplicates and confuses other
             // clients). Drop the stale cache and start fresh.
-            if (data.layout && !this.isMobile) {
-              this.setLayoutFromServer(data.layout);
-            }
             try { this.clearTabs(); } catch (_) {}
-          } else if (data.layout && !this.isMobile) {
-            // No tabs change, but layout may have changed
-            this.setLayoutFromServer(data.layout);
           }
           this._initialSyncDone = true;
         } finally {
@@ -4613,8 +4658,6 @@ const wheelHandler = (e) => {
           this.isSyncingTabs = wasSyncingTabs;
         }
       }
-      // Layout sync is handled above before tab sync; skip redundant call on mobile
-      // (mobile always uses single panel)
     });
 
     // Handle tab opened event from another client
@@ -4674,55 +4717,19 @@ const wheelHandler = (e) => {
       }
     });
 
-    // Handle layout change from another client
-    this.socket.on('layout-changed', (data) => {
-      console.log('[SSHIFT] Layout changed by another client:', data.layoutId);
-      // Always store server layout even on mobile (for preservation in saves)
-      this._serverLayout = data.layoutId;
-      if (this.sticky && !this.isMobile) {
-        this.setLayoutFromServer(data.layoutId);
-      }
-    });
-
-    // Handle theme change from another client
-    this.socket.on('theme-changed', (data) => {
-      console.log('[SSHIFT] Theme changed by another client:', data.theme);
-      const savedTheme = this.loadTheme();
-      if (savedTheme !== data.theme) {
-        document.documentElement.setAttribute('data-theme', data.theme);
-        this.theme = data.theme;
-        this.saveTheme(data.theme);
-        this.updateThemeIcon(data.theme);
-        // Load the new theme's per-theme terminal color settings before
-        // repainting (mirrors toggleTheme) so override/colors don't leak
-        // between themes.
-        this.loadTerminalColorSettings();
-        this.updateTerminalColorOverrideUI();
-        this.updateTerminalThemes(data.theme);
-      }
-    });
-
-    // Handle accent change from another client
-    this.socket.on('accent-changed', (data) => {
-      console.log('[SSHIFT] Accent changed by another client:', data.accent);
-      const savedAccent = this.loadAccent();
-      if (savedAccent !== data.accent) {
-        document.documentElement.setAttribute('data-accent', data.accent);
-        this.saveAccent(data.accent);
-        this.updateAccentPreview(data.accent);
-        this.updateAccentActiveState(data.accent);
-      }
-    });
+    // layout-changed / theme-changed / accent-changed handlers removed:
+    // layout, theme and accent are per-device preferences (localStorage)
+    // and are no longer broadcast between clients through the server.
 
     // Handle tabs sync from another client
     this.socket.on('tabs-sync', (data) => {
-      console.log('[SSHIFT] Tabs sync:', data.tabs?.length || 0, 'tabs, layout:', data.layout);
+      console.log('[SSHIFT] Tabs sync:', data.tabs?.length || 0, 'tabs');
       if (this.sticky) {
         // Set flag to prevent re-emission during sync
         this.isSyncingTabs = true;
         
         try {
-          // Update server panel map and layout for mobile preservation
+          // Update server panel map for mobile preservation
           if (data.tabs && Array.isArray(data.tabs)) {
             data.tabs.forEach(tab => {
               if (tab.sessionId && tab.panelId) {
@@ -4730,15 +4737,11 @@ const wheelHandler = (e) => {
               }
             });
           }
-          if (data.layout) {
-            this._serverLayout = data.layout;
-          }
-          
-          // Apply layout first if it's different
-          if (data.layout && data.layout !== this.currentLayout?.id) {
-            this.setLayoutFromServer(data.layout, data.tabs);
-          } else if (data.tabs && Array.isArray(data.tabs)) {
-            // Just reorder tabs without layout change
+
+          // Distribute the synced tabs into OUR local (per-device) layout.
+          // Tabs whose panelId doesn't exist in this device's layout fall
+          // back to the first panel (distributeTabsToPanels).
+          if (data.tabs && Array.isArray(data.tabs)) {
             this.distributeTabsToPanels(data.tabs);
           }
         } finally {
@@ -4828,7 +4831,21 @@ const wheelHandler = (e) => {
         
         // Set syncing flag to prevent ssh-data from writing during sync
         session.syncing = true;
-        
+
+        // Discard any not-yet-flushed chunks: the server's serialized state
+        // already includes everything the client has received so far (it is
+        // generated from the server's own headless terminal).  Writing stale
+        // pre-sync chunks after the reset below would interleave old bytes
+        // into the freshly restored state.
+        if (session.writeRAF) {
+          cancelAnimationFrame(session.writeRAF);
+          session.writeRAF = null;
+        }
+        session.writeChunks = [];
+        session.flushRemaining = null;
+        // Fresh buffer for live data arriving while the sync state is written
+        session.syncBuffer = [];
+
         // Clear the terminal completely before applying the serialized state
         // Use reset() to clear both the buffer and the scrollback
         session.terminal.reset();
@@ -4846,6 +4863,7 @@ const wheelHandler = (e) => {
           } catch (e) {
             console.error('[SSHIFT] Error decoding base64 state:', e);
             session.syncing = false;
+            this._drainSyncBuffer(session);
             return;
           }
         }
@@ -4857,6 +4875,10 @@ const wheelHandler = (e) => {
 
           // Clear syncing flag after sync is complete
           session.syncing = false;
+          // Replay live output that arrived while the sync state was being
+          // written — it is the continuation of the stream after the
+          // serialization point, so appending it here preserves order.
+          this._drainSyncBuffer(session);
           // Sync succeeded — reset the retry counter used by the
           // requestScreenSync safety timeout.
           session._syncRetries = 0;
@@ -4950,6 +4972,12 @@ const wheelHandler = (e) => {
           // don't bounce it straight back via syncRemoteTerminalSize.
           session.remoteCols = data.cols;
           session.remoteRows = data.rows;
+
+          // The WebGL atlas still holds glyphs rasterised at the pre-resize
+          // cell pitch — repaint at the stale pitch produces the interlace
+          // "black band" artefact (same family as the screen-sync path).
+          // Force the full renderer dimension recompute + atlas rebuild.
+          this._forceRendererDimensionRecompute(session);
           console.log('[SSHIFT] Terminal resized to match server dimensions');
           
           // Clear the syncing flag after a delay to ensure resize events settle
@@ -5190,6 +5218,9 @@ const wheelHandler = (e) => {
     session.syncTimeout = setTimeout(() => {
       console.warn('[SSHIFT] Sync timeout for session:', sessionId, 'retries:', session._syncRetries);
       session.syncing = false;
+      // Don't lose live output that was buffered while waiting for a sync
+      // that never arrived.
+      this._drainSyncBuffer(session);
       if (session._syncRetries < 2 && session.connected) {
         session._syncRetries += 1;
         // Re-arm by calling ourselves once more. We pass a flag via the
@@ -5448,8 +5479,15 @@ const wheelHandler = (e) => {
         dl.chunks.push(bytes);
         dl.bytesDownloaded = data.bytesDownloaded;
         dl.totalBytes = data.totalBytes;
-        const percent = data.totalBytes > 0 ? Math.round((data.bytesDownloaded / data.totalBytes) * 100) : 0;
-        this.showTransferProgress(dl.sessionId, dl.fileName, percent, data.bytesDownloaded, data.totalBytes, 0, 0, false);
+        // Throttle the progress UI to ~4 repaints/second — chunks arrive
+        // dozens of times per second and each showTransferProgress call
+        // does a batch of DOM queries/writes on the main thread.
+        const now = Date.now();
+        if (!dl._lastProgressUI || now - dl._lastProgressUI >= 250) {
+          dl._lastProgressUI = now;
+          const percent = data.totalBytes > 0 ? Math.round((data.bytesDownloaded / data.totalBytes) * 100) : 0;
+          this.showTransferProgress(dl.sessionId, dl.fileName, percent, data.bytesDownloaded, data.totalBytes, 0, 0, false);
+        }
       }
     });
 
@@ -8188,6 +8226,7 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
             session.syncTimeout = setTimeout(() => {
               console.warn('[SSHIFT] Sync timeout for session:', restoreSessionId, 'retries:', session._syncRetries);
               session.syncing = false;
+              this._drainSyncBuffer(session);
               if (session._syncRetries < 2 && session.connected) {
                 session._syncRetries += 1;
                 this.requestScreenSync(restoreSessionId);
@@ -9186,8 +9225,20 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
             }
           });
         };
+        // xterm updates the scrollbar slider's inline style on every
+        // scroll step and render — running querySelectorAll per mutation
+        // stacked avoidable DOM work onto every scroll frame. Coalesce
+        // to one fix pass per animation frame.
+        let fixRAF = null;
+        const fixScrollbarCoalesced = () => {
+          if (fixRAF) return;
+          fixRAF = requestAnimationFrame(() => {
+            fixRAF = null;
+            fixScrollbar();
+          });
+        };
         requestAnimationFrame(fixScrollbar);
-        const mo = new MutationObserver(fixScrollbar);
+        const mo = new MutationObserver(fixScrollbarCoalesced);
         const scrollableEl = wrapper.querySelector('.xterm-scrollable-element');
         if (scrollableEl) {
           mo.observe(scrollableEl, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
@@ -9313,36 +9364,49 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
 
   onSSHData(data) {
     const session = this.sessions.get(data.sessionId);
-    if (session && session.terminal) {
-      // Skip data if we're currently syncing the terminal state
-      if (session.syncing) {
-        return;
+    if (!session) {
+      console.warn('[SSHIFT] Received data for missing session:', data.sessionId);
+      return;
+    }
+
+    // While a screen sync is in flight the terminal is being reset and
+    // re-filled from the server's serialized state.  Live output that
+    // arrives in the meantime is NOT stale — it is the continuation of
+    // the stream AFTER the serialization point.  Dropping it (the old
+    // behaviour) permanently punched holes in line-diff TUI screens
+    // (rows those apps never rewrite), leaving stale/black rows until
+    // a manual resize.  Buffer it and replay it right after the sync
+    // state is written (see the ssh-screen-sync handler).
+    if (session.syncing) {
+      (session.syncBuffer || (session.syncBuffer = [])).push(data.data);
+      return;
+    }
+
+    try {
+      // Buffer even when the terminal doesn't exist yet (initTerminal's
+      // container-ready retry loop): _flushWriteChunks waits for the
+      // terminal instead of dropping the first screenful of output,
+      // which line-diff TUI apps would never repaint.
+      session.writeChunks.push(data.data);
+
+      if (!session.writeRAF) {
+        session.writeRAF = requestAnimationFrame(() => {
+          this._flushWriteChunks(data.sessionId);
+        });
       }
-      
-      try {
-        session.writeChunks.push(data.data);
-        
-        if (!session.writeRAF) {
-          session.writeRAF = requestAnimationFrame(() => {
-            this._flushWriteChunks(data.sessionId);
-          });
+
+      // Auto-scroll to bottom on mobile when new data arrives
+      if (this.isMobile && session.terminal) {
+        if (session.scrollRAF) {
+          cancelAnimationFrame(session.scrollRAF);
         }
-        
-        // Auto-scroll to bottom on mobile when new data arrives
-        if (this.isMobile) {
-          if (session.scrollRAF) {
-            cancelAnimationFrame(session.scrollRAF);
-          }
-          session.scrollRAF = requestAnimationFrame(() => {
-            this.scrollTerminalToBottom(data.sessionId);
-            session.scrollRAF = null;
-          });
-        }
-      } catch (e) {
-        console.error('[SSHIFT] Error writing to terminal:', e.message);
+        session.scrollRAF = requestAnimationFrame(() => {
+          this.scrollTerminalToBottom(data.sessionId);
+          session.scrollRAF = null;
+        });
       }
-    } else {
-      console.warn('[SSHIFT] Received data for missing session/terminal:', data.sessionId);
+    } catch (e) {
+      console.error('[SSHIFT] Error writing to terminal:', e.message);
     }
   }
 
@@ -9538,10 +9602,63 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     return result;
   }
 
+  // Move live data buffered during a screen sync (session.syncBuffer) back
+  // into the normal write path and schedule a flush.  Called when a sync
+  // completes (or is aborted) so no live output is lost.
+  _drainSyncBuffer(session) {
+    if (!session || !session.terminal) { session.syncBuffer = []; return; }
+    const buffered = session.syncBuffer || [];
+    session.syncBuffer = [];
+    if (buffered.length > 0) {
+      session.writeChunks.push(...buffered);
+      if (!session.writeRAF) {
+        const sessionId = session.id;
+        session.writeRAF = requestAnimationFrame(() => {
+          this._flushWriteChunks(sessionId);
+        });
+      }
+    }
+  }
+
   _flushWriteChunks(sessionId) {
     const session = this.sessions.get(sessionId);
-    if (!session || !session.terminal) {
-      if (session) session.writeRAF = null;
+    if (!session) return;
+
+    // Terminal not created yet (initTerminal's container-ready retry loop):
+    // keep the buffered chunks and retry shortly instead of dropping them.
+    // A dropped first screenful leaves permanently stale rows in line-diff
+    // TUI apps that never repaint unchanged rows. Bounded to 10s so a
+    // session whose terminal never materialises can't poll forever.
+    if (!session.terminal) {
+      session.writeRAF = null;
+      if (!session._flushWaitDeadline || session._flushWaitDeadline < Date.now()) {
+        session._flushWaitDeadline = Date.now() + 10000;
+      }
+      if (Date.now() < session._flushWaitDeadline) {
+        setTimeout(() => {
+          const stillHere = this.sessions.get(sessionId);
+          if (stillHere && !stillHere.writeRAF) {
+            stillHere.writeRAF = requestAnimationFrame(() => {
+              this._flushWriteChunks(sessionId);
+            });
+          }
+        }, 50);
+      } else {
+        // Give up — drop the chunks (pre-change behaviour).
+        session.writeChunks = [];
+        session.flushRemaining = null;
+      }
+      return;
+    }
+
+    // A screen sync is in flight (terminal.reset() + serialized-state
+    // write).  Writing live chunks now would interleave bytes into the
+    // half-restored state; the sync completion drains any data that arrived
+    // meanwhile.  Re-check on the next frame until the sync finishes.
+    if (session.syncing) {
+      session.writeRAF = requestAnimationFrame(() => {
+        this._flushWriteChunks(sessionId);
+      });
       return;
     }
 
@@ -9650,6 +9767,15 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
   // provides that same guarantee automatically: within ~350ms of any
   // burst ending, every row is re-rendered from the (correct) buffer.
   // Cost: one extra full-viewport render per burst — negligible.
+  //
+  // Two hardening additions for the two remaining holes:
+  //  1. The trailing debounce above NEVER fires while output is continuous
+  //     (each write postpones it). A 2s max-wait repaint runs even mid-flood.
+  //  2. A plain refresh() repaints at the CURRENT (possibly stale) device
+  //     cell pitch — it cannot heal a renderer dimension desync. The
+  //     max-wait repaint uses _forceRendererDimensionRecompute (the exact
+  //     path a real window resize triggers), which heals BOTH missed
+  //     dirty rows AND pitch mismatches.
   _scheduleSettleRefresh(session) {
     if (!session || !session.terminal) return;
     if (session.settleRefreshTimer) {
@@ -9657,10 +9783,29 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     }
     session.settleRefreshTimer = setTimeout(() => {
       session.settleRefreshTimer = null;
+      if (session.settleRefreshMaxTimer) {
+        clearTimeout(session.settleRefreshMaxTimer);
+        session.settleRefreshMaxTimer = null;
+      }
       const term = session.terminal;
       if (!term) return;
       try { term.refresh(0, term.rows - 1); } catch (_) {}
     }, 350);
+
+    // Safety net for continuous floods: guarantee a full dimension-
+    // recompute repaint at least every 2s while writes keep arriving,
+    // otherwise the trailing refresh above is postponed indefinitely.
+    if (!session.settleRefreshMaxTimer) {
+      session.settleRefreshMaxTimer = setTimeout(() => {
+        session.settleRefreshMaxTimer = null;
+        if (!session.terminal) return;
+        if (session.settleRefreshTimer) {
+          clearTimeout(session.settleRefreshTimer);
+          session.settleRefreshTimer = null;
+        }
+        this._forceRendererDimensionRecompute(session);
+      }, 2000);
+    }
   }
 
   // SFTP Session Management
@@ -10534,6 +10679,11 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
       this._resetWebGLAtlas(session);
       if (session.fontSize) {
         session.terminal.options.fontSize = session.fontSize;
+        // Same race as the controller branch above: setting fontSize
+        // async-invalidates _renderService.dimensions.  Commit the cell
+        // size synchronously (measure() + atlas clear) so the renderer
+        // doesn't paint at a stale cell pitch — the interlace bug.
+        this._syncCharSizeThenClearAtlas(session);
       }
       if (this.isMobile && session.mobileHandler && session.mobileHandler.hiddenTextarea) {
         session.mobileHandler._focusHiddenTextarea();

@@ -18,7 +18,10 @@
   <link rel="stylesheet" href="/libs/xterm/xterm.css?v=__VERSION__">
   <link rel="stylesheet" href="/libs/font-awesome/css/all.min.css?v=__VERSION__">
   <link rel="stylesheet" href="/css/style.css?v=__VERSION__">
-  <script src="/libs/lucide/lucide.min.js?v=__VERSION__"></script>
+  <!-- defer: 397KB icon library must not block first paint on slow mobile
+       connections. lucide.createIcons() only runs at DOMContentLoaded
+       (app.js), which fires after deferred scripts execute. -->
+  <script defer src="/libs/lucide/lucide.min.js?v=__VERSION__"></script>
 </head>
 <body>
   <!-- Lock Screen Overlay (shown by default, hidden by JS if no password) -->

@@ -74,11 +74,11 @@ describe('Layout Synchronization Tests', () => {
   });
 
   describe('Layout Change Synchronization', () => {
-    test('should sync layout changes between tabs', async () => {
+    test('should NOT sync layout changes between tabs (per-device preference)', async () => {
       await page1.goto(BASE_URL);
       await page2.goto(BASE_URL);
       await sleep(2000);
-      
+
       // Enable sticky mode on both pages
       await page1.evaluate(() => {
         window.app.sticky = true;
@@ -89,31 +89,32 @@ describe('Layout Synchronization Tests', () => {
         window.app.saveStickyConfig();
       });
       await sleep(500);
-      
+
       // Get available layouts
       const layouts = await page1.evaluate(() => {
         return window.app.layouts?.map(l => ({ id: l.id, name: l.name })) || [];
       });
-      
+
       if (layouts.length > 1) {
-        // Select a different layout
+        const layoutBefore = await page2.evaluate(() => window.app?.currentLayout?.id);
+
+        // Select a different layout on page 1 via the public API
         const targetLayout = layouts.find(l => l.id === 'columns-2') || layouts[1];
-        
+
         await page1.evaluate((layoutId) => {
-          const layout = window.app.layouts.find(l => l.id === layoutId);
-          if (layout) {
-            window.app.applyLayout(layout);
-            if (window.app.socket && window.app.socket.connected) {
-              window.app.socket.emit('layout-change', { layoutId });
-            }
-          }
+          window.app.setLayout(layoutId);
         }, targetLayout.id);
-        
+
         await sleep(1000);
-        
-        // Check if layout synced to page 2
-        const syncedLayout2 = await page2.evaluate(() => window.app?.currentLayout?.id);
-        expect(syncedLayout2).toBe(targetLayout.id);
+
+        // Layout is a per-device (per-browser localStorage) preference:
+        // page 2 must keep its own layout instead of following page 1.
+        const layoutAfter = await page2.evaluate(() => window.app?.currentLayout?.id);
+        expect(layoutAfter).toBe(layoutBefore);
+
+        // Page 1 applied its own choice.
+        const layout1 = await page1.evaluate(() => window.app?.currentLayout?.id);
+        expect(layout1).toBe(targetLayout.id);
       }
     });
   });

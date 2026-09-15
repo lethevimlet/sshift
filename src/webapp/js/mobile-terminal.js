@@ -82,6 +82,11 @@ class MobileTerminalHandler {
     // Set to true before intentionally blurring the textarea (e.g., collapseKeyboard)
     // so the blur handler knows not to auto-refocus
     this._intentionalBlur = false;
+    // True while the keyboard is collapsed (textarea blurred + readonly).
+    // Lets _collapseKeyboard early-out: it runs on EVERY touchstart, and
+    // repeatedly blurring/re-adding readonly needlessly tears down the
+    // IME session state.
+    this._keyboardCollapsed = true;
     
     // Bound methods (for event listener management)
     this._boundHandleTouchStart = this._handleTouchStart.bind(this);
@@ -268,18 +273,18 @@ class MobileTerminalHandler {
     handle.addEventListener('touchmove', (e) => {
       if (!this.touchState.isDragging) return;
       e.preventDefault();
-      
+
       const touch = e.touches[0];
       const coords = this._screenToTerminalCoords(touch.clientX, touch.clientY);
-      
+
       if (coords) {
         if (type === 'start') {
           this.selection.start = coords;
         } else {
           this.selection.end = coords;
         }
-        
-        this._updateSelection();
+
+        this._scheduleSelectionUpdate();
       }
     }, { passive: false });
     
@@ -553,17 +558,35 @@ class MobileTerminalHandler {
     });
 
     this.hiddenTextarea.addEventListener('compositionend', () => {
-      this._isComposing = false;
-      // Sync whatever the composition left in the textarea. Because the
-      // diff runs against the persistent _sentValue baseline, this is
-      // idempotent: text that was already sent by an input event firing
-      // before compositionstart (a Gboard timing quirk) is not re-sent,
-      // and a duplicate input event firing right after compositionend
-      // diffs to nothing.
-      if (!this.touchState.isDragging) {
-        this._syncTextareaToTerminal();
-      }
+      this._onCompositionEnd();
     });
+  }
+
+  /**
+   * compositionend handler, extracted so the deferred-reset behaviour is
+   * unit-testable without a DOM.
+   * @private
+   */
+  _onCompositionEnd() {
+    this._isComposing = false;
+    // A reset was requested while the composition was in flight
+    // (e.g. Enter/Tab committed through the input path, or a selection
+    // started mid-word): apply it now, discarding the composition
+    // result, instead of having cleared the field under the IME.
+    if (this._pendingTrackingReset) {
+      this._pendingTrackingReset = false;
+      this._resetInputTracking();
+      return;
+    }
+    // Sync whatever the composition left in the textarea. Because the
+    // diff runs against the persistent _sentValue baseline, this is
+    // idempotent: text that was already sent by an input event firing
+    // before compositionstart (a Gboard timing quirk) is not re-sent,
+    // and a duplicate input event firing right after compositionend
+    // diffs to nothing.
+    if (!this.touchState.isDragging) {
+      this._syncTextareaToTerminal();
+    }
   }
 
   /**
@@ -571,9 +594,21 @@ class MobileTerminalHandler {
    * synced-content baseline together so future diffs start from a clean
    * state. Must be used everywhere the textarea is cleared — clearing one
    * without the other makes the next diff re-send or drop text.
+   *
+   * Composition guard: clearing the textarea while a Gboard/IME
+   * composition is in flight is INVISIBLE to the keyboard (programmatic
+   * value assignment fires no input/beforeinput events the IME can see).
+   * Gboard keeps its own cached model of the field content, notices the
+   * mismatch on the next suggestion tap, and re-inserts text computed
+   * from the stale model — the "autocomplete types repetitive text"
+   * bug. When composing, defer the reset to compositionend instead.
    * @private
    */
   _resetInputTracking() {
+    if (this._isComposing) {
+      this._pendingTrackingReset = true;
+      return;
+    }
     if (this.hiddenTextarea) {
       this.hiddenTextarea.value = '';
     }
@@ -736,6 +771,12 @@ class MobileTerminalHandler {
     // Stop scroll tracking
     this._stopScrollTracking();
 
+    // Cancel any pending coalesced selection update
+    if (this._selectionUpdateRAF) {
+      cancelAnimationFrame(this._selectionUpdateRAF);
+      this._selectionUpdateRAF = null;
+    }
+
     // Remove viewport scroll listener
     if (this._viewportScrollListener) {
       const viewportEl = this.terminal && this.terminal.element
@@ -837,14 +878,14 @@ class MobileTerminalHandler {
       e.preventDefault();
       const touch = e.touches[0];
       const coords = this._screenToTerminalCoords(touch.clientX, touch.clientY);
-      
+
       if (coords) {
         if (this.touchState.dragHandle === 'start') {
           this.selection.start = coords;
         } else {
           this.selection.end = coords;
         }
-        this._updateSelection();
+        this._scheduleSelectionUpdate();
       }
     }
   }
@@ -1027,6 +1068,25 @@ class MobileTerminalHandler {
     };
   }
   
+  /**
+   * Coalesce selection overlay rebuilds to one per frame.
+   * _updateSelection() scans the buffer for the selection text and
+   * rebuilds the overlay DOM — far too heavy to run per touchmove event
+   * during a selection-handle drag (events outpace frames on 90/120Hz
+   * phones). The drag handlers update selection.start/end immediately
+   * and schedule the visual refresh once per frame instead.
+   * @private
+   */
+  _scheduleSelectionUpdate() {
+    if (this._selectionUpdateRAF) return;
+    this._selectionUpdateRAF = requestAnimationFrame(() => {
+      this._selectionUpdateRAF = null;
+      if (this.selection.active) {
+        this._updateSelection();
+      }
+    });
+  }
+
   /**
    * Update selection overlay and handles
    * @private
@@ -1486,25 +1546,51 @@ class MobileTerminalHandler {
     if (this.touchState.isSelecting || this.selection.active) {
       return;
     }
-    
+
     if (this.hiddenTextarea) {
+      // Already focused (e.g. re-focus after a mobile-keys-bar tap or a
+      // screen-sync while the keyboard stayed open): leave everything
+      // untouched. Re-running the readonly dance or focusing again would
+      // at best be a no-op and at worst tear down the IME session.
+      if (document.activeElement === this.hiddenTextarea) {
+        return;
+      }
+
       // Remove readonly to allow keyboard
       this.hiddenTextarea.removeAttribute('readonly');
-      // Reset textarea to empty when refocusing so the diff tracking
-      // starts from a clean state. Gboard autocorrect operates on the
-      // textarea content, so stale text from a previous focus would
-      // produce incorrect diffs.
-      this._resetInputTracking();
+      // Do NOT clear the textarea on refocus. The diff baseline
+      // (_sentValue) tracks exactly what was sent to the terminal, so
+      // stale-looking content is NOT stale: textarea, baseline and the
+      // remote prompt line all agree, and Gboard's own model of the
+      // field (from its last focus query) agrees too.
+      //
+      // Wiping the value here (the old behaviour) is a programmatic
+      // assignment that is INVISIBLE to Gboard: the keyboard keeps its
+      // cached model ("hel"), the field is now empty, and the next
+      // suggestion tap re-inserts text computed from the stale model.
+      // The diff then treats that fragment as brand-new text and sends
+      // it on top of what the terminal already echoed — the classic
+      // "hel" + autocomplete → "helhel" duplication. Keeping the
+      // textarea intact keeps the IME, the field and the baseline in
+      // sync; autocomplete diffs then send only the true delta.
+      //
+      // Genuine context switches (session teardown, Enter/newline,
+      // Tab key, selection start) still reset explicitly via
+      // _resetInputTracking().
       this.hiddenTextarea.focus();
+      this._keyboardCollapsed = false;
     }
   }
-  
+
   /**
    * Collapse keyboard by blurring hidden textarea
    * @private
    */
   _collapseKeyboard() {
     if (this.hiddenTextarea) {
+      // Already collapsed (this runs on every touchstart) — nothing to do.
+      if (this._keyboardCollapsed) return;
+      this._keyboardCollapsed = true;
       this._intentionalBlur = true;
       this.hiddenTextarea.blur();
       // Restore readonly to prevent keyboard on any accidental focus
@@ -1515,7 +1601,7 @@ class MobileTerminalHandler {
       }
     }
   }
-  
+
   /**
    * Enable keyboard input by removing readonly from hidden textarea
    * @private
@@ -1523,6 +1609,7 @@ class MobileTerminalHandler {
   _enableKeyboardInput() {
     if (this.hiddenTextarea) {
       this.hiddenTextarea.removeAttribute('readonly');
+      this._keyboardCollapsed = false;
     }
   }
   
