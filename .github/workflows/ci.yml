@@ -44,6 +44,19 @@ jobs:
       - name: Install dependencies
         run: sfw pnpm install --frozen-lockfile
 
+      # pnpm v10 blocks dependency postinstall scripts by default, so
+      # Puppeteer's bundled Chrome never downloads during install. Fetch
+      # it explicitly for the browser test step (cached between runs —
+      # keyed on the lockfile so a puppeteer bump re-downloads).
+      - name: Cache Puppeteer Chrome
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/puppeteer
+          key: puppeteer-chrome-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install Puppeteer Chrome
+        run: npx puppeteer browsers install chrome
+
       # Jest's globalSetup (src/tests/global-setup.js) boots the
       # test SSH fixture (docker/test-ssh/docker-compose.yml) before
       # any tests run, exports TEST_USER/TEST_PASS/TEST_HOST/TEST_PORT,
