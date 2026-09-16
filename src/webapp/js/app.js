@@ -4437,19 +4437,16 @@ const wheelHandler = (e) => {
       console.log('[SSHIFT] Sent mobile key:', keyName, 'sequence:', keySequence);
     }
 
-    // Keys-bar keys change the remote line/cursor in ways the hidden
-    // textarea cannot model (Tab completes a word, arrows move the
-    // cursor mid-line, Ctrl+C/U/D abort or clear the line, Esc aborts).
-    // The textarea diff assumes the remote cursor sits at the END of
-    // the sent baseline — that model is dead now. Reset the field and
-    // baseline so typing continues from a clean slate: new input
-    // appends at the remote cursor position, exactly like a real
-    // keyboard. _resetInputTracking is composition-guarded, so an
-    // in-flight Gboard composition is not corrupted mid-word (the
-    // reset is deferred to compositionend).
-    if (this.isMobile && session.mobileHandler && session.mobileHandler.hiddenTextarea) {
-      session.mobileHandler._resetInputTracking();
-    }
+    // NOTE: do NOT reset the mobile handler's input tracking here.
+    // v1.7.8 did (to drop the textarea's stale model of the remote line
+    // after Tab/arrows/Ctrl+C) and it reintroduced the Gboard duplication
+    // family, WORSE: the keys-bar taps don't blur the hidden textarea, so
+    // the clear happened under a LIVE IME session — invisible to Gboard,
+    // whose stale field model then re-inserted text ("characters go
+    // crazy"). With an active composition the deferred reset even
+    // discarded the in-flight word. The staleness after line-clearing
+    // keys is minor and mostly invisible (typing still appends at the
+    // remote cursor); the reset was far worse.
 
     // Focus terminal after sending key
     if (this.isMobile && session.mobileHandler && session.mobileHandler.hiddenTextarea) {
@@ -4864,6 +4861,14 @@ const wheelHandler = (e) => {
         session.flushRemaining = null;
         // Fresh buffer for live data arriving while the sync state is written
         session.syncBuffer = [];
+        // A partial OSC 52 / DCS sequence stashed before the reset must
+        // NOT survive into the post-sync stream: it was captured against
+        // the pre-reset state, and _handleOsc52 would prepend it to the
+        // next flush — the parser then eats real output into a bogus
+        // clipboard sequence (garbled/missing characters right after
+        // take-control / tab-switch syncs). It is already consumed
+        // server-side (contained in the serialized state) — drop it.
+        session.pendingOsc52 = null;
 
         // Clear the terminal completely before applying the serialized state
         // Use reset() to clear both the buffer and the scrollback
@@ -9812,24 +9817,43 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
         clearTimeout(session.settleRefreshMaxTimer);
         session.settleRefreshMaxTimer = null;
       }
-      const term = session.terminal;
-      if (!term) return;
-      try { term.refresh(0, term.rows - 1); } catch (_) {}
+      if (!session.terminal) return;
+      // Use the full dimension recompute (the exact path a font-size
+      // change triggers), NOT a plain refresh(): a plain refresh
+      // repaints at the CURRENT renderer cell pitch — if a pitch desync
+      // formed during the flood (the "alternating black bands between
+      // text lines" bug: rows painted empty at a mismatched pitch),
+      // repainting at the same broken pitch reproduces the bands.
+      // Users report a font/window resize reliably heals the artefact;
+      // this is the programmatic equivalent, applied automatically
+      // ~350ms after every output burst settles.
+      if (session.syncing) return; // sync completion does its own recompute
+      this._forceRendererDimensionRecompute(session);
     }, 350);
 
     // Safety net for continuous floods: guarantee a full dimension-
     // recompute repaint at least every 2s while writes keep arriving,
     // otherwise the trailing refresh above is postponed indefinitely.
     if (!session.settleRefreshMaxTimer) {
-      session.settleRefreshMaxTimer = setTimeout(() => {
+      const runMaxWait = () => {
         session.settleRefreshMaxTimer = null;
         if (!session.terminal) return;
+        // Never run the dimension recompute mid-screen-sync: the
+        // serialized state is still being parsed (terminal.reset() has
+        // run but the write hasn't completed), so a full repaint now
+        // paints a half-applied state and an atlas rebuild races the
+        // sync completion's own recompute. Retry later.
+        if (session.syncing) {
+          session.settleRefreshMaxTimer = setTimeout(runMaxWait, 2000);
+          return;
+        }
         if (session.settleRefreshTimer) {
           clearTimeout(session.settleRefreshTimer);
           session.settleRefreshTimer = null;
         }
         this._forceRendererDimensionRecompute(session);
-      }, 2000);
+      };
+      session.settleRefreshMaxTimer = setTimeout(runMaxWait, 2000);
     }
   }
 

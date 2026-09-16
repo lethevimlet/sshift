@@ -314,4 +314,38 @@ describe('Settle refresh max-wait (continuous flood regression)', () => {
       jest.useRealTimers();
     }
   });
+
+  test('the 2s max-wait recompute never fires while a screen sync is in flight', () => {
+    jest.useFakeTimers();
+    try {
+      const raf = makeRAF();
+      const client = makeClient(Cls, raf);
+      client.requestAnimationFrame = raf.requestAnimationFrame;
+      client.cancelAnimationFrame = raf.cancelAnimationFrame;
+      const { session } = makeSession();
+      client.sessions.set('ssh-test', session);
+
+      const recomputes = [];
+      client._forceRendererDimensionRecompute = (s) => { recomputes.push(s); };
+
+      // Continuous flood...
+      client._scheduleSettleRefresh(session);
+      // ...and a screen sync starts (state being written, syncing=true).
+      session.syncing = true;
+      jest.advanceTimersByTime(2500);
+
+      // The max-wait timer fired but must NOT have recomputed mid-sync
+      // (repaint/atlas rebuild during the half-applied state garbles
+      // the screen — the "characters go crazy" symptom).
+      expect(recomputes.length).toBe(0);
+
+      // Sync completes; the flood continues — the next max-wait runs.
+      session.syncing = false;
+      client._scheduleSettleRefresh(session);
+      jest.advanceTimersByTime(2500);
+      expect(recomputes.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
