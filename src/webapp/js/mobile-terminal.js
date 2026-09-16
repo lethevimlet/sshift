@@ -1561,23 +1561,24 @@ class MobileTerminalHandler {
       // Do NOT clear the textarea on refocus. The diff baseline
       // (_sentValue) tracks exactly what was sent to the terminal, so
       // stale-looking content is NOT stale: textarea, baseline and the
-      // remote prompt line all agree, and Gboard's own model of the
-      // field (from its last focus query) agrees too.
+      // remote prompt line all agree. Clearing here (v1.7.0 behaviour)
+      // is a programmatic assignment INVISIBLE to Gboard, desyncing its
+      // field model — the "hel" + autocomplete → "helhel" bug. Keeping
+      // the text lets the IME operate on the real pending line so
+      // suggestion taps send only the true delta.
       //
-      // Wiping the value here (the old behaviour) is a programmatic
-      // assignment that is INVISIBLE to Gboard: the keyboard keeps its
-      // cached model ("hel"), the field is now empty, and the next
-      // suggestion tap re-inserts text computed from the stale model.
-      // The diff then treats that fragment as brand-new text and sends
-      // it on top of what the terminal already echoed — the classic
-      // "hel" + autocomplete → "helhel" duplication. Keeping the
-      // textarea intact keeps the IME, the field and the baseline in
-      // sync; autocomplete diffs then send only the true delta.
-      //
-      // Genuine context switches (session teardown, Enter/newline,
-      // Tab key, selection start) still reset explicitly via
-      // _resetInputTracking().
+      // CRITICAL: the diff is append-at-end semantics (longest common
+      // prefix from the END of the sent baseline). After a programmatic
+      // focus() the caret typically lands at position 0 (NOT at the end
+      // of the text), so the next keystroke would be inserted at the
+      // START of the field — the diff then sees total divergence and
+      // re-sends the ENTIRE field, retyping already-echoed words on
+      // every keystroke after a tap (the "repeats words without
+      // autocomplete" regression). Force the caret to the end so typing
+      // appends, matching both the diff and the remote prompt cursor.
+      const len = this.hiddenTextarea.value.length;
       this.hiddenTextarea.focus();
+      try { this.hiddenTextarea.setSelectionRange(len, len); } catch (_) {}
       this._keyboardCollapsed = false;
     }
   }

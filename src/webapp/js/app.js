@@ -4436,7 +4436,21 @@ const wheelHandler = (e) => {
       this.socket.emit('ssh-data', { sessionId: this.activeSessionId, data: keySequence });
       console.log('[SSHIFT] Sent mobile key:', keyName, 'sequence:', keySequence);
     }
-    
+
+    // Keys-bar keys change the remote line/cursor in ways the hidden
+    // textarea cannot model (Tab completes a word, arrows move the
+    // cursor mid-line, Ctrl+C/U/D abort or clear the line, Esc aborts).
+    // The textarea diff assumes the remote cursor sits at the END of
+    // the sent baseline — that model is dead now. Reset the field and
+    // baseline so typing continues from a clean slate: new input
+    // appends at the remote cursor position, exactly like a real
+    // keyboard. _resetInputTracking is composition-guarded, so an
+    // in-flight Gboard composition is not corrupted mid-word (the
+    // reset is deferred to compositionend).
+    if (this.isMobile && session.mobileHandler && session.mobileHandler.hiddenTextarea) {
+      session.mobileHandler._resetInputTracking();
+    }
+
     // Focus terminal after sending key
     if (this.isMobile && session.mobileHandler && session.mobileHandler.hiddenTextarea) {
       session.mobileHandler._focusHiddenTextarea();
@@ -4774,6 +4788,11 @@ const wheelHandler = (e) => {
         if (data.noTerminalState) {
           console.log('[SSHIFT] No terminal state on server, clearing syncing flag');
           session.syncing = false;
+          // No serialized state is coming — the data buffered during the
+          // sync window is the ONLY output this client has received.
+          // Drain it or it stays stuck (permanently missing rows in
+          // line-diff TUI screens — the stale/black-line bug).
+          this._drainSyncBuffer(session);
         }
         
         // Handle controller status
@@ -9606,17 +9625,23 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
   // into the normal write path and schedule a flush.  Called when a sync
   // completes (or is aborted) so no live output is lost.
   _drainSyncBuffer(session) {
-    if (!session || !session.terminal) { session.syncBuffer = []; return; }
+    if (!session) return;
     const buffered = session.syncBuffer || [];
     session.syncBuffer = [];
-    if (buffered.length > 0) {
+    if (buffered.length === 0) return;
+    if (!session.terminal) {
+      // Terminal not created yet — keep the data in the regular write
+      // buffer; its terminal-not-ready retry path flushes it once the
+      // terminal exists. Never discard live output.
       session.writeChunks.push(...buffered);
-      if (!session.writeRAF) {
-        const sessionId = session.id;
-        session.writeRAF = requestAnimationFrame(() => {
-          this._flushWriteChunks(sessionId);
-        });
-      }
+      return;
+    }
+    session.writeChunks.push(...buffered);
+    if (!session.writeRAF) {
+      const sessionId = session.id;
+      session.writeRAF = requestAnimationFrame(() => {
+        this._flushWriteChunks(sessionId);
+      });
     }
   }
 

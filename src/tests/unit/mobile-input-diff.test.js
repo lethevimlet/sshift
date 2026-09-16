@@ -235,11 +235,15 @@ describe('Gboard refocus / composition reset hardening', () => {
       value: '',
       focused: false,
       removedReadonly: false,
+      caret: null,
       focus() { this.focused = true; global.document.activeElement = this; },
       blur() { this.focused = false; if (global.document.activeElement === this) global.document.activeElement = null; },
       removeAttribute() { this.removedReadonly = true; },
       setAttribute() {},
+      setSelectionRange(start, end) { this.caret = [start, end]; },
       addEventListener() {},
+      get selectionStart() { return this.caret ? this.caret[0] : 0; },
+      get selectionEnd() { return this.caret ? this.caret[1] : 0; },
       style: {}
     };
     h._sentValue = '';
@@ -323,6 +327,54 @@ describe('Gboard refocus / composition reset hardening', () => {
     h.hiddenTextarea.removedReadonly = false;
     h._focusHiddenTextarea();
     expect(h.hiddenTextarea.removedReadonly).toBe(false);
+  });
+
+  test('_focusHiddenTextarea forces the caret to the end of the field (repeats-words regression)', () => {
+    const h = makeFocusableHandler();
+
+    h._focusHiddenTextarea();
+    h.hiddenTextarea.value = 'hello ';
+    h._syncTextareaToTerminal();
+    expect(h.sent).toEqual(['hello ']);
+
+    // Keyboard collapses (terminal tap → blur) and refocuses.
+    h.hiddenTextarea.blur();
+    h._focusHiddenTextarea();
+
+    // Content preserved AND caret at the end. After a programmatic
+    // focus() the caret defaults to position 0 — the next keystroke was
+    // inserted at the START of the field, the diff saw total divergence
+    // and re-sent the entire field, retyping already-echoed words on
+    // every keystroke after a tap ("repeats words even without
+    // autocomplete" — v1.7.6 regression).
+    expect(h.hiddenTextarea.value).toBe('hello ');
+    expect(h.hiddenTextarea.caret).toEqual([6, 6]);
+
+    // Plain typing after the tap appends — sends only the delta.
+    h.hiddenTextarea.value = 'hello w';
+    h._syncTextareaToTerminal();
+    expect(h.sent).toEqual(['hello ', 'w']);
+    expect(applyToLine(h.sent)).toBe('hello w');
+  });
+
+  test('typing after refocus never re-sends the accumulated field', () => {
+    const h = makeFocusableHandler();
+    h._focusHiddenTextarea();
+    h.hiddenTextarea.value = 'hello world';
+    h._syncTextareaToTerminal();
+    expect(h.sent).toEqual(['hello world']);
+
+    // Tap + refocus, then keep typing the next word.
+    h.hiddenTextarea.blur();
+    h._focusHiddenTextarea();
+    h.hiddenTextarea.value = 'hello world again';
+    h._syncTextareaToTerminal();
+
+    expect(applyToLine(h.sent)).toBe('hello world again');
+    // The delta must be exactly the new text — never the whole field
+    // re-sent wholesale (the v1.7.6 caret-at-0 regression).
+    expect(h.sent[h.sent.length - 1]).toBe(' again');
+    expect(h.sent.filter(p => p === 'hello world again')).toHaveLength(0);
   });
 
   test('screen-sync refocus mid-word keeps autocomplete deltas correct', () => {

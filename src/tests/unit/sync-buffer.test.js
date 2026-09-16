@@ -223,6 +223,37 @@ describe('Screen-sync live-data buffering (stale black-line regression)', () => 
     expect(written).toEqual(['chunk-1']);
   });
 
+  test('ssh-joined with noTerminalState drains buffered live data (stale-row regression)', () => {
+    const raf = makeRAF();
+    const client = makeClient(Cls, raf);
+    const socketHandlers = new Map();
+    client.socket.on = (event, handler) => socketHandlers.set(event, handler);
+    client.socket.connected = true;
+    client.setupSocketListeners();
+    const { session, written } = makeSession();
+    session.syncing = true; // rejoin path set this before emitting ssh-join
+    session.syncTimeout = setTimeout(() => {}, 99999);
+    client.sessions.set('ssh-test', session);
+
+    // Live output arrives while waiting for the join round-trip.
+    client.onSSHData({ sessionId: 'ssh-test', data: 'live-frame' });
+    expect(session.syncBuffer).toEqual(['live-frame']);
+
+    // Server replies: fresh session, no serialized state to apply.
+    socketHandlers.get('ssh-joined')({ sessionId: 'ssh-test', noTerminalState: true, isController: true });
+
+    // The sync window closed — buffered data must move to the write path
+    // (previously it stayed stuck in syncBuffer forever: the client never
+    // saw that output and line-diff TUI rows went permanently stale).
+    expect(session.syncing).toBe(false);
+    expect(session.syncBuffer).toEqual([]);
+    expect(session.writeChunks).toEqual(['live-frame']);
+    expect(raf.pendingCount()).toBe(1);
+
+    raf.pump();
+    expect(written).toEqual(['live-frame']);
+  });
+
   test('data arriving before the terminal exists is buffered, not dropped', () => {
     const raf = makeRAF();
     const client = makeClient(Cls, raf);
