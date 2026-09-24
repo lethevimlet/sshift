@@ -524,9 +524,17 @@ class MobileTerminalHandler {
       }
 
       if (e.key === 'Enter') {
-        e.preventDefault();
-        this._sendToTerminal('\r');
-        this._resetInputTracking();
+        // Let the browser insert the newline into the textarea. The input
+        // diff (_syncTextareaToTerminal) translates it to \r and KEEPS the
+        // submitted text in the field. Clearing the field here (the old
+        // behaviour) was a programmatic edit that Gboard never sees: its
+        // own model of the field still held the previous sentence, and the
+        // next suggestion tap re-committed "old sentence + new word" —
+        // which the diff then faithfully re-typed into the terminal
+        // (the "autocomplete repeats previous sentences" bug). The field
+        // is only cleared when the keyboard is collapsed (textarea blurred),
+        // at which point the IME session is torn down anyway.
+        return;
       } else if (e.key === 'Backspace') {
         // Let the browser handle backspace in the textarea; the input diff
         // will detect the deletion and send \x7f to the terminal.
@@ -538,7 +546,7 @@ class MobileTerminalHandler {
       } else if (e.key === 'Tab') {
         e.preventDefault();
         this._sendToTerminal('\t');
-        this._resetInputTracking();
+        // No tracking reset: see the Enter comment above.
       }
     });
     
@@ -652,9 +660,17 @@ class MobileTerminalHandler {
       }
     }
 
-    // Erase back to the divergence point. Count code points (not UTF-16
-    // units) so astral characters (emoji etc.) get one DEL each.
-    const removed = prev.substring(prefixLen);
+    // The field accumulates every submitted line (separated by \n — see
+    // the Enter keydown comment). Lines above the current one were already
+    // submitted and cannot be edited any more, so a divergence before the
+    // current line's start must never turn into DELs (in a multi-line TUI
+    // editor a DEL at column 0 joins lines).
+    const lineStart = prev.lastIndexOf('\n') + 1;
+
+    // Erase back to the divergence point (clamped to the current line).
+    // Count code points (not UTF-16 units) so astral characters (emoji
+    // etc.) get one DEL each.
+    const removed = prev.substring(Math.max(prefixLen, lineStart));
     const deleteCount = removed ? Array.from(removed).length : 0;
 
     // Retype the remainder. Translate newlines (some keyboards commit
@@ -672,13 +688,9 @@ class MobileTerminalHandler {
       this._sendToTerminal(insert);
     }
 
-    if (hadNewline) {
-      // The line was submitted — start from a clean slate (mirrors the
-      // Enter keydown path).
-      this._resetInputTracking();
-    } else {
-      this._sentValue = curr;
-    }
+    // Keep the submitted text (including the newline) as the baseline —
+    // never clear the field while the IME may still be tracking it.
+    this._sentValue = curr;
   }
   
   /**
@@ -1596,6 +1608,13 @@ class MobileTerminalHandler {
       this.hiddenTextarea.blur();
       // Restore readonly to prevent keyboard on any accidental focus
       this.hiddenTextarea.setAttribute('readonly', 'true');
+      // The blur tore down the IME session, so this is the one place a
+      // programmatic clear cannot desync Gboard's field model. Drop the
+      // accumulated (already submitted) text so the field doesn't grow
+      // for the whole session. Blur also ends any composition.
+      this._isComposing = false;
+      this._pendingTrackingReset = false;
+      this._resetInputTracking();
       // Also blur any active element that might have focus
       if (document.activeElement && document.activeElement !== document.body) {
         document.activeElement.blur();

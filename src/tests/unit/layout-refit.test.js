@@ -123,7 +123,7 @@ function makeClient({ active = true, size = { width: 1324, height: 800 }, isCont
     emit: (event, data) => emitted.push({ event, data }),
     connected: true
   };
-  client._forceRendererDimensionRecompute = () => {};
+  client._repaintTerminal = () => {};
 
   const session = {
     id: sessionId,

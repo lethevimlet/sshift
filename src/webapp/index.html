@@ -1501,6 +1501,23 @@
         }
       }
       
+      // Normalize Unicode11Addon
+      if (typeof window.Unicode11Addon === 'object' && window.Unicode11Addon !== null) {
+        if (window.Unicode11Addon.Unicode11Addon) {
+          window.Unicode11Addon = window.Unicode11Addon.Unicode11Addon;
+        } else if (window.Unicode11Addon.default) {
+          window.Unicode11Addon = window.Unicode11Addon.default;
+        }
+      } else if (typeof window.Unicode11Addon === 'undefined') {
+        if (typeof Unicode11Addon !== 'undefined') {
+          if (typeof Unicode11Addon === 'object' && Unicode11Addon !== null) {
+            window.Unicode11Addon = Unicode11Addon.Unicode11Addon || Unicode11Addon.default || Unicode11Addon;
+          } else if (typeof Unicode11Addon === 'function') {
+            window.Unicode11Addon = Unicode11Addon;
+          }
+        }
+      }
+
       // Normalize ImageAddon
       if (typeof window.ImageAddon === 'object' && window.ImageAddon !== null) {
         if (window.ImageAddon.ImageAddon) {

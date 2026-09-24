@@ -1,31 +1,18 @@
 /**
- * Regression test for Bug 1 (interlaced lines after Take Control on a
- * refreshed browser tab).
+ * Regression tests for the ssh-screen-sync handler ordering.
  *
- * Root cause: when an ssh-screen-sync arrived, the handler wrote the
- * serialized state, then called `terminal.resize(cols, rows)` but did NOT
- * force the renderer to recompute its dimensions. The WebGL renderer kept
- * painting at a stale device cell pitch — every other row landed outside
- * the visible grid, producing the "interlaced / alternating black bands"
- * appearance. Crucially, a plain atlas clear was NOT sufficient: when the
- * terminal was already at the synced cols/rows, `terminal.resize()` and
- * `fitAddon.fit()` both short-circuit inside xterm.js, so nothing re-ran
- * the renderer's `_updateDimensions()`. Changing the font size fixed it
- * (an actual fontSize change fires handleCharSizeChanged → renderer
- * handleResize) and a real window resize fixed it (different cols/rows →
- * real resize) — which is exactly what users reported.
+ * The serialized screen the server sends is laid out for exactly
+ * `cols x rows`. The handler must therefore reset the terminal, resize it
+ * to the server's geometry, THEN replay the state, then repaint, and only
+ * then let a controller re-fit to its own container. Writing the state
+ * first (into whatever size the freshly created terminal happened to have,
+ * usually 80x24) wrapped every full-width row, and the alternate buffer is
+ * never reflowed by a later resize — every TUI row became a text row
+ * followed by an overflow row: the "alternating black line" bug when
+ * opening a session in a new window.
  *
- * Fix: the screen-sync completion callback now invokes
- * `this._forceRendererDimensionRecompute(session)` AFTER the resize. That
- * helper drives the renderer's full resize path
- * (_renderService.handleResize → _updateDimensions + device-pixel canvas
- * resize) and rebuilds the glyph atlas — even when cols/rows are
- * unchanged.
- *
- * This test exercises the production `on('ssh-screen-sync')` handler via
- * a stubbed socket and a fake xterm Terminal instance. The fake Terminal
- * records every call so we can assert that
- * `_forceRendererDimensionRecompute` runs after `terminal.resize`.
+ * The repaint is a plain refresh (never a WebGL atlas clear — the atlas is
+ * shared between terminals).
  */
 
 const path = require('path');
@@ -76,11 +63,14 @@ describe('Bug 1: screen-sync clears WebGL atlas after resize (no interlace)', ()
     socketHandlers = new Map();
     callLog = [];
 
-    // Stub _forceRendererDimensionRecompute so we can assert on its
-    // invocation (it supersedes the old plain _resetWebGLAtlas call —
-    // full renderer dimension recompute + atlas rebuild).
-    client._forceRendererDimensionRecompute = (session) => {
-      callLog.push({ op: 'forceRendererRecompute', sessionId: session && session.id });
+    // Stub _repaintTerminal so we can assert on its invocation (a plain
+    // full repaint — never an atlas clear, the atlas is shared).
+    client._repaintTerminal = (session) => {
+      callLog.push({ op: 'repaint', sessionId: session && session.id });
+    };
+    client._fitTerminal = (session) => {
+      callLog.push({ op: 'fit', sessionId: session && session.id });
+      return true;
     };
 
     // Inject a fake terminal whose write() and resize() record their ops.
@@ -97,7 +87,8 @@ describe('Bug 1: screen-sync clears WebGL atlas after resize (no interlace)', ()
       focus: () => callLog.push({ op: 'focus' }),
       options: {},
       buffer: { active: { length: 100 } },
-      rows: 24
+      rows: 24,
+      cols: 80
     };
 
     client.sessions.set('ssh-bug1', {
@@ -106,6 +97,7 @@ describe('Bug 1: screen-sync clears WebGL atlas after resize (no interlace)', ()
       connected: true,
       isController: true,
       terminal: fakeTerminal,
+      fitAddon: { fit: () => {} },
       writeChunks: [],
       writeRAF: null,
       pendingOsc52: null,
@@ -118,7 +110,7 @@ describe('Bug 1: screen-sync clears WebGL atlas after resize (no interlace)', ()
     client.setupSocketListeners();
   });
 
-  test('ssh-screen-sync resets → writes → resizes → recomputes renderer dims (in this order)', (done) => {
+  test('ssh-screen-sync resets → resizes to the server size → writes → repaints → refits controller (in this order)', (done) => {
     // Base64-encode a fake serialized state — the decode path uses atob.
     const fakeState = Buffer.from('hello world\r\n', 'utf-8').toString('base64');
 
@@ -136,26 +128,65 @@ describe('Bug 1: screen-sync clears WebGL atlas after resize (no interlace)', ()
     setTimeout(() => {
       const ops = callLog.map(c => c.op);
       const resetIdx = ops.indexOf('reset');
-      const writeIdx = ops.indexOf('write');
       const resizeIdx = ops.indexOf('resize');
-      const recomputeIdx = ops.indexOf('forceRendererRecompute');
+      const writeIdx = ops.indexOf('write');
+      const repaintIdx = ops.indexOf('repaint');
+      const fitIdx = ops.indexOf('fit');
 
-      // The four operations must ALL have happened.
       expect(resetIdx).not.toBe(-1);
-      expect(writeIdx).not.toBe(-1);
       expect(resizeIdx).not.toBe(-1);
-      expect(recomputeIdx).not.toBe(-1);
+      expect(writeIdx).not.toBe(-1);
+      expect(repaintIdx).not.toBe(-1);
+      expect(fitIdx).not.toBe(-1);
 
-      // Order assertion: reset → write → resize → renderer recompute.
-      // This is the regression-prevention pattern: the renderer dimension
-      // recompute (which includes the atlas rebuild) MUST run AFTER the
-      // resize so glyphs are re-rasterised at the new cell dimensions and
-      // don't paint at stale/interleaved rows — including when resize()
-      // short-circuited because cols/rows were already equal.
-      expect(resetIdx).toBeLessThan(writeIdx);
-      expect(writeIdx).toBeLessThan(resizeIdx);
-      expect(resizeIdx).toBeLessThan(recomputeIdx);
+      // The serialized screen is laid out for the server's cols/rows, so
+      // the terminal MUST be at that size BEFORE the state is replayed:
+      // writing it into an 80x24 terminal wraps every full-width row and
+      // the alternate buffer is never reflowed by a later resize (the
+      // "alternating text / black line" bug on a freshly opened window).
+      expect(resetIdx).toBeLessThan(resizeIdx);
+      expect(resizeIdx).toBeLessThan(writeIdx);
+      expect(writeIdx).toBeLessThan(repaintIdx);
+      // Only after the server's screen is in place may the controller
+      // re-fit to its own container (which pushes a PTY resize if needed).
+      expect(repaintIdx).toBeLessThan(fitIdx);
+      const resize = callLog.find(c => c.op === 'resize');
+      expect(resize).toEqual({ op: 'resize', cols: 100, rows: 30 });
+      // The server-driven resize must not echo back as a PTY resize.
+      const session = client.sessions.get('ssh-bug1');
+      expect(session.remoteCols).toBe(100);
+      expect(session.remoteRows).toBe(30);
+      expect(session.isResyncing).toBe(false);
+      done();
+    }, 20);
+  });
 
+  test('ssh-screen-sync skips the resize when the terminal already has the server size', (done) => {
+    const session = client.sessions.get('ssh-bug1');
+    session.terminal.cols = 100;
+    session.terminal.rows = 30;
+    const fakeState = Buffer.from('x', 'utf-8').toString('base64');
+    socketHandlers.get('ssh-screen-sync')({
+      sessionId: 'ssh-bug1', state: fakeState, cols: 100, rows: 30, encoded: true, partial: false
+    });
+    setTimeout(() => {
+      expect(callLog.map(c => c.op)).not.toContain('resize');
+      expect(callLog.map(c => c.op)).toContain('repaint');
+      done();
+    }, 20);
+  });
+
+  test('observers are not re-fitted after a sync (they mirror the server size)', (done) => {
+    const session = client.sessions.get('ssh-bug1');
+    session.isController = false;
+    const fakeState = Buffer.from('x', 'utf-8').toString('base64');
+    socketHandlers.get('ssh-screen-sync')({
+      sessionId: 'ssh-bug1', state: fakeState, cols: 120, rows: 40, encoded: true, partial: false
+    });
+    setTimeout(() => {
+      const ops = callLog.map(c => c.op);
+      expect(ops).toContain('resize');
+      expect(ops).not.toContain('fit');
       done();
     }, 20);
   });

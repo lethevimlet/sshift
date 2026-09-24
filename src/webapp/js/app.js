@@ -793,7 +793,7 @@ class SSHIFTClient {
             try { core._charSizeService.measure(); } catch (_) {}
           }
           this._fitTerminal(session);
-          this._resetWebGLAtlas(session);
+          this._repaintTerminal(session);
         });
       });
     }
@@ -1042,86 +1042,94 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     // Don't persist - font size is session-only
   }
 
-  // Clear the WebGL glyph texture atlas and force a full repaint.
-  // The atlas caches rasterised glyphs; if it was built before the web font
-  // finished loading (or after a DPR / font-size change) those cached glyphs
-  // are blank or stale, producing the "black box" rendering artefacts.
-  // Clearing forces every cell to be re-rasterised with correct glyphs.
-  _resetWebGLAtlas(session) {
-    if (!session || !session.terminal) return;
-    if (session.webglAddon) {
-      try {
-        session.webglAddon.clearTextureAtlas();
-      } catch (_) {}
-    }
-    session.terminal.refresh(0, session.terminal.rows - 1);
-  }
-
-  // Synchronously commit the renderer's cell dimensions after a font-size
-  // (or font-family) option change, then clear the glyph atlas.
+  // ---------------------------------------------------------------------
+  // Renderer helpers
   //
-  // xterm.js v6 invalidates _renderService.dimensions ASYNCHRONOUSLY when an
-  // option like fontSize is set: the CharSizeService only re-measures on the
-  // next change tick.  If fitAddon.fit() runs in the same synchronous frame
-  // it reads the STALE (pre-invalidation) cell height/width, so cols/rows are
-  // computed for one cell size while the renderer later paints at another.
-  // That mismatch paints every other row as an empty black band — the
-  // "interlace" bug (see comments at the Terminal construction path and at
-  // _fitTerminal).  Calling _charSizeService.measure() fires
-  // onCharSizeChange synchronously, which the RenderService forwards to the
-  // renderer's handleCharSizeChanged so _updateDimensions runs BEFORE fit.
-  // This mirrors the proven fix used after document.fonts.ready at
-  // construction time.  Without this, switchTab/setSessionFontSize race the
-  // fit and the terminal renders interlaced until a window resize forces a
-  // clean re-fit.
-  _syncCharSizeThenClearAtlas(session) {
+  // IMPORTANT — how the xterm.js WebGL addon really works (v0.19):
+  //  * Cell metrics are owned by xterm itself. CharSizeService re-measures
+  //    on fontFamily/fontSize changes, RenderService forwards every char-size
+  //    / option / buffer-resize / DPR change to the renderer, and the
+  //    renderer recomputes its device cell pitch + canvas size from those.
+  //    There is no "stale pitch" state that a manual handleResize() heals
+  //    but a plain refresh() would not.
+  //  * The glyph texture atlas is SHARED between every terminal on the page
+  //    that has the same font/size/colours/DPR (CharAtlasCache). Calling
+  //    clearTextureAtlas() on ONE terminal wipes the atlas for ALL of them,
+  //    but only that one terminal rebuilds its vertex data. Every other
+  //    terminal keeps pointing at texture coordinates that now hold
+  //    different glyphs (or nothing) — rendering as scattered dots, commas
+  //    and fragments on a black canvas, flickering on each new wipe. The
+  //    previous code wiped the atlas after every output burst, tab switch
+  //    and screen sync, which is exactly the "gibberish" bug.
+  //  * Assigning canvas.width/height (even to the same value) blanks the
+  //    WebGL drawing buffer until the next frame — the old post-burst
+  //    "dimension recompute" made the terminal flicker while typing.
+  //
+  // So: repaints are plain refresh() calls, the atlas is only ever cleared
+  // for ALL terminals at once, and only when the rasterised glyphs really
+  // are stale (a web font finished loading after glyphs were drawn with
+  // the fallback font).
+  // ---------------------------------------------------------------------
+
+  // Commit the terminal's cell metrics synchronously.  CharSizeService
+  // fires onCharSizeChange only when the measured size actually changed,
+  // and the RenderService then runs the renderer's full resize path.  This
+  // is a cheap no-op when nothing changed.
+  _measureCharSize(session) {
     if (!session || !session.terminal) return;
     const core = session.terminal._core;
     if (core && core._charSizeService && typeof core._charSizeService.measure === 'function') {
       try { core._charSizeService.measure(); } catch (_) {}
     }
-    if (session.webglAddon) {
-      try { session.webglAddon.clearTextureAtlas(); } catch (_) {}
-    }
   }
 
-  // Force the renderer to fully recompute its dimensions and resize its
-  // canvases at the current cell metrics — even when cols/rows and the
-  // measured char size are UNCHANGED.
-  //
-  // Why this exists: both cheaper paths short-circuit in that case —
-  //  - fitAddon.fit() returns without calling _renderService.clear()/resize()
-  //    when the proposed cols/rows equal the current ones, and
-  //  - CharSizeService.measure() only fires onCharSizeChange when the
-  //    measured width/height actually changed.
-  // So after take-control / screen-sync, nothing forces the WebGL renderer to
-  // re-run _updateDimensions(): it keeps painting at a stale device cell
-  // pitch and the terminal shows the "interlaced black line" pattern.
-  // Pressing font +/- fixed it because an ACTUAL fontSize change fires
-  // handleCharSizeChanged → renderer.handleResize; a window resize fixed it
-  // because the changed container produces different cols/rows and a real
-  // resize. This helper invokes that same full path directly:
-  // _renderService.handleResize → renderer.handleResize →
-  // _updateDimensions() + device-pixel canvas resize + full refresh —
-  // identical to what xterm.js itself runs on a genuine resize event.
-  _forceRendererDimensionRecompute(session) {
+  // Full-viewport repaint from the buffer (after committing any pending
+  // char-size change).  Never touches the shared glyph atlas.
+  _repaintTerminal(session) {
     if (!session || !session.terminal) return;
+    this._measureCharSize(session);
     const term = session.terminal;
-    const core = term._core;
-    // Commit any pending char-size change first so the renderer recomputes
-    // from fresh metrics (no-op when the size didn't change).
-    if (core && core._charSizeService && typeof core._charSizeService.measure === 'function') {
-      try { core._charSizeService.measure(); } catch (_) {}
-    }
-    // Full renderer dimension recompute + canvas resize + full refresh.
-    if (core && core._renderService && typeof core._renderService.handleResize === 'function') {
-      try { core._renderService.handleResize(term.cols, term.rows); } catch (_) {}
-    }
-    // Rebuild the WebGL glyph atlas at the recomputed cell pitch.
-    if (session.webglAddon) {
-      try { session.webglAddon.clearTextureAtlas(); } catch (_) {}
-    }
     try { term.refresh(0, term.rows - 1); } catch (_) {}
+  }
+
+  // Rebuild the (shared) WebGL glyph atlas for EVERY terminal on the page.
+  // Each clearTextureAtlas() call wipes the atlas pages (a no-op once they
+  // are already empty) and clears THAT terminal's render model so its
+  // vertex data is rebuilt on the next frame.  Doing it for all terminals
+  // in one synchronous pass guarantees nobody keeps stale texture
+  // coordinates.  Only call this when the rasterised glyphs are actually
+  // stale (font swap) — it forces every visible glyph to be re-rasterised.
+  _clearAllWebGLAtlases() {
+    const clear = (session) => {
+      if (!session || !session.terminal || !session.webglAddon) return;
+      try { session.webglAddon.clearTextureAtlas(); } catch (_) {}
+      try { session.terminal.refresh(0, session.terminal.rows - 1); } catch (_) {}
+    };
+    this.sessions.forEach(clear);
+    this.sftpSessions.forEach(clear);
+  }
+
+  // Web fonts (JetBrains Mono etc.) can finish loading AFTER a terminal
+  // rasterised its first glyphs with the fallback font.  The atlas config
+  // (fontFamily string, metrics) may be identical, so xterm keeps the stale
+  // glyphs.  Rebuild the atlas for all terminals once fonts are ready and
+  // again whenever the browser finishes loading additional fonts later
+  // (e.g. fallback fonts pulled in for CJK / symbol glyphs).
+  _setupFontAtlasListener() {
+    if (this._fontAtlasListenerInstalled) return;
+    this._fontAtlasListenerInstalled = true;
+    if (typeof document === 'undefined' || !document.fonts) return;
+    const rebuild = () => {
+      this.sessions.forEach((s) => this._measureCharSize(s));
+      this.sftpSessions.forEach((s) => this._measureCharSize(s));
+      this._clearAllWebGLAtlases();
+    };
+    try { document.fonts.ready.then(rebuild); } catch (_) {}
+    try {
+      if (typeof document.fonts.addEventListener === 'function') {
+        document.fonts.addEventListener('loadingdone', rebuild);
+      }
+    } catch (_) {}
   }
 
 // Sub-pixel seam mitigation is handled by canvas/WebGL renderer +
@@ -1132,7 +1140,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
   // grid in its own coordinate system.  The remaining mitigation is:
   //  - customGlyphs: true (set in Terminal options)
   //  - canvas or WebGL renderer as default (not DOM)
-  //  - clearTextureAtlas() on DPR change (handled by _setupDPRListener)
+  //  - DPR changes are handled by xterm itself (new atlas config)
   //  - clean base metrics: letterSpacing: 0, lineHeight: 1.0 in _fitTerminal
   _snapCellWidth() { /* no-op: see comment above */ }
 
@@ -1240,18 +1248,11 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       session._webglInitPending = false;
       console.log('[SSHIFT] WebglAddon loaded');
 
-      if (initialLoad) {
-        document.fonts.ready.then(() => {
-          if (session.webglAddon) {
-            try { session.webglAddon.clearTextureAtlas(); } catch (_) {}
-          }
-          if (session.terminal) {
-            session.terminal.refresh(0, session.terminal.rows - 1);
-          }
-          console.log('[SSHIFT] WebGL atlas cleared after fonts ready');
-        });
-      } else {
-        try { webglAddon.clearTextureAtlas(); } catch (_) {}
+      // Stale-glyph handling after a web-font swap is page-global (see
+      // _setupFontAtlasListener) — the atlas is shared between terminals,
+      // so a per-terminal clearTextureAtlas() here would corrupt every
+      // OTHER terminal's glyph references.
+      if (!initialLoad) {
         session.terminal.refresh(0, session.terminal.rows - 1);
         // Guarded refit — a bare fitAddon.fit() here would resize a hidden
         // session to 10x5 (see _refreshAllWebGLSessions).
@@ -1286,7 +1287,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
           // at a stale pitch faithfully reproduces the interlace "black
           // band" artefact. measure() + handleResize + atlas rebuild +
           // refresh heals both stale glyphs AND pitch mismatches.
-          this._forceRendererDimensionRecompute(session);
+          this._repaintTerminal(session);
         } else if ((session.webglContextLossCount || 0) < 3 && typeof window.WebglAddon === 'function') {
           this._initWebGLAddon(session, false);
           // Refit through _fitTerminal, never fitAddon.fit() directly: a raw
@@ -1317,7 +1318,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
         console.log('[SSHIFT] devicePixelRatio changed from', currentDPR, 'to', newDPR);
         currentDPR = newDPR;
         this.sessions.forEach(session => {
-          this._resetWebGLAtlas(session);
+          this._repaintTerminal(session);
           if (session.fitAddon && session.terminal && session.isController) {
             const wrapper = document.getElementById(`terminal-wrapper-${session.id}`);
             if (wrapper && wrapper.classList.contains('active')) {
@@ -1328,7 +1329,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
           }
         });
         this.sftpSessions.forEach(session => {
-          this._resetWebGLAtlas(session);
+          this._repaintTerminal(session);
         });
       }
       // Re-register for the new DPR value
@@ -1364,6 +1365,15 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     if (!wrapper || !container) return false;
 
     if (!wrapper.classList.contains('active')) {
+      session.needsResize = true;
+      return false;
+    }
+
+    // Never fit while a screen sync is replaying the server's state: the
+    // serialized screen is laid out for the server's cols/rows and a
+    // resize mid-write garbles it. The sync completion handler re-fits
+    // controllers (see the ssh-screen-sync handler).
+    if (session.syncing) {
       session.needsResize = true;
       return false;
     }
@@ -1431,7 +1441,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     // stale device cell pitch → interlaced black bands). The recompute
     // also flushes stale cells from the previous dimensions, preventing
     // bottom-row garbage and garbled status lines after resize.
-    this._forceRendererDimensionRecompute(session);
+    this._repaintTerminal(session);
 
     // Make sure the remote PTY actually learns about this size.  See
     // syncRemoteTerminalSize — xterm only fires onResize when cols/rows
@@ -1441,6 +1451,15 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     this.syncRemoteTerminalSize(session);
 
     return true;
+  }
+
+  // Run a fit that _fitTerminal deferred while a screen sync was in flight
+  // (needsResize). Controllers only — observers mirror the server's size.
+  _runDeferredFit(session) {
+    if (!session || !session.terminal || !session.fitAddon) return;
+    if (!session.isController || !session.needsResize) return;
+    session.needsResize = false;
+    this._fitTerminal(session);
   }
 
   // Push the terminal's current dimensions to the remote PTY when the server
@@ -1539,6 +1558,11 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       session.needsResize = true;
       return false;
     }
+    if (session.syncing) {
+      // See _fitTerminal: a screen sync is replaying the server's state.
+      session.needsResize = true;
+      return false;
+    }
     const rect = container.getBoundingClientRect();
     if (rect.width < 50 || rect.height < 50) {
       session.needsResize = true;
@@ -1546,7 +1570,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     }
 
     // (b) Commit the renderer's cell metrics before fit reads them.
-    this._syncCharSizeThenClearAtlas(session);
+    this._measureCharSize(session);
 
     // (c) Fit (resize the terminal buffer to the now-committed container).
     let ok = false;
@@ -1564,7 +1588,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     //     nothing else would force the renderer to re-run
     //     _updateDimensions(), and the stale device cell pitch keeps
     //     painting every other row dark).
-    this._forceRendererDimensionRecompute(session);
+    this._repaintTerminal(session);
 
     // (e) Notify the remote PTY of the corrected dimensions.  Mirror the
     //     debounced onResize handler but fire immediately so the server's
@@ -1612,7 +1636,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     // computed from a stale cell height and the terminal paints
     // interlaced black bands (the "interlace" bug).
     session.terminal.options.fontSize = size;
-    this._syncCharSizeThenClearAtlas(session);
+    this._measureCharSize(session);
 
     if (session.fitAddon && session.isController) {
       this._fitTerminal(session);
@@ -1643,7 +1667,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     this.sessions.forEach((session) => {
       if (session.terminal) {
         session.terminal.options.fontSize = size;
-        this._syncCharSizeThenClearAtlas(session);
+        this._measureCharSize(session);
         if (session.fitAddon && session.isController) {
           this._fitTerminal(session);
         }
@@ -1656,7 +1680,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     this.sftpSessions.forEach((session) => {
       if (session.terminal) {
         session.terminal.options.fontSize = size;
-        this._syncCharSizeThenClearAtlas(session);
+        this._measureCharSize(session);
         if (session.fitAddon) {
           this._fitTerminal(session);
         }
@@ -1856,7 +1880,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
         const newTheme = this.getTerminalTheme(theme);
         console.log('[SSHIFT] Applying theme to terminal:', newTheme);
         session.terminal.options.theme = newTheme;
-        this._resetWebGLAtlas(session);
+        this._repaintTerminal(session);
         
         // Update wrapper background to match terminal background
         const wrapper = document.getElementById(`terminal-wrapper-${session.id}`);
@@ -1877,7 +1901,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       if (session.terminal) {
         const newTheme = this.getTerminalTheme(theme);
         session.terminal.options.theme = newTheme;
-        this._resetWebGLAtlas(session);
+        this._repaintTerminal(session);
         
         // Update wrapper background to match terminal background
         const wrapper = document.getElementById(`terminal-wrapper-${session.id}`);
@@ -2877,7 +2901,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       // cell height and paint interlaced black bands (the "interlace" bug).
       sftpSession.fontSize = Math.max(this.minFontSize, Math.min(this.maxFontSize, newSize));
       sftpSession.terminal.options.fontSize = sftpSession.fontSize;
-      this._syncCharSizeThenClearAtlas(sftpSession);
+      this._measureCharSize(sftpSession);
       
       if (sftpSession.fitAddon) {
         this._fitTerminal(sftpSession);
@@ -3339,6 +3363,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     // derived from CSS pixels * DPR — a different DPR means every cached
     // glyph is now the wrong size and must be re-rasterised.
     this._setupDPRListener();
+    this._setupFontAtlasListener();
     
     // Load sticky config first
     await this.loadStickyConfig();
@@ -4790,6 +4815,7 @@ const wheelHandler = (e) => {
           // Drain it or it stays stuck (permanently missing rows in
           // line-diff TUI screens — the stale/black-line bug).
           this._drainSyncBuffer(session);
+          this._runDeferredFit(session);
         }
         
         // Handle controller status
@@ -4892,6 +4918,32 @@ const wheelHandler = (e) => {
           }
         }
         
+        // Bring the terminal to the server's geometry BEFORE replaying the
+        // state. The serialized screen was produced for exactly
+        // data.cols x data.rows. Replaying it into a terminal of a different
+        // width wraps every full-width row: full-screen TUIs (alternate
+        // buffer) end up with one text row followed by one overflow row —
+        // the "alternating black line" pattern — and a later resize() does
+        // NOT undo that, because xterm never reflows the alternate buffer.
+        // (Previously the resize ran AFTER the write, into whatever size the
+        // freshly created terminal happened to have, usually 80x24.)
+        if (data.cols && data.rows &&
+            (session.terminal.cols !== data.cols || session.terminal.rows !== data.rows)) {
+          try {
+            // isResyncing suppresses the onResize → ssh-resize echo for
+            // this server-driven resize (it would otherwise bounce the
+            // server's own size back at it).
+            session.isResyncing = true;
+            session.terminal.resize(data.cols, data.rows);
+            session.remoteCols = data.cols;
+            session.remoteRows = data.rows;
+            console.log('[SSHIFT] Terminal resized to server dimensions before sync write:', data.cols, 'x', data.rows);
+          } catch (e) {
+            console.warn('[SSHIFT] Error resizing terminal for sync:', e.message);
+          }
+          session.isResyncing = false;
+        }
+
         // Write the serialized terminal state
         // This includes all escape sequences to reconstruct the screen
         session.terminal.write(state, () => {
@@ -4915,44 +4967,21 @@ const wheelHandler = (e) => {
           if (!data.partial) {
             session.terminal.scrollToBottom();
           }
-          
-          // Resize terminal to match the session's dimensions if provided
-          // Note: We do NOT call fit() here because:
-          // 1. This client is joining an existing session and is not the controller
-          // 2. The controller determines the terminal dimensions
-          // 3. fit() would recalculate dimensions for the local container
-          // 4. This can cause resize feedback loops between clients
-          if (data.cols && data.rows) {
-            try {
-              // Set resyncing flag BEFORE calling resize to prevent resize feedback loop
-              session.isResyncing = true;
 
-              session.terminal.resize(data.cols, data.rows);
-              console.log('[SSHIFT] Terminal resized to match server dimensions:', data.cols, 'x', data.rows);
+          // Plain full repaint from the freshly restored buffer.
+          this._repaintTerminal(session);
 
-              // The serialized state was just written into a fresh
-              // buffer + the terminal was just resized. The WebGL
-              // renderer's glyph atlas still holds glyphs rasterised
-              // at the pre-resize cell size — painting them now would
-              // produce the "interlaced / every-other-row blank" bug
-              // (visible after "Take Control" on a just-refreshed
-              // browser tab; fixed when the user manually resizes the
-              // window because that re-runs the renderer resize path).
-              // Note: when the terminal is ALREADY at data.cols/rows the
-              // resize() above short-circuits inside xterm.js, so a plain
-              // atlas clear is not enough — force the full renderer
-              // dimension recompute (same path as a real resize) so the
-              // device cell pitch is recomputed and the atlas rebuilt.
-              this._forceRendererDimensionRecompute(session);
-
-              // Clear the resyncing flag after a short delay
-              setTimeout(() => {
-                session.isResyncing = false;
-              }, 150);
-            } catch (e) {
-              console.warn('[SSHIFT] Error resizing terminal:', e.message);
-              session.isResyncing = false;
-            }
+          // Only the controller may change the session's geometry. Now that
+          // the server's screen is in place, re-fit it to OUR container:
+          // if the local size differs, fit() resizes the terminal and the
+          // onResize handler pushes the new size to the PTY, so the remote
+          // program repaints at the new size (the local buffer is reflowed
+          // meanwhile). Observers keep the server's geometry.
+          // Fits requested while the sync was in flight were deferred by
+          // _fitTerminal (needsResize) — this is where they land.
+          if (session.isController && session.fitAddon) {
+            session.needsResize = false;
+            this._fitTerminal(session);
           }
           
           // Focus the terminal
@@ -5001,7 +5030,7 @@ const wheelHandler = (e) => {
           // cell pitch — repaint at the stale pitch produces the interlace
           // "black band" artefact (same family as the screen-sync path).
           // Force the full renderer dimension recompute + atlas rebuild.
-          this._forceRendererDimensionRecompute(session);
+          this._repaintTerminal(session);
           console.log('[SSHIFT] Terminal resized to match server dimensions');
           
           // Clear the syncing flag after a delay to ensure resize events settle
@@ -5245,6 +5274,7 @@ const wheelHandler = (e) => {
       // Don't lose live output that was buffered while waiting for a sync
       // that never arrived.
       this._drainSyncBuffer(session);
+      this._runDeferredFit(session);
       if (session._syncRetries < 2 && session.connected) {
         session._syncRetries += 1;
         // Re-arm by calling ourselves once more. We pass a flag via the
@@ -8251,6 +8281,7 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
               console.warn('[SSHIFT] Sync timeout for session:', restoreSessionId, 'retries:', session._syncRetries);
               session.syncing = false;
               this._drainSyncBuffer(session);
+              this._runDeferredFit(session);
               if (session._syncRetries < 2 && session.connected) {
                 session._syncRetries += 1;
                 this.requestScreenSync(restoreSessionId);
@@ -8700,6 +8731,17 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
       container.innerHTML = '';
       
       terminal.open(container);
+
+      // Attach the terminal + fit addon to the session NOW, before any
+      // helper that takes `session` runs. _initWebGLAddon() (and every
+      // other helper) bails out silently when `session.terminal` is null,
+      // and the assignment used to live at the very end of initTerminal —
+      // so the WebGL renderer was never loaded at creation time. Terminals
+      // silently ran on the DOM renderer until a visibilitychange handler
+      // happened to call _initWebGLAddon() much later, which is why the
+      // WebGL-only artefacts were intermittent.
+      session.terminal = terminal;
+      session.fitAddon = fitAddon;
       
       // Initialise the WebGL renderer only if the wrapper is currently
       // visible.  Loading WebGL on a hidden (display:none) terminal
@@ -8766,7 +8808,12 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
 // Also register as fallback with xterm.js's OSC handler in case any
         // OSC 52 sequences slip through the data stream interceptor (e.g. from
         // screen sync restoration). The data stream interceptor is the primary handler.
-        terminal.registerOscHandler(52, (data) => {
+        // xterm.js v5+/v6 exposes the OSC registration on terminal.parser
+        // (terminal.registerOscHandler no longer exists).
+        const oscRegistrar = (terminal.parser && typeof terminal.parser.registerOscHandler === 'function')
+          ? terminal.parser
+          : terminal;
+        oscRegistrar.registerOscHandler(52, (data) => {
           console.log('[SSHIFT] OSC 52 handler fallback triggered (should be handled by stream interceptor)');
           const semicolonIndex = data.indexOf(';');
           if (semicolonIndex === -1) return true;
@@ -8828,11 +8875,8 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
           try { core._charSizeService.measure(); } catch (_) {}
         }
 
-        // Clear the WebGL texture atlas after the font swap — glyphs cached
-        // before the swap were rasterised at the fallback font's metrics.
-        if (session.webglAddon) {
-          try { session.webglAddon.clearTextureAtlas(); } catch (_) {}
-        }
+        // (The shared WebGL glyph atlas is rebuilt for ALL terminals by
+        // _setupFontAtlasListener once fonts are ready — never per-terminal.)
 
         // Also check if WebGL init was deferred due to hidden wrapper
         // (Bug 3) — the terminal may now be visible.
@@ -9783,29 +9827,23 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
   // Full-viewport repaint shortly after an output burst settles.
   //
   // Under heavy output floods (TUI streaming + per-line scrollback trims
-  // while throttled + 32KB/frame capped writes) the WebGL renderer can
-  // miss dirty-row updates: some rows keep showing STALE content (old
-  // backgrounds / leftover fragments) even though the terminal BUFFER is
-  // correct. Line-diff TUI renderers (OpenCode, Bubble Tea apps, ...)
-  // never rewrite lines they consider unchanged, so those stale rows then
-  // persist indefinitely — visible as "interlaced black lines between
-  // text lines" where the app's painted background alternates with the
-  // terminal's default background. A font-size change or window resize
-  // "fixed" it because both force a full re-render from the buffer.
+  // while throttled + 32KB/frame capped writes) the renderer can miss
+  // dirty-row updates: some rows keep showing STALE content even though
+  // the terminal BUFFER is correct. Line-diff TUI renderers (OpenCode,
+  // Bubble Tea apps, ...) never rewrite lines they consider unchanged, so
+  // those stale rows would persist until something forced a full
+  // re-render from the buffer.
   //
   // This debounced refresh(0, rows-1) after the LAST write of a burst
-  // provides that same guarantee automatically: within ~350ms of any
-  // burst ending, every row is re-rendered from the (correct) buffer.
-  // Cost: one extra full-viewport render per burst — negligible.
+  // guarantees that within ~350ms of any burst ending every row is
+  // re-rendered from the (correct) buffer. A 2s max-wait repaint covers
+  // continuous floods where the trailing debounce never fires.
   //
-  // Two hardening additions for the two remaining holes:
-  //  1. The trailing debounce above NEVER fires while output is continuous
-  //     (each write postpones it). A 2s max-wait repaint runs even mid-flood.
-  //  2. A plain refresh() repaints at the CURRENT (possibly stale) device
-  //     cell pitch — it cannot heal a renderer dimension desync. The
-  //     max-wait repaint uses _forceRendererDimensionRecompute (the exact
-  //     path a real window resize triggers), which heals BOTH missed
-  //     dirty rows AND pitch mismatches.
+  // Both are PLAIN repaints (_repaintTerminal). They must never resize the
+  // canvas or clear the WebGL glyph atlas: the atlas is shared between all
+  // terminals, so clearing it here after every keystroke echo corrupted
+  // every other terminal's glyphs (scattered dots/commas) and re-sizing the
+  // canvas blanked it for a frame (flicker while typing).
   _scheduleSettleRefresh(session) {
     if (!session || !session.terminal) return;
     if (session.settleRefreshTimer) {
@@ -9818,31 +9856,21 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
         session.settleRefreshMaxTimer = null;
       }
       if (!session.terminal) return;
-      // Use the full dimension recompute (the exact path a font-size
-      // change triggers), NOT a plain refresh(): a plain refresh
-      // repaints at the CURRENT renderer cell pitch — if a pitch desync
-      // formed during the flood (the "alternating black bands between
-      // text lines" bug: rows painted empty at a mismatched pitch),
-      // repainting at the same broken pitch reproduces the bands.
-      // Users report a font/window resize reliably heals the artefact;
-      // this is the programmatic equivalent, applied automatically
-      // ~350ms after every output burst settles.
-      if (session.syncing) return; // sync completion does its own recompute
-      this._forceRendererDimensionRecompute(session);
+      if (session.syncing) return; // sync completion does its own repaint
+      this._repaintTerminal(session);
     }, 350);
 
-    // Safety net for continuous floods: guarantee a full dimension-
-    // recompute repaint at least every 2s while writes keep arriving,
-    // otherwise the trailing refresh above is postponed indefinitely.
+    // Safety net for continuous floods: guarantee a full repaint at least
+    // every 2s while writes keep arriving, otherwise the trailing refresh
+    // above is postponed indefinitely.
     if (!session.settleRefreshMaxTimer) {
       const runMaxWait = () => {
         session.settleRefreshMaxTimer = null;
         if (!session.terminal) return;
-        // Never run the dimension recompute mid-screen-sync: the
-        // serialized state is still being parsed (terminal.reset() has
-        // run but the write hasn't completed), so a full repaint now
-        // paints a half-applied state and an atlas rebuild races the
-        // sync completion's own recompute. Retry later.
+        // Never repaint mid-screen-sync: the serialized state is still
+        // being parsed (terminal.reset() has run but the write hasn't
+        // completed), so a full repaint now would paint a half-applied
+        // state. Retry later.
         if (session.syncing) {
           session.settleRefreshMaxTimer = setTimeout(runMaxWait, 2000);
           return;
@@ -9851,7 +9879,7 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
           clearTimeout(session.settleRefreshTimer);
           session.settleRefreshTimer = null;
         }
-        this._forceRendererDimensionRecompute(session);
+        this._repaintTerminal(session);
       };
       session.settleRefreshMaxTimer = setTimeout(runMaxWait, 2000);
     }
@@ -10646,7 +10674,7 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
           // While display:none, the terminal canvas has zero dimensions and
           // any cached glyphs are rendered at wrong colours/sizes (Bug 3).
           // Clearing + refreshing forces a clean redraw at the correct size.
-          this._resetWebGLAtlas(session);
+          this._repaintTerminal(session);
 
           // Restore font size for this session.  Setting fontSize async-
           // invalidates _renderService.dimensions; we must commit the new
@@ -10656,7 +10684,7 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
           // (the "interlace" bug — see _syncCharSizeThenClearAtlas).
           if (session.fontSize && session.terminal) {
             session.terminal.options.fontSize = session.fontSize;
-            this._syncCharSizeThenClearAtlas(session);
+            this._measureCharSize(session);
             console.log('[SSHIFT] Restored font size', session.fontSize, 'for session', sessionId);
           }
 
@@ -10725,14 +10753,14 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     } else if (session && session.terminal) {
       // For non-controllers, just focus the terminal and restore font size.
       // Also clear the WebGL atlas since this tab was hidden.
-      this._resetWebGLAtlas(session);
+      this._repaintTerminal(session);
       if (session.fontSize) {
         session.terminal.options.fontSize = session.fontSize;
         // Same race as the controller branch above: setting fontSize
         // async-invalidates _renderService.dimensions.  Commit the cell
         // size synchronously (measure() + atlas clear) so the renderer
         // doesn't paint at a stale cell pitch — the interlace bug.
-        this._syncCharSizeThenClearAtlas(session);
+        this._measureCharSize(session);
       }
       if (this.isMobile && session.mobileHandler && session.mobileHandler.hiddenTextarea) {
         session.mobileHandler._focusHiddenTextarea();
@@ -10746,7 +10774,7 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     if (sftpSession && sftpSession.terminal) {
       if (sftpSession.fontSize) {
         sftpSession.terminal.options.fontSize = sftpSession.fontSize;
-        this._syncCharSizeThenClearAtlas(sftpSession);
+        this._measureCharSize(sftpSession);
       }
     }
     

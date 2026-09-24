@@ -1,6 +1,11 @@
 const { Client } = require('ssh2');
 const { Terminal } = require('@xterm/headless');
 const { SerializeAddon } = require('@xterm/addon-serialize');
+
+// Screen-sync payload cap (raw, pre-base64) and the scrollback tiers tried
+// when the full history is larger than that. See _serializeForSync().
+const SYNC_FULL_MAX_BYTES = 768 * 1024;
+const SYNC_SCROLLBACK_TIERS = [2000, 500, 100, 0];
 const { Unicode11Addon } = require('@xterm/addon-unicode11');
 const pluginManager = require('../plugins/plugin-manager');
 const { convertKeyIfNeeded } = require('../utils/key-converter');
@@ -359,59 +364,19 @@ class SSHManager {
     // Send current terminal state to the joining socket BEFORE joining the room
     // This ensures the client gets the full state before receiving any new data
     if (session.terminal && session.serializeAddon) {
-      try {
-        // Try to serialize full scrollback buffer first (includes all history)
-        let serializedState = session.serializeAddon.serialize({ mode: 'all' });
-        
-        // Validate it's a string
-        if (typeof serializedState !== 'string') {
-          serializedState = String(serializedState);
-        }
-        
-        // If full state is too large, fall back to viewport-only
-        const fullMaxSize = 512 * 1024; // 512KB for full scrollback
-        const viewportMaxSize = 50 * 1024; // 50KB fallback for viewport only
-        
-        if (serializedState.length > fullMaxSize) {
-          console.warn(`[SSH] Full terminal state too large (${serializedState.length} bytes), falling back to viewport-only`);
-          serializedState = session.serializeAddon.serialize({ mode: 'normal' });
-          if (typeof serializedState !== 'string') {
-            serializedState = String(serializedState);
-          }
-          
-          if (serializedState.length > viewportMaxSize) {
-            console.warn(`[SSH] Viewport state also too large (${serializedState.length} bytes), skipping sync`);
-          } else {
-            // Send viewport-only state
-            const base64State = Buffer.from(serializedState, 'utf-8').toString('base64');
-            socket.emit('ssh-screen-sync', {
-              sessionId: sessionId,
-              state: base64State,
-              cols: session.cols,
-              rows: session.rows,
-              encoded: true,
-              partial: true
-            });
-            hasTerminalState = true;
-          }
-        } else {
-          // Send full state including scrollback
-          const base64State = Buffer.from(serializedState, 'utf-8').toString('base64');
-          console.log(`[SSH] Sending full serialized terminal state to socket ${socket.id}, size: ${serializedState.length}, base64: ${base64State.length}`);
-          
-          socket.emit('ssh-screen-sync', {
-            sessionId: sessionId,
-            state: base64State,
-            cols: session.cols,
-            rows: session.rows,
-            encoded: true,
-            partial: false
-          });
-          
-          hasTerminalState = true;
-        }
-      } catch (err) {
-        console.error(`[SSH] Error serializing terminal state:`, err.message);
+      const snapshot = this._serializeForSync(session, SYNC_FULL_MAX_BYTES);
+      if (snapshot) {
+        const base64State = Buffer.from(snapshot.state, 'utf-8').toString('base64');
+        console.log(`[SSH] Sending serialized terminal state to socket ${socket.id}, size: ${snapshot.state.length}, base64: ${base64State.length}, scrollback: ${snapshot.scrollbackLines === undefined ? 'full' : snapshot.scrollbackLines}`);
+        socket.emit('ssh-screen-sync', {
+          sessionId: sessionId,
+          state: base64State,
+          cols: session.cols,
+          rows: session.rows,
+          encoded: true,
+          partial: snapshot.partial
+        });
+        hasTerminalState = true;
       }
     }
     
@@ -628,31 +593,58 @@ if (this.io) {
     if (!session || !session.terminal || !session.serializeAddon) {
       return null;
     }
-    
-    try {
-      // Serialize full scrollback buffer to preserve history on reload
-      let serializedState = session.serializeAddon.serialize({ mode: 'all' });
-      
-      // Validate size - allow up to 1MB for manual sync requests
-      const maxSize = 1024 * 1024; // 1MB max
-      if (serializedState.length > maxSize) {
-        console.warn(`[SSH] Terminal state too large (${serializedState.length} bytes), falling back to viewport-only`);
-        serializedState = session.serializeAddon.serialize({ mode: 'normal' });
-        if (serializedState.length > maxSize) {
-          console.warn(`[SSH] Viewport state also too large (${serializedState.length} bytes), returning null`);
-          return null;
-        }
+    const snapshot = this._serializeForSync(session, SYNC_FULL_MAX_BYTES);
+    if (!snapshot) return null;
+    return {
+      state: snapshot.state,
+      cols: session.cols,
+      rows: session.rows,
+      partial: snapshot.partial
+    };
+  }
+
+  hasSession(sessionId) {
+    return this.sessions.has(sessionId);
+  }
+
+  // Serialize a session's screen for a client sync, shrinking the amount
+  // of scrollback until the payload fits under `maxBytes`.
+  //
+  // The old code tried `serialize({ mode: 'normal' })` as a "viewport-only"
+  // fallback. `mode` is not a SerializeAddon option — that call returned the
+  // exact same full-scrollback payload, so any long-running session whose
+  // history serialized above the cap got NO screen state at all: the
+  // joining browser saw only the live stream from that point on, and
+  // line-diff TUIs (which never repaint rows they consider unchanged) left
+  // it with a screen full of black rows until a resize forced a full
+  // repaint. That is the "alternating text/black lines when opening a new
+  // window" bug.
+  //
+  // Tiers: full scrollback → recent scrollback → viewport only. The viewport
+  // tier is a few KB and is always sent, so a sync can only fail if the
+  // serialize addon itself throws.
+  _serializeForSync(session, maxBytes) {
+    if (!session || !session.terminal || !session.serializeAddon) return null;
+    const tiers = [undefined, ...SYNC_SCROLLBACK_TIERS];
+    for (const scrollback of tiers) {
+      let state;
+      try {
+        state = scrollback === undefined
+          ? session.serializeAddon.serialize()
+          : session.serializeAddon.serialize({ scrollback });
+      } catch (err) {
+        console.error(`[SSH] Error serializing terminal state (scrollback=${scrollback}):`, err.message);
+        continue;
       }
-      
-      return {
-        state: serializedState,
-        cols: session.cols,
-        rows: session.rows
-      };
-    } catch (err) {
-      console.error(`[SSH] Error getting terminal state:`, err.message);
-      return null;
+      if (typeof state !== 'string') state = String(state);
+      if (state.length <= maxBytes || scrollback === 0) {
+        if (scrollback !== undefined) {
+          console.warn(`[SSH] Terminal state trimmed to ${scrollback} scrollback lines (${state.length} bytes) for sync`);
+        }
+        return { state, partial: scrollback !== undefined, scrollbackLines: scrollback };
+      }
     }
+    return null;
   }
 
   // Get ONLY the visible viewport of a session (no scrollback).

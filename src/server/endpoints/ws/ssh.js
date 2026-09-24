@@ -133,7 +133,16 @@ function registerSSHHandlers(socket, io) {
         cols: state.cols,
         rows: state.rows,
         encoded: true,
-        partial: false
+        partial: !!state.partial
+      });
+    } else if (sshManager.hasSession && sshManager.hasSession(data.sessionId)) {
+      // The session exists but its screen could not be serialized right
+      // now. That is an operational hiccup, not a dead session — a hard
+      // 'Session not found' would make the client treat the tab as gone.
+      socket.emit('ssh-error', {
+        sessionId: data.sessionId,
+        message: 'Screen sync unavailable, please retry',
+        advisory: true
       });
     } else {
       socket.emit('ssh-error', { message: 'Session not found', sessionId: data.sessionId });

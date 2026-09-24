@@ -144,15 +144,58 @@ describe('Mobile textarea → terminal diff sync (_syncTextareaToTerminal)', () 
     expect(h.sent).toEqual(['hello']);
   });
 
-  test('newline committed through the input path is translated to \\r and resets tracking', () => {
+  test('newline committed through the input path is translated to \\r and KEEPS the field (no programmatic clear)', () => {
     h.hiddenTextarea.value = 'ls';
     h._syncTextareaToTerminal();
     h.hiddenTextarea.value = 'ls\n';
     h._syncTextareaToTerminal();
     expect(h.sent).toEqual(['ls', '\r']);
-    // Clean slate afterwards (mirrors the Enter keydown path).
-    expect(h.hiddenTextarea.value).toBe('');
-    expect(h._sentValue).toBe('');
+    // The submitted line stays in the field and in the baseline: clearing
+    // the field is invisible to Gboard and desyncs its model (the
+    // "autocomplete repeats previous sentences" bug).
+    expect(h.hiddenTextarea.value).toBe('ls\n');
+    expect(h._sentValue).toBe('ls\n');
+  });
+
+  test('autocomplete tap after Enter never re-sends the previous sentence (repeat-sentences regression)', () => {
+    // Type a sentence, submit it, then type + tap a suggestion. With the
+    // old post-Enter programmatic clear, Gboard's stale model made the
+    // next suggestion tap re-insert "old sentence + new word".
+    for (const v of ['ec', 'echo', 'echo hel', 'echo hello world', 'echo hello world\n']) {
+      h.hiddenTextarea.value = v;
+      h._syncTextareaToTerminal();
+    }
+    expect(applyToLine(h.sent.slice(0, -1))).toBe('echo hello world');
+    expect(h.sent[h.sent.length - 1]).toBe('\r');
+    const before = h.sent.length;
+    // Next line: "gi" then suggestion tap → "git "
+    h.hiddenTextarea.value = 'echo hello world\ngi';
+    h._syncTextareaToTerminal();
+    h.hiddenTextarea.value = 'echo hello world\ngit ';
+    h._syncTextareaToTerminal();
+    const after = h.sent.slice(before);
+    expect(applyToLine(after)).toBe('git ');
+    // The earlier sentence is never part of any later payload.
+    expect(after.some(p => p.includes('hello world'))).toBe(false);
+  });
+
+  test('a divergence before the current line never produces DELs into previous lines', () => {
+    h.hiddenTextarea.value = 'abc\n';
+    h._syncTextareaToTerminal();
+    h.hiddenTextarea.value = 'abc\ndef';
+    h._syncTextareaToTerminal();
+    expect(applyToLine(h.sent)).toBe('abc\rdef');
+    const before = h.sent.length;
+    // Backspacing across the newline joins the lines in the field; the
+    // terminal must only see (at most) the current line being retyped —
+    // never a DEL that would join lines in a multi-line TUI editor.
+    h.hiddenTextarea.value = 'abcdef';
+    h._syncTextareaToTerminal();
+    const after = h.sent.slice(before);
+    const dels = after.join('').split('').filter(c => c === '\x7f').length;
+    expect(dels).toBeLessThanOrEqual(3);
+    expect(after.join('').includes('\r')).toBe(false);
+    expect(h._sentValue).toBe('abcdef');
   });
 
   test('never splits surrogate pairs and counts code points for DELs', () => {

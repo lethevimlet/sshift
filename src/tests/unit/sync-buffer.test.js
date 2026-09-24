@@ -293,7 +293,7 @@ describe('Settle refresh max-wait (continuous flood regression)', () => {
       client.sessions.set('ssh-test', session);
 
       const recomputes = [];
-      client._forceRendererDimensionRecompute = (s) => { recomputes.push(s); };
+      client._repaintTerminal = (s) => { recomputes.push(s); };
 
       // Simulate a continuous flood: a write every 100ms for 3 seconds.
       for (let i = 0; i < 30; i++) {
@@ -326,7 +326,7 @@ describe('Settle refresh max-wait (continuous flood regression)', () => {
       client.sessions.set('ssh-test', session);
 
       const recomputes = [];
-      client._forceRendererDimensionRecompute = (s) => { recomputes.push(s); };
+      client._repaintTerminal = (s) => { recomputes.push(s); };
 
       // Continuous flood...
       client._scheduleSettleRefresh(session);
