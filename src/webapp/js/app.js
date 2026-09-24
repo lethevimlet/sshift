@@ -5377,6 +5377,7 @@ const wheelHandler = (e) => {
 
     this.socket.on('ssh-error', (data) => {
       console.error('[SSHIFT] SSH Error:', data.message, 'sessionId:', data.sessionId);
+      this._dismissConnectingToasts();
       
       // If session not found and we're restoring, try to reconnect
       if (data.sessionId && data.message === 'Session not found') {
@@ -5470,6 +5471,7 @@ const wheelHandler = (e) => {
     });
 
     this.socket.on('sftp-connected', (data) => {
+      this._dismissConnectingToasts();
       this.onSFTPConnected(data);
     });
 
@@ -5530,6 +5532,7 @@ const wheelHandler = (e) => {
     });
 
     this.socket.on('sftp-error', (data) => {
+      this._dismissConnectingToasts();
       console.error('[SSHIFT] SFTP Error:', data.message, 'sessionId:', data?.sessionId);
 
       // If session not found and we're restoring, try to reconnect
@@ -8303,7 +8306,7 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     }
 
     // Show connecting status
-    this.showToast(`Connecting to ${host}...`, 'info');
+    this._noteConnectingToast(this.showToast(`Connecting to ${host}...`, 'info'));
 
     if (type === 'ssh') {
       console.log('[SSHIFT] Creating SSH tab...');
@@ -9527,6 +9530,7 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
       // Update control overlay (should be hidden since we're controller)
       this.updateControlOverlay(data.sessionId);
       
+      this._dismissConnectingToasts();
       this.showToast('SSH connection established', 'success');
       console.log('[SSHIFT] Session marked as connected, terminal exists:', !!session.terminal);
       
@@ -13133,7 +13137,7 @@ async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null) 
     }
 
     // Show connecting status
-    this.showToast(`Connecting to ${bookmark.name}...`, 'info');
+    this._noteConnectingToast(this.showToast(`Connecting to ${bookmark.name}...`, 'info'));
 
     if (bookmark.type === 'ssh') {
       console.log('[SSHIFT] Creating SSH tab from bookmark...');
@@ -13630,10 +13634,31 @@ async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null) 
 
     container.appendChild(toast);
 
-    setTimeout(() => {
-      toast.style.opacity = '0';
-      setTimeout(() => toast.remove(), 300);
-    }, 3000);
+    toast._dismissTimer = setTimeout(() => this.dismissToast(toast), 3000);
+    return toast;
+  }
+
+  /** Fade out and remove a toast returned by showToast (safe to call twice). */
+  dismissToast(toast) {
+    if (!toast || toast._dismissed) return;
+    toast._dismissed = true;
+    if (toast._dismissTimer) clearTimeout(toast._dismissTimer);
+    toast.style.opacity = '0';
+    setTimeout(() => toast.remove(), 300);
+  }
+
+  /** Remember a "Connecting to …" toast so the outcome can dismiss it early. */
+  _noteConnectingToast(toast) {
+    if (!toast) return;
+    if (!this._connectingToasts) this._connectingToasts = [];
+    this._connectingToasts.push(toast);
+  }
+
+  /** The connection finished (success or error): drop the pending "Connecting to …" toasts. */
+  _dismissConnectingToasts() {
+    const list = this._connectingToasts || [];
+    this._connectingToasts = [];
+    list.forEach((t) => this.dismissToast(t));
   }
 
   // Utility Functions
