@@ -10,6 +10,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="SSHIFT">
   <link rel="manifest" href="/manifest.json?v=__VERSION__">
+  <script>window.SSHIFT_VERSION = '__VERSION__';</script>
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16x16.png">
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
@@ -1568,51 +1569,77 @@
   <script src="/socket.io/socket.io.js"></script>
   <script src="/js/app.js?v=__VERSION__"></script>
   <script>
+    // Service worker lifecycle (v1.8.2).
+    // - sw.js is served with no-store and registered with updateViaCache
+    //   'none', so every update check hits the server.
+    // - Chrome only checks for a new worker on navigations; a PWA that
+    //   stays open never navigates, so we also check when the app comes
+    //   back to the foreground and once an hour.
+    // - The worker calls skipWaiting()+clients.claim(): the moment a new
+    //   version installs it replaces the old one everywhere (never two
+    //   versions alive), and every open page reloads exactly once on
+    //   controllerchange so HTML, JS, CSS and worker all match.
     if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js').then((reg) => {
-        console.log('[SSHIFT] Service Worker registered, scope:', reg.scope);
-        window._swRegistration = reg;
-        if (reg.active) {
+      const hadController = !!navigator.serviceWorker.controller;
+      let reloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloading) return;
+        // First install: this page already has the current assets.
+        if (!hadController && !window.__swUpdateSeen) {
           window._swStatus = 'active';
-        } else if (reg.installing) {
-          window._swStatus = 'installing';
-        } else if (reg.waiting) {
-          window._swStatus = 'waiting';
-        } else {
-          window._swStatus = 'registered';
+          return;
         }
-        window._swError = null;
-        reg.addEventListener('updatefound', () => {
-          const newWorker = reg.installing;
-          newWorker.addEventListener('statechange', () => {
-            if (newWorker.state === 'activated') {
-              window._swStatus = 'active';
-              if (navigator.serviceWorker.controller) {
-                console.log('[SSHIFT] New service worker activated, reloading for updates');
-                window.location.reload();
-              }
-            } else if (newWorker.state === 'redundant') {
-              if (!navigator.serviceWorker.controller) {
-                window._swStatus = 'redundant';
-                window._swError = 'Service Worker became redundant. This usually means the certificate is not trusted.';
-              }
-            }
-          });
-        });
-        if (navigator.serviceWorker.controller) {
-          window._swStatus = 'active';
-        }
-      }).catch((err) => {
-        console.warn('[SSHIFT] Service Worker registration failed:', err.message);
-        window._swStatus = 'failed';
-        window._swError = err.message;
+        reloading = true;
+        console.log('[SSHIFT] New service worker took control, reloading for the new version');
+        window.location.reload();
       });
-    });
-  } else {
-    window._swStatus = 'unsupported';
-    window._swError = 'Service Workers not supported in this browser';
-  }
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then((reg) => {
+          console.log('[SSHIFT] Service Worker registered, scope:', reg.scope);
+          window._swRegistration = reg;
+          if (reg.active) {
+            window._swStatus = 'active';
+          } else if (reg.installing) {
+            window._swStatus = 'installing';
+          } else if (reg.waiting) {
+            window._swStatus = 'waiting';
+          } else {
+            window._swStatus = 'registered';
+          }
+          window._swError = null;
+          reg.addEventListener('updatefound', () => {
+            const newWorker = reg.installing;
+            if (!newWorker) return;
+            // An update while we already had a controller: the coming
+            // controllerchange must reload.
+            if (navigator.serviceWorker.controller) window.__swUpdateSeen = true;
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'activated') {
+                window._swStatus = 'active';
+              } else if (newWorker.state === 'redundant') {
+                if (!navigator.serviceWorker.controller) {
+                  window._swStatus = 'redundant';
+                  window._swError = 'Service Worker became redundant. This usually means the certificate is not trusted.';
+                }
+              }
+            });
+          });
+          if (navigator.serviceWorker.controller) {
+            window._swStatus = 'active';
+          }
+          const check = () => { reg.update().catch(() => {}); };
+          document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+          setInterval(check, 60 * 60 * 1000);
+        }).catch((err) => {
+          console.warn('[SSHIFT] Service Worker registration failed:', err.message);
+          window._swStatus = 'failed';
+          window._swError = err.message;
+        });
+      });
+    } else {
+      window._swStatus = 'unsupported';
+      window._swError = 'Service Workers not supported in this browser';
+    }
   </script>
 </body>
 </html>

@@ -20,6 +20,16 @@ class SSHIFTClient {
     this.activeSessionId = null; // Global active session (for backwards compatibility)
     this.activeSessionsByPanel = new Map(); // Per-panel active sessions: Map<panelId, sessionId>
     this._wasDisconnected = false; // Track reconnection state for toast messages
+    // Connection toasts (v1.8.2): a disconnect is only announced when it
+    // lasts longer than the grace period below while the page is visible;
+    // "Reconnected" only follows an announced disconnect; deliberate
+    // reconnects (auth token swap) are silent; the initial connect is the
+    // normal state and says nothing.
+    this._silentReconnect = false;
+    this._disconnectToastTimer = null;
+    this._disconnectToastShown = false;
+    this.DISCONNECT_TOAST_GRACE_MS = 2500;
+    this._staleReloadFor = null;
     this._initReady = false; // Set true once init() completes
     this._pendingOpenTabs = null; // Deferred open-tabs data
     this._pendingOpenTabsIsInitial = false;
@@ -269,6 +279,8 @@ class SSHIFTClient {
   updateSocketAuth() {
     if (this.socket && this.authToken) {
       this.socket.auth = { token: this.authToken };
+      // Deliberate reconnect: no Disconnected/Reconnected toasts for it.
+      this._silentReconnect = true;
       this.socket.disconnect().connect();
     }
   }
@@ -2143,7 +2155,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     
     // Fallback to layouts.json
     try {
-      const layoutsResponse = await fetch('/layouts.json');
+      const layoutsResponse = await fetch('/layouts.json?v=' + encodeURIComponent((typeof window !== 'undefined' && window.SSHIFT_VERSION) || ''));
       if (layoutsResponse.ok) {
         const data = await layoutsResponse.json();
         if (data.layouts && Array.isArray(data.layouts)) {
@@ -4583,6 +4595,10 @@ const wheelHandler = (e) => {
       // the rejoin completes (consumed by the ssh-joined handler; guarded
       // there so we never steal control another client acquired meanwhile).
       session._retakeControlOnRejoin = !!session.isController;
+      // Remembered until we hold control again: getting it back (by
+      // retake, or because the server reassigned it to us when our old
+      // socket timed out) is not news worth a toast.
+      session._heldControlBeforeDrop = !!session.isController;
 
       // Mark as restoring so a "Session not found" reply routes into the
       // credential-based auto-reconnect path instead of closing the tab.
@@ -4623,15 +4639,20 @@ const wheelHandler = (e) => {
       console.log('[SSHIFT] Connected to server, socket ID:', this.socket.id);
       const wasDisconnected = this._wasDisconnected;
       this._wasDisconnected = false;
-      if (wasDisconnected && !this.isUpdating) {
-        this.showToast('Reconnected to server', 'success');
+      this._silentReconnect = false;
+      this._cancelDisconnectToast();
+      if (wasDisconnected) {
+        // Only announce the recovery of an outage that was announced.
+        if (this._disconnectToastShown && !this.isUpdating) {
+          this.showToast('Reconnected to server', 'success');
+        }
+        this._disconnectToastShown = false;
         // The new socket must re-join its sessions (rooms + controller
         // state are keyed by socket.id and were lost with the old socket).
         this.rejoinActiveSessions();
-      } else if (!this.isUpdating) {
-        this.showToast('Connected to server', 'success');
       }
       this.loadBookmarks();
+      this._checkServerVersion();
     });
 
     this.socket.on('disconnect', (reason) => {
@@ -4640,8 +4661,8 @@ const wheelHandler = (e) => {
       if (reason === 'io server disconnect') {
         // Server intentionally disconnected us (e.g. auth failure) — don't auto-reconnect
         // Socket.IO won't retry after server-initiated disconnect anyway
-      } else if (!this.isUpdating) {
-        this.showToast('Disconnected from server — will reconnect automatically', 'warning');
+      } else if (!this.isUpdating && !this._silentReconnect) {
+        this._armDisconnectToast();
       }
     });
 
@@ -4653,6 +4674,10 @@ const wheelHandler = (e) => {
       if (!this.socket.connected) {
         console.log('[SSHIFT] Tab visible and socket disconnected, triggering reconnect');
         this.socket.connect();
+        // Give the reconnect the same grace period before complaining.
+        this._armDisconnectToast();
+      } else {
+        this._checkServerVersion();
       }
       this.clearFlashesForVisibleSessions();
       this._refreshAllWebGLSessions();
@@ -4675,6 +4700,10 @@ const wheelHandler = (e) => {
         localStorage.removeItem('sshift_auth_token');
         this.showLockScreen();
       }
+      // A rejected handshake after a server restart is also the first
+      // moment we can learn that the server was updated (the version
+      // check normally runs on connect, which never comes here).
+      this._checkServerVersion();
       // Don't show generic connection error toasts during reconnection —
       // the user already sees "Disconnected" and the auto-reconnect handles it.
       // Only show for explicit user actions (not isUpdating suppresses during update).
@@ -4881,7 +4910,7 @@ const wheelHandler = (e) => {
             // Delay to ensure the session is fully set up
             const delay = 100 + Math.random() * 200; // 100-300ms
             setTimeout(() => {
-              this.requestTakeControl(data.sessionId);
+              this.requestTakeControl(data.sessionId, { announce: false });
             }, delay);
           } else {
             console.log('[SSHIFT] Not taking control - another client is already in control');
@@ -5167,8 +5196,14 @@ const wheelHandler = (e) => {
               });
             });
           }
-          this.showToast('You are now in control (previous controller left)', 'info');
-        } else if (!session.isController) {
+          // Silent when we are only getting our own control back after a
+          // reconnect (the "previous controller" was this device's old
+          // socket, which the server timed out).
+          if (!session._heldControlBeforeDrop) {
+            this.showToast('You are now in control (previous controller left)', 'info');
+          }
+          session._heldControlBeforeDrop = false;
+        } else if (!session.isController && wasController) {
           this.showToast('Another device took control', 'info');
         }
       }
@@ -5273,7 +5308,14 @@ const wheelHandler = (e) => {
           });
         }
         
-        this.showToast('You are now in control', 'success');
+        // Automatic take-control (session join, rejoin after a reconnect,
+        // tab restore) is the normal state and stays silent; only an
+        // explicit "Take Control" tap is confirmed.
+        if (session._announceControl) {
+          this.showToast('You are now in control', 'success');
+        }
+        session._announceControl = false;
+        session._heldControlBeforeDrop = false;
       }
     });
 
@@ -6915,10 +6957,18 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     if (dontShow === 'true') return;
 
     const isLocalhost = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
-    const swActive = navigator.serviceWorker && navigator.serviceWorker.controller;
-    if (isLocalhost || swActive) return;
+    const swOk = () => {
+      if (navigator.serviceWorker && navigator.serviceWorker.controller) return true;
+      // First visit: the worker is still installing/activating (the page
+      // no longer reloads on first install), which is just as healthy.
+      return ['active', 'installing', 'registered'].includes(window._swStatus);
+    };
+    if (isLocalhost || swOk()) return;
 
-    setTimeout(() => this.openSecurityInfoDialog(), 1000);
+    setTimeout(() => {
+      if (swOk()) return;
+      this.openSecurityInfoDialog();
+    }, 1500);
   }
 
   openSecurityInfoDialog() {
@@ -8632,7 +8682,7 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     takeControlBtn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      this.requestTakeControl(sessionId);
+      this.requestTakeControl(sessionId, { announce: true });
     });
     
     controlContent.appendChild(controlIcon);
@@ -8734,6 +8784,11 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
         letterSpacing: 0,
         cursorBlink: false,
         cursorStyle: 'block',
+        // On mobile xterm's own textarea never has focus (the mobile
+        // handler owns keyboard input, see MobileTerminalHandler.
+        // _captureTerminalFocus), so the "inactive" cursor must look like
+        // the active one or the terminal always shows a hollow cursor.
+        cursorInactiveStyle: this.isMobile ? 'block' : 'outline',
         scrollback: this.scrollback || 10000,
         allowProposedApi: true,
         convertEol: true,
@@ -13447,15 +13502,99 @@ async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null) 
     }, 50); // 50ms debounce to prevent flashing
   }
 
-  requestTakeControl(sessionId) {
+  requestTakeControl(sessionId, opts) {
     const session = this.sessions.get(sessionId);
     if (!session || !session.connected) {
       this.showToast('Session not connected', 'error');
       return;
     }
     
+    session._announceControl = !!(opts && opts.announce);
     console.log('[SSHIFT] Requesting control for session:', sessionId);
     this.socket.emit('ssh-take-control', { sessionId });
+  }
+
+  /**
+   * Start the grace timer for the "Disconnected" toast. Socket drops on a
+   * phone are routine (the OS freezes the page, the PWA is reopened, the
+   * auth token is swapped in) and recover within a second or two; only a
+   * lasting, visible outage is worth a toast.
+   */
+  _armDisconnectToast() {
+    this._cancelDisconnectToast();
+    this._disconnectToastTimer = setTimeout(() => {
+      this._disconnectToastTimer = null;
+      if (!this.socket || this.socket.connected) return;
+      if (this.isUpdating || this._silentReconnect) return;
+      // Nobody is looking: the visibilitychange handler re-arms this.
+      if (typeof document !== 'undefined' && document.hidden) return;
+      this._disconnectToastShown = true;
+      this.showToast('Disconnected from server — will reconnect automatically', 'warning');
+    }, this.DISCONNECT_TOAST_GRACE_MS);
+  }
+
+  _cancelDisconnectToast() {
+    if (this._disconnectToastTimer) {
+      clearTimeout(this._disconnectToastTimer);
+      this._disconnectToastTimer = null;
+    }
+  }
+
+  /**
+   * Stale-page detection: compare the version baked into this page
+   * (window.SSHIFT_VERSION, rendered into index.html) with the version
+   * the server reports now. They diverge when the server was updated
+   * while this page stayed open (a PWA can live for days without a
+   * navigation, so the service worker never gets an update check).
+   * Runs after every (re)connect and whenever the page becomes visible.
+   */
+  async _checkServerVersion() {
+    let mine = null;
+    try { mine = typeof window !== 'undefined' ? window.SSHIFT_VERSION : null; } catch (_) {}
+    if (!mine || typeof fetch !== 'function') return;
+    let serverVersion = null;
+    try {
+      const response = await fetch('/api/version', { cache: 'no-store' });
+      if (!response || !response.ok) return;
+      const data = await response.json();
+      serverVersion = data && data.version;
+    } catch (_) {
+      return;
+    }
+    if (!serverVersion || serverVersion === mine) return;
+    this._handleStaleClient(serverVersion, mine);
+  }
+
+  _handleStaleClient(serverVersion, mine) {
+    if (this._staleReloadFor === serverVersion) return;
+    this._staleReloadFor = serverVersion;
+    // One reload per server version per tab: if the page still comes back
+    // with the old version (a proxy caching index.html), stop instead of
+    // reloading forever.
+    try {
+      if (sessionStorage.getItem('sshift_reloaded_for') === serverVersion) {
+        console.warn('[SSHIFT] Already reloaded for', serverVersion, 'but the page is still', mine);
+        return;
+      }
+      sessionStorage.setItem('sshift_reloaded_for', serverVersion);
+    } catch (_) {}
+    console.log('[SSHIFT] Server runs', serverVersion, 'but this page is', mine, '— reloading');
+    if (this.isUpdating) return; // the update flow reloads on its own
+    this.showToast(`Updating to v${serverVersion}…`, 'info');
+    // Let the new service worker install first (it takes over with
+    // skipWaiting + clients.claim and the registration script reloads on
+    // controllerchange); the timer is the fallback when there is no
+    // service worker or the update check is slow.
+    try {
+      if (navigator.serviceWorker && navigator.serviceWorker.getRegistration) {
+        navigator.serviceWorker.getRegistration().then((reg) => reg && reg.update()).catch(() => {});
+      }
+    } catch (_) {}
+    setTimeout(() => {
+      if (typeof window !== 'undefined' && window.location && typeof window.location.reload === 'function') {
+        window.location.reload();
+      }
+    }, 4000);
   }
 
   // Toast Notifications

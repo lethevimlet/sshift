@@ -64,6 +64,19 @@ class MobileTerminalHandler {
     // reproduced on a desktop; this is how device reports become
     // actionable.
     this._inputTrace = [];
+    // xterm focus capture (see _captureTerminalFocus)
+    this._xtermCore = null;
+    this._xtermTextareaFocusListener = null;
+    // Post-composition catch-up sync timer (see _onCompositionEnd)
+    this._deferredSyncTimer = null;
+    // True during the blur/focus pair that re-opens a dismissed keyboard:
+    // the field content must survive it (see _reshowKeyboard).
+    this._suppressBlurReset = false;
+    // Tallest layout viewport seen per width: with
+    // `interactive-widget=resizes-content` the virtual keyboard shrinks
+    // window.innerHeight, so "current height well below the max" means
+    // the keyboard is up (see _keyboardProbablyHidden).
+    this._maxInnerHeightByWidth = {};
     this.contextMenuUserPositioned = false; // Track if user has manually positioned the menu
     
     // Configuration
@@ -217,11 +230,77 @@ class MobileTerminalHandler {
     this._createSelectionHandles();
     this._createContextMenu();
     this._createHiddenTextarea();
+    this._captureTerminalFocus();
+    this._noteViewportHeight();
     
     // Attach event listeners
     this._attachEventListeners();
     
     console.log('[MobileTerminal] Initialized for session:', this.sessionId);
+  }
+
+  /**
+   * Route every xterm focus request to the hidden textarea (v1.8.2).
+   *
+   * xterm registers its own `mousedown` listener on the terminal element
+   * that focuses ITS helper textarea. On a phone a tap fires
+   * touchstart/touchend (our handlers focus the mobile textarea) and then
+   * the browser's compatibility mousedown about 1 ms later, which let
+   * xterm steal the focus straight back. Verified in headless Chrome with
+   * touch emulation: `document.activeElement` ended on
+   * `.xterm-helper-textarea` after every tap. Gboard was therefore typing
+   * into xterm's textarea, whose Android IME handling (clear the field
+   * after every input) is the well-known source of repeated/duplicated
+   * words with suggestions, and the diff pipeline below never saw a
+   * single keystroke on real devices.
+   *
+   * The core's `focus()` is shadowed with an own property (the mousedown
+   * listener calls `this.focus()` dynamically) and restored in destroy();
+   * a focus listener on xterm's textarea is the safety net for any other
+   * path that manages to focus it.
+   * @private
+   */
+  _captureTerminalFocus() {
+    const t = this.terminal;
+    if (!t) return;
+    const core = t._core;
+    if (core && typeof core.focus === 'function' &&
+        !Object.prototype.hasOwnProperty.call(core, 'focus')) {
+      this._xtermCore = core;
+      core.focus = () => { this._focusHiddenTextarea(); };
+    }
+    const ta = t.textarea;
+    if (ta && typeof ta.addEventListener === 'function') {
+      try { ta.tabIndex = -1; } catch (_) {}
+      this._xtermTextareaFocusListener = () => {
+        if (!this.hiddenTextarea) return;
+        this._trace('xterm-focus', {});
+        this._focusHiddenTextarea();
+        // Could not take it (selection mode): at least keep Gboard off
+        // xterm's textarea so no input ever flows through xterm's path.
+        if (typeof document !== 'undefined' && document.activeElement === ta &&
+            typeof ta.blur === 'function') {
+          ta.blur();
+        }
+      };
+      ta.addEventListener('focus', this._xtermTextareaFocusListener);
+    }
+  }
+
+  /**
+   * Undo _captureTerminalFocus.
+   * @private
+   */
+  _releaseTerminalFocus() {
+    if (this._xtermCore) {
+      try { delete this._xtermCore.focus; } catch (_) {}
+      this._xtermCore = null;
+    }
+    const ta = this.terminal && this.terminal.textarea;
+    if (ta && this._xtermTextareaFocusListener && typeof ta.removeEventListener === 'function') {
+      ta.removeEventListener('focus', this._xtermTextareaFocusListener);
+    }
+    this._xtermTextareaFocusListener = null;
   }
   
   /**
@@ -501,63 +580,181 @@ class MobileTerminalHandler {
         composing: !!(e.isComposing || this._isComposing)
       });
 
-      // While a composition is in flight we don't send anything; the
-      // textarea is synced once on compositionend. (Sending live
-      // composition updates would spam the terminal with backspace/retype
-      // churn while the IME reshapes the word.)
-      if (e.isComposing || this._isComposing || e.inputType === 'insertCompositionText') {
-        return;
-      }
-
       if (this.touchState.isDragging || this.selection.active) {
         return;
       }
 
+      // Sync on EVERY input event, including the ones fired while an IME
+      // composition is in flight (v1.8.2). Composition updates are almost
+      // always plain appends (one letter, or a whole glided word), so the
+      // diff emits just the new characters and the terminal echoes the
+      // word as it is typed, exactly like a physical keyboard. When Gboard
+      // reshapes the composed word (autocorrect, suggestion tap) the diff
+      // erases back to the divergence and retypes, which is what a human
+      // would do. Waiting for compositionend (v1.7.x) made every word
+      // appear only when the space was pressed and lost the final commit
+      // whenever Chrome delivered compositionend before the last DOM
+      // update. The diff is idempotent, so extra events cost nothing.
       this._syncTextareaToTerminal();
     });
     
     // Handle keydown for special keys
     this.hiddenTextarea.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Tab') {
-        this._trace('keydown', { key: e.key, composing: this._isComposing });
-      }
-      if (this.selection.active) {
-        e.preventDefault();
-        return;
-      }
-
-      if (this._isComposing) {
-        e.preventDefault();
-        return;
-      }
-
-      if (e.key === 'Enter') {
-        // Let the browser insert the newline into the textarea. The input
-        // diff (_syncTextareaToTerminal) translates it to \r and KEEPS the
-        // submitted text in the field. Clearing the field here (the old
-        // behaviour) was a programmatic edit that Gboard never sees: its
-        // own model of the field still held the previous sentence, and the
-        // next suggestion tap re-committed "old sentence + new word" —
-        // which the diff then faithfully re-typed into the terminal
-        // (the "autocomplete repeats previous sentences" bug). The field
-        // is only cleared when the keyboard is collapsed (textarea blurred),
-        // at which point the IME session is torn down anyway.
-        return;
-      } else if (e.key === 'Backspace') {
-        // Let the browser handle backspace in the textarea; the input diff
-        // will detect the deletion and send \x7f to the terminal.
-        // Only prevent default if the textarea is empty (nothing to delete).
-        if (!this.hiddenTextarea.value) {
-          e.preventDefault();
-          this._sendToTerminal('\x7f');
-        }
-      } else if (e.key === 'Tab') {
-        e.preventDefault();
-        this._sendToTerminal('\t');
-        // No tracking reset: see the Enter comment above.
-      }
+      this._handleTextareaKeyDown(e);
     });
-    
+
+    this._attachTextareaFocusListeners();
+  }
+
+  /**
+   * keydown on the hidden textarea. Extracted for unit tests.
+   *
+   * Text keys are left to the browser (the input diff mirrors them).
+   * Enter inserts a newline that the diff turns into \r. Backspace on an
+   * empty field is sent straight to the terminal (the browser has nothing
+   * to delete, so no input event would follow). Every other non-text key
+   * (arrows, Home/End, Delete, F-keys, Ctrl/Alt chords from a physical
+   * keyboard) is translated to its escape sequence here, because on
+   * mobile xterm's own textarea never has focus any more (see
+   * _captureTerminalFocus) and the caret must not move inside the field.
+   * @private
+   */
+  _handleTextareaKeyDown(e) {
+    if (e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Tab') {
+      this._trace('keydown', { key: e.key, composing: this._isComposing });
+    }
+    if (this.selection.active) {
+      e.preventDefault();
+      return;
+    }
+
+    // IME-driven keydowns (keyCode 229 / "Unidentified" / "Process")
+    // carry no key; the IME edits the field through input events.
+    // Never preventDefault them: on some Gboard builds the Enter key
+    // arrives this way while a word is still composing, and swallowing
+    // it meant "Enter needs two taps".
+    if (e.keyCode === 229 || e.key === 'Unidentified' || e.key === 'Process') {
+      return;
+    }
+
+    if (e.key === 'Enter') {
+      // Let the browser insert the newline into the textarea. The input
+      // diff (_syncTextareaToTerminal) translates it to \r and KEEPS the
+      // submitted text in the field. Clearing the field here (the old
+      // behaviour) was a programmatic edit that Gboard never sees: its
+      // own model of the field still held the previous sentence, and the
+      // next suggestion tap re-committed "old sentence + new word" —
+      // which the diff then faithfully re-typed into the terminal
+      // (the "autocomplete repeats previous sentences" bug). The field
+      // is only cleared when the keyboard is collapsed (textarea blurred),
+      // at which point the IME session is torn down anyway.
+      return;
+    } else if (e.key === 'Backspace') {
+      // Let the browser handle backspace in the textarea; the input diff
+      // will detect the deletion and send \x7f to the terminal.
+      // Only prevent default if the textarea is empty (nothing to delete).
+      if (!this.hiddenTextarea.value) {
+        e.preventDefault();
+        this._sendToTerminal('\x7f');
+      }
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      this._sendToTerminal('\t');
+      // No tracking reset: see the Enter comment above.
+    } else {
+      const seq = this._specialKeySequence(e);
+      if (seq) {
+        e.preventDefault();
+        this._trace('special', { key: e.key, seq });
+        this._sendToTerminal(seq);
+      }
+    }
+  }
+
+  /**
+   * Escape sequence for a physical-keyboard special key, or null when the
+   * browser should handle the key (plain text, paste/copy/select-all
+   * chords that the app handles elsewhere, bare modifiers).
+   * @private
+   */
+  _specialKeySequence(e) {
+    const key = e.key;
+    if (!key) return null;
+    const ctrl = !!e.ctrlKey;
+    const alt = !!e.altKey;
+    const meta = !!e.metaKey;
+    const shift = !!e.shiftKey;
+    const mod = 1 + (shift ? 1 : 0) + (alt ? 2 : 0) + (ctrl ? 4 : 0);
+    const app = !!(this.terminal && this.terminal.modes && this.terminal.modes.applicationCursorKeysMode);
+
+    if (key.length === 1) {
+      if (!ctrl && !alt && !meta) return null; // typed text → input diff
+      if (meta) return null;
+      const lower = key.toLowerCase();
+      // Ctrl+V / Ctrl+Shift+V paste and Ctrl+A select-all are handled by
+      // the document-level handler (_handleKeyDown); Ctrl+C copies when a
+      // selection is active (that case returned earlier).
+      if (ctrl && !alt && (lower === 'v' || lower === 'a')) return null;
+      let seq = null;
+      if (ctrl) {
+        const code = lower.charCodeAt(0);
+        if (code >= 97 && code <= 122) seq = String.fromCharCode(code - 96);
+        else if (key === ' ' || key === '@' || key === '2') seq = '\x00';
+        else if (key === '[' || key === '3') seq = '\x1b';
+        else if (key === '\\' || key === '4') seq = '\x1c';
+        else if (key === ']' || key === '5') seq = '\x1d';
+        else if (key === '^' || key === '6') seq = '\x1e';
+        else if (key === '_' || key === '7' || key === '-') seq = '\x1f';
+        else if (key === '8' || key === '?') seq = '\x7f';
+        else seq = key;
+      } else {
+        seq = key;
+      }
+      return alt ? '\x1b' + seq : seq;
+    }
+
+    const cursor = (letter) => {
+      if (mod > 1) return '\x1b[1;' + mod + letter;
+      return (app ? '\x1bO' : '\x1b[') + letter;
+    };
+    const tilde = (n) => (mod > 1 ? '\x1b[' + n + ';' + mod + '~' : '\x1b[' + n + '~');
+    const fkey = (n) => {
+      if (n <= 4) {
+        const l = 'PQRS'[n - 1];
+        return mod > 1 ? '\x1b[1;' + mod + l : '\x1bO' + l;
+      }
+      const codes = { 5: 15, 6: 17, 7: 18, 8: 19, 9: 20, 10: 21, 11: 23, 12: 24 };
+      return tilde(codes[n]);
+    };
+
+    switch (key) {
+      case 'ArrowUp': return cursor('A');
+      case 'ArrowDown': return cursor('B');
+      case 'ArrowRight': return cursor('C');
+      case 'ArrowLeft': return cursor('D');
+      case 'Home': return cursor('H');
+      case 'End': return cursor('F');
+      case 'PageUp': return tilde(5);
+      case 'PageDown': return tilde(6);
+      case 'Insert': return tilde(2);
+      case 'Delete': return tilde(3);
+      case 'Escape': return '\x1b';
+      default: {
+        const m = /^F(\d{1,2})$/.exec(key);
+        if (m) {
+          const n = parseInt(m[1], 10);
+          if (n >= 1 && n <= 12) return fkey(n);
+        }
+        return null;
+      }
+    }
+  }
+
+  /**
+   * The rest of the hidden-textarea listeners (focus/blur/composition).
+   * @private
+   */
+  _attachTextareaFocusListeners() {
     // Prevent focus when in selection mode or when selection is active
     this.hiddenTextarea.addEventListener('focus', (e) => {
       this._trace('focus', {});
@@ -571,13 +768,7 @@ class MobileTerminalHandler {
 
     // The blur tears down the IME session: a reset that had to wait for
     // the field to lose focus (see _resetInputTracking) is applied now.
-    this.hiddenTextarea.addEventListener('blur', () => {
-      this._trace('blur', {});
-      this._isComposing = false;
-      if (this._pendingTrackingReset) {
-        this._resetInputTracking();
-      }
-    });
+    this.hiddenTextarea.addEventListener('blur', () => this._onTextareaBlur());
 
     // Composition events for IME/autocomplete handling
     this.hiddenTextarea.addEventListener('compositionstart', (e) => {
@@ -589,6 +780,21 @@ class MobileTerminalHandler {
       this._trace('compositionend', { data: e && e.data });
       this._onCompositionEnd();
     });
+  }
+
+  /**
+   * blur on the hidden textarea: the IME session is gone, so a reset that
+   * had to wait for the field to lose focus (see _resetInputTracking) is
+   * applied now — except during the blur/focus pair of _reshowKeyboard,
+   * which must keep the field exactly as the IME last saw it.
+   * @private
+   */
+  _onTextareaBlur() {
+    this._trace('blur', { reshow: this._suppressBlurReset });
+    this._isComposing = false;
+    if (this._pendingTrackingReset && !this._suppressBlurReset) {
+      this._resetInputTracking();
+    }
   }
 
   /**
@@ -661,7 +867,27 @@ class MobileTerminalHandler {
     // diffs to nothing.
     if (!this.touchState.isDragging) {
       this._syncTextareaToTerminal();
+      // Chrome sometimes commits the final composition text to the DOM
+      // AFTER dispatching compositionend (and the matching input event
+      // can still carry isComposing=true). A catch-up sync on the next
+      // task sees the settled field; idempotent, so harmless otherwise.
+      this._scheduleDeferredSync();
     }
+  }
+
+  /**
+   * Run one more diff sync on the next task (see _onCompositionEnd).
+   * @private
+   */
+  _scheduleDeferredSync() {
+    if (typeof setTimeout !== 'function') return;
+    if (this._deferredSyncTimer) clearTimeout(this._deferredSyncTimer);
+    this._deferredSyncTimer = setTimeout(() => {
+      this._deferredSyncTimer = null;
+      if (!this.hiddenTextarea) return;
+      if (this.touchState.isDragging || this.selection.active) return;
+      this._syncTextareaToTerminal();
+    }, 0);
   }
 
   /**
@@ -738,20 +964,43 @@ class MobileTerminalHandler {
 
     // The field accumulates every submitted line (separated by \n — see
     // the Enter keydown comment). Lines above the current one were already
-    // submitted and cannot be edited any more, so a divergence before the
-    // current line's start must never turn into DELs (in a multi-line TUI
-    // editor a DEL at column 0 joins lines).
+    // submitted and cannot be edited any more.
     const lineStart = prev.lastIndexOf('\n') + 1;
 
-    // Erase back to the divergence point (clamped to the current line).
+    let removed;
+    let insert;
+    if (prefixLen >= lineStart) {
+      // Divergence inside the current line: erase back to it and retype.
+      removed = prev.substring(prefixLen);
+      insert = curr.substring(prefixLen);
+    } else if (prev.startsWith(curr)) {
+      // Pure deletion reaching back across the line break (Backspace on
+      // an empty line, or a swipe-to-delete that crossed it). A physical
+      // keyboard sends one DEL per press, so do the same — including one
+      // for the newline. On a shell prompt that is a no-op; in a
+      // multi-line TUI editor it joins lines, exactly like a real key.
+      removed = prev.substring(curr.length);
+      insert = '';
+    } else {
+      // The IME rewrote text on an already submitted line (only a stale
+      // keyboard model or a caret jump can do this). Nothing above the
+      // current line can be sent any more, so limit the damage to the
+      // current line: diff prev's and curr's last lines only.
+      const pLine = prev.substring(lineStart);
+      const cLine = curr.substring(curr.lastIndexOf('\n') + 1);
+      let p = 0;
+      const m = Math.min(pLine.length, cLine.length);
+      while (p < m && pLine[p] === cLine[p]) p++;
+      removed = pLine.substring(p);
+      insert = cLine.substring(p);
+    }
+
     // Count code points (not UTF-16 units) so astral characters (emoji
     // etc.) get one DEL each.
-    const removed = prev.substring(Math.max(prefixLen, lineStart));
     const deleteCount = removed ? Array.from(removed).length : 0;
 
-    // Retype the remainder. Translate newlines (some keyboards commit
-    // Enter through the input path instead of a keydown) into \r.
-    let insert = curr.substring(prefixLen);
+    // Translate newlines (some keyboards commit Enter through the input
+    // path instead of a keydown) into \r.
     const hadNewline = /[\r\n]/.test(insert);
     if (hadNewline) {
       insert = insert.replace(/\r\n/g, '\r').replace(/\n/g, '\r');
@@ -834,6 +1083,11 @@ class MobileTerminalHandler {
    * Detach all event listeners
    */
   destroy() {
+    this._releaseTerminalFocus();
+    if (this._deferredSyncTimer) {
+      clearTimeout(this._deferredSyncTimer);
+      this._deferredSyncTimer = null;
+    }
     if (this.container) {
       this.container.removeEventListener('touchstart', this._boundHandleTouchStart);
       this.container.removeEventListener('touchmove', this._boundHandleTouchMove);
@@ -1011,19 +1265,28 @@ class MobileTerminalHandler {
       return;
     }
     
-    // Single tap - clear selection if exists, otherwise focus for input
-    const touch = e.changedTouches[0];
-    const timeSinceStart = Date.now() - this.touchState.startTime;
-    
-    if (timeSinceStart < 200) { // Quick tap
-      if (this.selection.active) {
-        this.clearSelection();
-      } else {
-        // Reset selecting mode to allow keyboard input for quick tap
-        this.touchState.isSelecting = false;
-        // Focus hidden textarea for keyboard input
-        this._focusHiddenTextarea();
-      }
+    // The long-press window is over: whatever this touch was, it is not
+    // a selection gesture any more. (Leaving isSelecting set — the old
+    // behaviour for taps longer than 200 ms — blocked every later focus
+    // request until the next touch.)
+    this.touchState.isSelecting = false;
+
+    // A cancelled touch (browser took over the gesture) is not a tap.
+    if (e && e.type === 'touchcancel') return;
+
+    // A scroll/drag is not a tap.
+    const touch = e.changedTouches && e.changedTouches[0];
+    if (touch) {
+      const dx = touch.clientX - this.touchState.startX;
+      const dy = touch.clientY - this.touchState.startY;
+      if (Math.sqrt(dx * dx + dy * dy) > 10) return;
+    }
+
+    // Tap: clear the selection if there is one, otherwise focus for input.
+    if (this.selection.active) {
+      this.clearSelection();
+    } else {
+      this._focusHiddenTextarea({ userGesture: true });
     }
   }
   
@@ -1638,7 +1901,7 @@ class MobileTerminalHandler {
    * Focus hidden textarea for keyboard input
    * @private
    */
-  _focusHiddenTextarea() {
+  _focusHiddenTextarea(opts) {
     // Don't focus keyboard if we're in selection mode or selection is active
     if (this.touchState.isSelecting || this.selection.active) {
       return;
@@ -1649,7 +1912,15 @@ class MobileTerminalHandler {
       // screen-sync while the keyboard stayed open): leave everything
       // untouched. Re-running the readonly dance or focusing again would
       // at best be a no-op and at worst tear down the IME session.
+      //
+      // Exception: the user tapped the terminal (a real gesture) while
+      // the field is focused but the keyboard was dismissed with the
+      // Android back button. focus() on an already focused element does
+      // not bring the keyboard back, so re-open it explicitly.
       if (document.activeElement === this.hiddenTextarea) {
+        if (opts && opts.userGesture && this._keyboardProbablyHidden()) {
+          this._reshowKeyboard();
+        }
         return;
       }
 
@@ -1679,6 +1950,64 @@ class MobileTerminalHandler {
       try { this.hiddenTextarea.setSelectionRange(len, len); } catch (_) {}
       this._keyboardCollapsed = false;
     }
+  }
+
+  /**
+   * Re-open a dismissed virtual keyboard on an already focused field:
+   * blur + focus inside the tap's user gesture. The field content is
+   * deliberately kept across the pair (no pending reset is applied on
+   * this blur) so Gboard's model cannot diverge from the DOM even if
+   * Chrome coalesces the two focus changes into one IME update.
+   * @private
+   */
+  _reshowKeyboard() {
+    const ta = this.hiddenTextarea;
+    if (!ta) return;
+    this._trace('reshow', {});
+    this._suppressBlurReset = true;
+    this._intentionalBlur = true;
+    try { ta.blur(); } finally { this._suppressBlurReset = false; }
+    const len = typeof ta.value === 'string' ? ta.value.length : 0;
+    ta.focus();
+    try { ta.setSelectionRange(len, len); } catch (_) {}
+    this._keyboardCollapsed = false;
+  }
+
+  /**
+   * Remember the tallest layout viewport seen at the current width
+   * (called at init and on every resize / visual-viewport event).
+   * @private
+   */
+  _noteViewportHeight() {
+    if (typeof window === 'undefined') return;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    if (!(w > 0 && h > 0)) return;
+    if (!(this._maxInnerHeightByWidth[w] >= h)) {
+      this._maxInnerHeightByWidth[w] = h;
+    }
+  }
+
+  /**
+   * Best-effort "is the virtual keyboard currently dismissed?" for a
+   * focused field. Two signals: an overlay keyboard shrinks the visual
+   * viewport below the layout viewport; a `resizes-content` keyboard
+   * (this app's meta viewport) shrinks the layout viewport itself, which
+   * shows as innerHeight well below the tallest height seen at this
+   * width. When neither says "keyboard up", assume it is hidden — the
+   * cost of a wrong guess is one blur/focus flicker, while a missed
+   * re-open leaves the user with no way to get the keyboard back.
+   * @private
+   */
+  _keyboardProbablyHidden() {
+    if (typeof window === 'undefined') return false;
+    this._noteViewportHeight();
+    const vv = window.visualViewport;
+    if (vv && typeof vv.height === 'number' && window.innerHeight - vv.height > 100) {
+      return false;
+    }
+    const ref = this._maxInnerHeightByWidth[window.innerWidth] || window.innerHeight;
+    return window.innerHeight >= ref - 120;
   }
 
   /**
@@ -1762,6 +2091,7 @@ class MobileTerminalHandler {
    * @private
    */
   _handleResize() {
+    this._noteViewportHeight();
     if (this.selection.active) {
       requestAnimationFrame(() => {
         if (this.selection.active) {
@@ -1777,6 +2107,7 @@ class MobileTerminalHandler {
    */
   _handleVisualViewport() {
     if (!window.visualViewport) return;
+    this._noteViewportHeight();
     
     const viewportHeight = window.visualViewport.height;
     const windowHeight = window.innerHeight;

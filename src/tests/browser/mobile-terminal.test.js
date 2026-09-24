@@ -73,8 +73,10 @@ describe('MobileTerminalHandler Integration Tests', () => {
     // which never existed in the DOM — the test silently failed before.
     await page.waitForSelector('#newSshBtn', { timeout: 5000 });
 
-    // Click new session button — opens the connection modal.
-    await page.click('#newSshBtn');
+    // Open the connection modal. On the mobile viewport the button lives
+    // in the collapsed sidebar (the mobile header was removed in v1.8.1),
+    // so it is not clickable by coordinates — trigger it directly.
+    await page.evaluate(() => document.querySelector('#newSshBtn').click());
 
     // Wait for connection modal
     await page.waitForSelector('#connectionModal', { visible: true, timeout: 5000 });
