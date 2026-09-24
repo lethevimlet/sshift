@@ -236,9 +236,9 @@ sshift --bind 192.168.1.100
 
 ## Trusting the HTTPS Certificate
 
-SSHIFT uses a self-signed HTTPS certificate by default. For service workers (which enable offline caching) to function, your browser must trust the certificate. Follow the instructions for your platform below.
+SSHIFT signs its HTTPS certificate with its own local certificate authority (CA), created on first start and kept in `~/.local/share/sshift/` so it survives updates. For service workers (which enable offline caching) to function, your browser must trust that CA. Follow the instructions for your platform below — you only do this once per device; certificates re-issued later (new IP, renewal) are trusted automatically.
 
-First, download the certificate by clicking **Download Certificate** in the Security & Connection Info dialog, or navigate to `https://<your-host>:8022/api/cert` in your browser.
+First, download the CA certificate by clicking **Download CA Certificate** in the Security & Connection Info dialog, or navigate to `https://<your-host>:8022/api/cert` in your browser. The same URL works over plain `http://` for devices that do not trust the CA yet.
 
 ### Chrome / Edge (Desktop)
 
@@ -247,12 +247,14 @@ First, download the certificate by clicking **Download Certificate** in the Secu
 3. Choose **Trusted Root Certification Authorities** as the store
 4. Restart the browser and reload sshift
 
-### Chrome (Android)
+### Chrome / Brave (Android)
 
-1. Go to **Settings > Security > Install from SD card**
-2. Select the downloaded `.crt` file
-3. Name the certificate and confirm
+1. Open `https://<your-host>:8022/api/cert` in the browser (or use the download button); `sshift-ca.crt` lands in Downloads
+2. Go to **Settings > Security & privacy > More security settings > Encryption & credentials > Install a certificate > CA certificate**
+3. Confirm the warning and select the downloaded `sshift-ca.crt`
 4. Restart the browser and reload sshift
+
+The file must be a CA certificate (CA:TRUE) for Android to accept it; sshift versions before 1.8.1 served a plain self-signed certificate that Android rejected.
 
 ### Firefox
 

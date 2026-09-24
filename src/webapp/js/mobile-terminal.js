@@ -59,6 +59,11 @@ class MobileTerminalHandler {
     // terminal. All input diffing runs against this persistent baseline —
     // see _syncTextareaToTerminal().
     this._sentValue = '';
+    // Ring buffer of the last keyboard/IME events on the hidden textarea
+    // (Debug Info → "Copy Input Trace"). Gboard behaviour cannot be
+    // reproduced on a desktop; this is how device reports become
+    // actionable.
+    this._inputTrace = [];
     this.contextMenuUserPositioned = false; // Track if user has manually positioned the menu
     
     // Configuration
@@ -490,11 +495,11 @@ class MobileTerminalHandler {
     // empty snapshot, desyncing Gboard's own state from the textarea and
     // making it re-insert the full text on the next suggestion tap.
     this.hiddenTextarea.addEventListener('input', (e) => {
-      if (this.touchState.isSelecting) {
-        e.preventDefault();
-        this._resetInputTracking();
-        return;
-      }
+      this._trace('input', {
+        inputType: e.inputType,
+        data: e.data,
+        composing: !!(e.isComposing || this._isComposing)
+      });
 
       // While a composition is in flight we don't send anything; the
       // textarea is synced once on compositionend. (Sending live
@@ -504,7 +509,7 @@ class MobileTerminalHandler {
         return;
       }
 
-      if (this.touchState.isDragging) {
+      if (this.touchState.isDragging || this.selection.active) {
         return;
       }
 
@@ -513,7 +518,10 @@ class MobileTerminalHandler {
     
     // Handle keydown for special keys
     this.hiddenTextarea.addEventListener('keydown', (e) => {
-      if (this.touchState.isSelecting) {
+      if (e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Tab') {
+        this._trace('keydown', { key: e.key, composing: this._isComposing });
+      }
+      if (this.selection.active) {
         e.preventDefault();
         return;
       }
@@ -552,6 +560,7 @@ class MobileTerminalHandler {
     
     // Prevent focus when in selection mode or when selection is active
     this.hiddenTextarea.addEventListener('focus', (e) => {
+      this._trace('focus', {});
       if (this.touchState.isSelecting || this.selection.active) {
         e.preventDefault();
         this._intentionalBlur = true;
@@ -560,14 +569,72 @@ class MobileTerminalHandler {
       }
     });
 
+    // The blur tears down the IME session: a reset that had to wait for
+    // the field to lose focus (see _resetInputTracking) is applied now.
+    this.hiddenTextarea.addEventListener('blur', () => {
+      this._trace('blur', {});
+      this._isComposing = false;
+      if (this._pendingTrackingReset) {
+        this._resetInputTracking();
+      }
+    });
+
     // Composition events for IME/autocomplete handling
-    this.hiddenTextarea.addEventListener('compositionstart', () => {
+    this.hiddenTextarea.addEventListener('compositionstart', (e) => {
+      this._trace('compositionstart', { data: e && e.data });
       this._isComposing = true;
     });
 
-    this.hiddenTextarea.addEventListener('compositionend', () => {
+    this.hiddenTextarea.addEventListener('compositionend', (e) => {
+      this._trace('compositionend', { data: e && e.data });
       this._onCompositionEnd();
     });
+  }
+
+  /**
+   * Record one keyboard/IME event (ring buffer, see Debug Info → Copy
+   * Input Trace). Values are trimmed so the trace stays small.
+   * @private
+   */
+  _trace(kind, extra) {
+    if (!this._inputTrace) this._inputTrace = [];
+    const ta = this.hiddenTextarea;
+    const value = ta && typeof ta.value === 'string' ? ta.value : '';
+    const entry = {
+      t: Date.now(),
+      kind,
+      len: value.length,
+      tail: value.length > 48 ? '…' + value.slice(-48) : value,
+      sel: ta && typeof ta.selectionStart === 'number' ? [ta.selectionStart, ta.selectionEnd] : undefined,
+      sentLen: this._sentValue ? this._sentValue.length : 0
+    };
+    if (typeof document !== 'undefined' && ta) {
+      entry.focused = document.activeElement === ta;
+    }
+    Object.keys(extra || {}).forEach(k => {
+      let v = extra[k];
+      if (typeof v === 'string' && v.length > 64) v = v.slice(0, 64) + '…';
+      if (v !== undefined) entry[k] = v;
+    });
+    this._inputTrace.push(entry);
+    if (this._inputTrace.length > 400) this._inputTrace.splice(0, this._inputTrace.length - 400);
+  }
+
+  /**
+   * @returns {Array} copy of the keyboard/IME event trace
+   */
+  getInputTrace() {
+    return (this._inputTrace || []).slice();
+  }
+
+  /**
+   * @returns {boolean} true while the hidden textarea owns focus (a live
+   *   IME session may be tracking its content)
+   * @private
+   */
+  _isTextareaFocused() {
+    return typeof document !== 'undefined' && !!this.hiddenTextarea &&
+      document.activeElement === this.hiddenTextarea;
   }
 
   /**
@@ -578,13 +645,13 @@ class MobileTerminalHandler {
   _onCompositionEnd() {
     this._isComposing = false;
     // A reset was requested while the composition was in flight
-    // (e.g. Enter/Tab committed through the input path, or a selection
-    // started mid-word): apply it now, discarding the composition
-    // result, instead of having cleared the field under the IME.
+    // (e.g. a selection started mid-word): apply it now, discarding the
+    // composition result, instead of having cleared the field under the
+    // IME. If the field is still focused the reset stays deferred (until
+    // blur) and the composition result is synced like any other input.
     if (this._pendingTrackingReset) {
-      this._pendingTrackingReset = false;
       this._resetInputTracking();
-      return;
+      if (!this._pendingTrackingReset) return;
     }
     // Sync whatever the composition left in the textarea. Because the
     // diff runs against the persistent _sentValue baseline, this is
@@ -610,17 +677,26 @@ class MobileTerminalHandler {
    * mismatch on the next suggestion tap, and re-inserts text computed
    * from the stale model — the "autocomplete types repetitive text"
    * bug. When composing, defer the reset to compositionend instead.
+   *
+   * Focus guard (v1.8.1): the same applies to ANY clear while the
+   * textarea is focused — the IME session is alive and keeps its own
+   * model. So a reset is only ever applied when the field is not focused
+   * (after the blur in _collapseKeyboard, or from the blur listener);
+   * otherwise it is remembered and applied on the next blur.
    * @private
    */
   _resetInputTracking() {
-    if (this._isComposing) {
+    if (this._isComposing || this._isTextareaFocused()) {
       this._pendingTrackingReset = true;
+      this._trace('reset-deferred', { composing: this._isComposing });
       return;
     }
+    this._pendingTrackingReset = false;
     if (this.hiddenTextarea) {
       this.hiddenTextarea.value = '';
     }
     this._sentValue = '';
+    this._trace('reset', {});
   }
 
   /**
@@ -681,6 +757,7 @@ class MobileTerminalHandler {
       insert = insert.replace(/\r\n/g, '\r').replace(/\n/g, '\r');
     }
 
+    this._trace('sync', { prefixLen, del: deleteCount, insert });
     if (deleteCount > 0) {
       this._sendToTerminal('\x7f'.repeat(deleteCount));
     }
@@ -832,9 +909,17 @@ class MobileTerminalHandler {
     // during long press detection. This will be reset in touchEnd if it's
     // a quick tap for text input.
     this.touchState.isSelecting = true;
-    
-    // Always prevent keyboard from appearing during touch interactions
-    this._collapseKeyboard();
+
+    // Do NOT collapse the keyboard here. Until v1.8.0 every touchstart
+    // blurred AND cleared the hidden textarea and a quick tap re-focused
+    // it ~100 ms later. That is a programmatic clear under a live Gboard
+    // session (Chrome coalesces the blur/focus into one IME state update
+    // when they land close together, so Gboard never restarts its field
+    // model): the next suggestion tap then re-inserted text from the
+    // stale model — the "autocomplete repeats words" family. A tap on the
+    // terminal while typing is extremely common (dismissing a suggestion
+    // popup, repositioning). Long press, double tap, selection and drags
+    // collapse the keyboard themselves when they are detected.
     
     const touch = e.touches[0];
     const now = Date.now();
@@ -1589,6 +1674,7 @@ class MobileTerminalHandler {
       // autocomplete" regression). Force the caret to the end so typing
       // appends, matching both the diff and the remote prompt cursor.
       const len = this.hiddenTextarea.value.length;
+      this._trace('focus-request', { from: document.activeElement ? document.activeElement.tagName : null });
       this.hiddenTextarea.focus();
       try { this.hiddenTextarea.setSelectionRange(len, len); } catch (_) {}
       this._keyboardCollapsed = false;
@@ -1605,6 +1691,7 @@ class MobileTerminalHandler {
       if (this._keyboardCollapsed) return;
       this._keyboardCollapsed = true;
       this._intentionalBlur = true;
+      this._trace('collapse', {});
       this.hiddenTextarea.blur();
       // Restore readonly to prevent keyboard on any accidental focus
       this.hiddenTextarea.setAttribute('readonly', 'true');

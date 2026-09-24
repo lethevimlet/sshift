@@ -6,8 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { getDataDir, getCertPath, getKeyPath, getConfigPath } = require('../../utils/config');
 
-const SSL_CERT_FILE = 'ssl-cert.pem';
-const SSL_KEY_FILE = 'ssl-key.pem';
+const { SSL_CERT_FILE, SSL_KEY_FILE, SSL_CA_CERT_FILE } = require('../../utils/certs');
 const UPDATE_MARKER_FILE = '.updating';
 
 /**
@@ -186,29 +185,32 @@ function registerSystemEndpoints(app, io) {
     });
   });
 
-  // API: Download SSL certificate
+  // API: Download the local CA certificate (the file to install on devices).
+  // Served as application/x-x509-ca-cert so Android/Brave offer to install
+  // it as a CA credential. Also reachable over plain HTTP (see index.js).
   app.get('/api/cert', (req, res) => {
-    const dataDir = getDataDir();
-    const certPath = path.join(dataDir, SSL_CERT_FILE);
-
-    if (!fs.existsSync(certPath)) {
+    if (getCertPath() && getKeyPath()) {
+      return res.status(404).json({ error: 'A custom certificate is configured; obtain its CA from your administrator' });
+    }
+    const caCertPath = path.join(getDataDir(), SSL_CA_CERT_FILE);
+    if (!fs.existsSync(caCertPath)) {
       return res.status(404).json({ error: 'Certificate not found' });
     }
 
-    res.setHeader('Content-Type', 'application/x-pem-file');
+    res.setHeader('Content-Type', 'application/x-x509-ca-cert');
     res.setHeader('Content-Disposition', 'attachment; filename="sshift-ca.crt"');
-    fs.createReadStream(certPath).pipe(res);
+    res.setHeader('Cache-Control', 'no-store');
+    fs.createReadStream(caCertPath).pipe(res);
   });
 
   // API: Get security context info
   app.get('/api/security-info', (req, res) => {
     const dataDir = getDataDir();
-    const selfSignedCertPath = path.join(dataDir, SSL_CERT_FILE);
-    const hasCert = fs.existsSync(selfSignedCertPath);
+    const usesCustomCert = !!(getCertPath() && getKeyPath());
+    const hasCert = !usesCustomCert && fs.existsSync(path.join(dataDir, SSL_CA_CERT_FILE));
     const protocol = req.protocol;
     const isSecure = req.secure || protocol === 'https';
     const isLocalhost = req.hostname === 'localhost' || req.hostname === '127.0.0.1' || req.hostname === '::1';
-    const usesCustomCert = !!(getCertPath() && getKeyPath());
 
     res.json({
       isSecure,
@@ -225,6 +227,7 @@ function registerSystemEndpoints(app, io) {
     const dataDir = getDataDir();
     const selfSignedCertPath = path.join(dataDir, SSL_CERT_FILE);
     const selfSignedKeyPath = path.join(dataDir, SSL_KEY_FILE);
+    const caCertPath = path.join(dataDir, SSL_CA_CERT_FILE);
     const customCertPath = getCertPath();
     const customKeyPath = getKeyPath();
     const usesCustomCert = !!(customCertPath && customKeyPath);
@@ -234,6 +237,8 @@ function registerSystemEndpoints(app, io) {
       dataDir,
       certPath: usesCustomCert ? customCertPath : selfSignedCertPath,
       keyPath: usesCustomCert ? customKeyPath : selfSignedKeyPath,
+      caCertPath: usesCustomCert ? null : caCertPath,
+      certType: usesCustomCert ? 'Custom' : 'Local CA-signed',
       usesCustomCert
     });
   });

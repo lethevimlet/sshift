@@ -169,108 +169,6 @@
           </button>
         </div>
         
-        <!-- Mobile overflow menu -->
-        <div class="mobile-overflow-menu" id="mobileOverflowMenu">
-          <button class="btn btn-icon overflow-toggle" id="overflowToggle" title="More Options">
-            <i class="fas fa-ellipsis-v"></i>
-          </button>
-          <div class="overflow-dropdown" id="overflowDropdown">
-            <button class="overflow-option" id="mobileThemeToggle">
-              <i class="fas fa-lightbulb"></i>
-              <span id="mobileThemeToggleText">Toggle Dark</span>
-            </button>
-            <div class="overflow-submenu" id="mobileAccentSubmenu">
-              <button class="overflow-option submenu-toggle">
-                <span class="accent-preview"></span>
-                <span>Accent Color</span>
-                <i class="fas fa-chevron-right submenu-arrow"></i>
-              </button>
-              <div class="submenu-content accent-submenu">
-                <button class="accent-option" data-accent="fuchsia">
-                  <span class="accent-color" style="background: #c10059;"></span>
-                  <span class="accent-label">Fuchsia</span>
-                </button>
-                <button class="accent-option" data-accent="green">
-                  <span class="accent-color" style="background: #2ea043;"></span>
-                  <span class="accent-label">Green</span>
-                </button>
-                <button class="accent-option" data-accent="purple">
-                  <span class="accent-color" style="background: #a371f2;"></span>
-                  <span class="accent-label">Purple</span>
-                </button>
-                <button class="accent-option" data-accent="orange">
-                  <span class="accent-color" style="background: #d18616;"></span>
-                  <span class="accent-label">Orange</span>
-                </button>
-                <button class="accent-option" data-accent="red">
-                  <span class="accent-color" style="background: #da3633;"></span>
-                  <span class="accent-label">Red</span>
-                </button>
-                <button class="accent-option" data-accent="cyan">
-                  <span class="accent-color" style="background: #1f6feb;"></span>
-                  <span class="accent-label">Cyan</span>
-                </button>
-                <button class="accent-option" data-accent="blue">
-                  <span class="accent-color" style="background: #58a6ff;"></span>
-                  <span class="accent-label">Blue</span>
-                </button>
-                <button class="accent-option" data-accent="yellow">
-                  <span class="accent-color" style="background: #d29922;"></span>
-                  <span class="accent-label">Yellow</span>
-                </button>
-              </div>
-            </div>
-            <div class="overflow-submenu" id="mobileTerminalColorSubmenu">
-              <button class="overflow-option submenu-toggle">
-                <i class="fas fa-palette"></i>
-                <span>Terminal Colors</span>
-                <i class="fas fa-chevron-right submenu-arrow"></i>
-              </button>
-              <div class="submenu-content terminal-color-submenu">
-                <div class="terminal-color-option">
-                  <label class="toggle-label">
-                    <span>Override Colors</span>
-                    <input type="checkbox" id="mobileTerminalColorOverride" class="toggle-checkbox">
-                    <span class="toggle-slider"></span>
-                  </label>
-                </div>
-                <div class="terminal-color-options" id="mobileTerminalColorOptions">
-                  <div class="terminal-color-option">
-                    <label for="mobileTerminalBgColor">Background</label>
-                    <div class="color-input-group">
-                      <input type="color" id="mobileTerminalBgColor" class="color-input" value="#0d1117">
-                      <button type="button" class="color-reset-btn" data-color-target="bg" title="Restore default background">
-                        <i class="fas fa-rotate-left"></i>
-                      </button>
-                    </div>
-                  </div>
-                  <div class="terminal-color-option">
-                    <label for="mobileTerminalFgColor">Foreground</label>
-                    <div class="color-input-group">
-                      <input type="color" id="mobileTerminalFgColor" class="color-input" value="#e6edf3">
-                      <button type="button" class="color-reset-btn" data-color-target="fg" title="Restore default foreground">
-                        <i class="fas fa-rotate-left"></i>
-                      </button>
-                    </div>
-                  </div>
-                  <div class="terminal-color-option">
-                    <label for="mobileTerminalSelectionColor">Selection</label>
-                    <div class="color-input-group">
-                      <input type="color" id="mobileTerminalSelectionColor" class="color-input" value="#264f78">
-                      <button type="button" class="color-reset-btn" data-color-target="selection" title="Restore default selection color">
-                        <i class="fas fa-rotate-left"></i>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <button class="overflow-option" id="mobileSettingsBtn">
-              <i class="fas fa-cog"></i>
-              <span>Settings</span>
-            </button>
-          </div>
-        </div>
       </div>
     </header>
 
@@ -289,6 +187,9 @@
             </button>
             <button class="btn btn-sm sidebar-toggle desktop-only" id="sidebarToggle" title="Collapse Sidebar">
               <i class="fas fa-chevron-left"></i>
+            </button>
+            <button class="btn btn-sm sidebar-close-btn" id="sidebarCloseBtn" title="Close">
+              <i class="fas fa-times"></i>
             </button>
           </div>
         </div>
@@ -318,6 +219,10 @@
           <div class="layout-panel" id="panel-0" data-panel-id="0">
             <!-- Tabs -->
             <div class="tabs-container">
+              <!-- Mobile: bookmarks (sidebar) button — replaces the mobile header -->
+              <button class="btn btn-sm mobile-bookmarks-btn" id="mobileBookmarksBtn" title="Bookmarks">
+                <i class="fas fa-bookmark"></i>
+              </button>
               <!-- Desktop tabs -->
               <div class="tabs" id="tabs">
                 <!-- Tabs will be added here -->
@@ -358,6 +263,109 @@
                 <button class="btn btn-sm" id="speechToTextBtn" title="Speech to Text">
                   <i class="fas fa-microphone"></i>
                 </button>
+            <!-- Mobile overflow menu -->
+            <div class="mobile-overflow-menu" id="mobileOverflowMenu">
+              <button class="btn btn-sm overflow-toggle" id="overflowToggle" title="More Options">
+                <i class="fas fa-ellipsis-v"></i>
+              </button>
+              <div class="overflow-dropdown" id="overflowDropdown">
+                <button class="overflow-option" id="mobileThemeToggle">
+                  <i class="fas fa-lightbulb"></i>
+                  <span id="mobileThemeToggleText">Toggle Dark</span>
+                </button>
+                <div class="overflow-submenu" id="mobileAccentSubmenu">
+                  <button class="overflow-option submenu-toggle">
+                    <span class="accent-preview"></span>
+                    <span>Accent Color</span>
+                    <i class="fas fa-chevron-right submenu-arrow"></i>
+                  </button>
+                  <div class="submenu-content accent-submenu">
+                    <button class="accent-option" data-accent="fuchsia">
+                      <span class="accent-color" style="background: #c10059;"></span>
+                      <span class="accent-label">Fuchsia</span>
+                    </button>
+                    <button class="accent-option" data-accent="green">
+                      <span class="accent-color" style="background: #2ea043;"></span>
+                      <span class="accent-label">Green</span>
+                    </button>
+                    <button class="accent-option" data-accent="purple">
+                      <span class="accent-color" style="background: #a371f2;"></span>
+                      <span class="accent-label">Purple</span>
+                    </button>
+                    <button class="accent-option" data-accent="orange">
+                      <span class="accent-color" style="background: #d18616;"></span>
+                      <span class="accent-label">Orange</span>
+                    </button>
+                    <button class="accent-option" data-accent="red">
+                      <span class="accent-color" style="background: #da3633;"></span>
+                      <span class="accent-label">Red</span>
+                    </button>
+                    <button class="accent-option" data-accent="cyan">
+                      <span class="accent-color" style="background: #1f6feb;"></span>
+                      <span class="accent-label">Cyan</span>
+                    </button>
+                    <button class="accent-option" data-accent="blue">
+                      <span class="accent-color" style="background: #58a6ff;"></span>
+                      <span class="accent-label">Blue</span>
+                    </button>
+                    <button class="accent-option" data-accent="yellow">
+                      <span class="accent-color" style="background: #d29922;"></span>
+                      <span class="accent-label">Yellow</span>
+                    </button>
+                  </div>
+                </div>
+                <div class="overflow-submenu" id="mobileTerminalColorSubmenu">
+                  <button class="overflow-option submenu-toggle">
+                    <i class="fas fa-palette"></i>
+                    <span>Terminal Colors</span>
+                    <i class="fas fa-chevron-right submenu-arrow"></i>
+                  </button>
+                  <div class="submenu-content terminal-color-submenu">
+                    <div class="terminal-color-option">
+                      <label class="toggle-label">
+                        <span>Override Colors</span>
+                        <input type="checkbox" id="mobileTerminalColorOverride" class="toggle-checkbox">
+                        <span class="toggle-slider"></span>
+                      </label>
+                    </div>
+                    <div class="terminal-color-options" id="mobileTerminalColorOptions">
+                      <div class="terminal-color-option">
+                        <label for="mobileTerminalBgColor">Background</label>
+                        <div class="color-input-group">
+                          <input type="color" id="mobileTerminalBgColor" class="color-input" value="#0d1117">
+                          <button type="button" class="color-reset-btn" data-color-target="bg" title="Restore default background">
+                            <i class="fas fa-rotate-left"></i>
+                          </button>
+                        </div>
+                      </div>
+                      <div class="terminal-color-option">
+                        <label for="mobileTerminalFgColor">Foreground</label>
+                        <div class="color-input-group">
+                          <input type="color" id="mobileTerminalFgColor" class="color-input" value="#e6edf3">
+                          <button type="button" class="color-reset-btn" data-color-target="fg" title="Restore default foreground">
+                            <i class="fas fa-rotate-left"></i>
+                          </button>
+                        </div>
+                      </div>
+                      <div class="terminal-color-option">
+                        <label for="mobileTerminalSelectionColor">Selection</label>
+                        <div class="color-input-group">
+                          <input type="color" id="mobileTerminalSelectionColor" class="color-input" value="#264f78">
+                          <button type="button" class="color-reset-btn" data-color-target="selection" title="Restore default selection color">
+                            <i class="fas fa-rotate-left"></i>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <button class="overflow-option" id="mobileSettingsBtn">
+                  <i class="fas fa-cog"></i>
+                  <span>Settings</span>
+                </button>
+              </div>
+            </div>
+
               </div>
             </div>
 
@@ -1277,13 +1285,13 @@
            <div class="setting-item" style="flex-direction: column; align-items: stretch;">
              <label class="setting-label"><i class="fas fa-lock"></i> SSL Certificate</label>
 <div class="setting-description">
-                 Service workers require a trusted HTTPS connection. To use this app over LAN with a self-signed certificate, install the certificate as a trusted root CA on your device. See the <a href="https://lethevimlet.github.io/sshift/installation.html#trusting-the-https-certificate" target="_blank" rel="noopener noreferrer" class="sw-install-link">installation instructions</a> for details.
+                 Service workers require a trusted HTTPS connection. sshift signs its HTTPS certificate with its own local CA; install that CA once on each device (Android: Settings → Security → Encryption &amp; credentials → Install a certificate → CA certificate) and the warnings go away. If the download is blocked, open <code>http://&lt;host&gt;:&lt;port&gt;/api/cert</code> over plain HTTP. See the <a href="https://lethevimlet.github.io/sshift/installation.html#trusting-the-https-certificate" target="_blank" rel="noopener noreferrer" class="sw-install-link">installation instructions</a> for details.
                </div>
               <div id="customCertWarning" class="sw-custom-cert-warning" style="display: none; margin-top: 8px;">
                 <i class="fas fa-exclamation-circle"></i> A custom certificate is configured. Download the certificate from your administrator.
               </div>
               <button class="btn btn-secondary" id="downloadCertBtn" style="margin-top: 8px;">
-                <i class="fas fa-download"></i> Download Certificate
+                <i class="fas fa-download"></i> Download CA Certificate
               </button>
 </div>
           </div>
@@ -1331,12 +1339,19 @@
             <span class="debug-info-value" id="debugKeyPath">Loading...</span>
           </div>
           <div class="debug-info-item">
+            <span class="debug-info-label">Local CA Certificate</span>
+            <span class="debug-info-value" id="debugCaCertPath">Loading...</span>
+          </div>
+          <div class="debug-info-item">
             <span class="debug-info-label">Certificate Type</span>
             <span class="debug-info-value" id="debugCertType">Loading...</span>
           </div>
         </div>
       </div>
       <div class="modal-footer">
+        <button class="btn btn-secondary" id="copyInputTraceBtn" title="Copy the last mobile keyboard/IME events (for Gboard bug reports)">
+          <i class="fas fa-clipboard"></i> Copy Input Trace
+        </button>
         <button class="btn btn-primary" id="closeDebugInfoBtn">
           <i class="fas fa-check"></i> Close
         </button>

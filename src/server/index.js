@@ -21,11 +21,11 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const socketIO = require('socket.io');
-const selfsigned = require('selfsigned');
+const { ensureLocalCertificates } = require('./utils/certs');
 const httpolyglot = require('httpolyglot');
 
 // Import utilities
-const { ensureConfig, loadConfig, getPort, getBindAddress, getEnableHttps, getHttpRedirect, getCertPath, getKeyPath, getDataDir, getLegacyDataDir, isPasswordSet, USER_INSTALL_DIR, migrateLegacyPackageConfig } = require('./utils/config');
+const { ensureConfig, loadConfig, getPort, getBindAddress, getEnableHttps, getHttpRedirect, getCertPath, getKeyPath, getDataDir, isPasswordSet, USER_INSTALL_DIR, migrateLegacyPackageConfig } = require('./utils/config');
 
 // Import services
 const { sshManager, sftpManager } = require('./services');
@@ -39,14 +39,16 @@ const pluginManager = require('./plugins/plugin-manager');
 // Import endpoints
 const { rest, ws } = require('./endpoints');
 
-const SSL_CERT_FILE = 'ssl-cert.pem';
-const SSL_KEY_FILE = 'ssl-key.pem';
-
 /**
- * Get SSL credentials, reusing persisted certificates if available.
- * Generates new self-signed certificates only if no persisted ones exist.
- * Migrates certs from package directory to user-space directory if needed.
- * @returns {Promise<Object>} Certificate and private key
+ * Get SSL credentials.
+ *
+ * Custom certPath/keyPath from config win. Otherwise a local CA and a
+ * CA-signed server certificate are kept in the user-space data directory
+ * (see utils/certs.js): the CA is created once and survives npm updates
+ * and Docker recreation (when /data is a volume); the server certificate
+ * is re-issued from it whenever it is missing, self-signed (pre-1.8.1
+ * installs), expiring or no longer covers the current hostname/IPs.
+ * @returns {Promise<Object>} Certificate chain and private key
  */
 async function getSSLCredentials() {
   const customCertPath = getCertPath();
@@ -63,142 +65,23 @@ async function getSSLCredentials() {
       };
     } catch (err) {
       console.error('[HTTPS] Failed to read custom certificate files:', err.message);
-      console.error('[HTTPS] Falling back to self-signed certificate');
+      console.error('[HTTPS] Falling back to the local CA-signed certificate');
     }
   } else if (customCertPath || customKeyPath) {
-    console.warn('[HTTPS] Both certPath and keyPath must be set in config. Only one was provided; falling back to self-signed certificate.');
+    console.warn('[HTTPS] Both certPath and keyPath must be set in config. Only one was provided; falling back to the local CA-signed certificate.');
   }
 
   const dataDir = getDataDir();
-  const certPath = path.join(dataDir, SSL_CERT_FILE);
-  const keyPath = path.join(dataDir, SSL_KEY_FILE);
-
-  if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
-    console.log('[HTTPS] Reusing persisted SSL certificate from', dataDir);
-    try {
-      const cert = fs.readFileSync(certPath, 'utf8');
-      const key = fs.readFileSync(keyPath, 'utf8');
-      if (!certIncludesOrg(cert)) {
-        console.log('[HTTPS] Existing certificate lacks organizationName, regenerating...');
-      } else {
-        return { cert, key };
-      }
-    } catch (err) {
-      console.warn('[HTTPS] Failed to read persisted certificate, regenerating:', err.message);
-    }
-  } else {
-    // Migrate from legacy (package) directory if certs exist there
-    const legacyDir = getLegacyDataDir();
-    if (legacyDir) {
-      const legacyCert = path.join(legacyDir, SSL_CERT_FILE);
-      const legacyKey = path.join(legacyDir, SSL_KEY_FILE);
-      if (fs.existsSync(legacyCert) && fs.existsSync(legacyKey)) {
-        console.log('[HTTPS] Migrating SSL certificate from', legacyDir, 'to', dataDir);
-        try {
-          if (!fs.existsSync(dataDir)) {
-            fs.mkdirSync(dataDir, { recursive: true });
-          }
-          const certData = fs.readFileSync(legacyCert, 'utf8');
-          const keyData = fs.readFileSync(legacyKey, 'utf8');
-          fs.writeFileSync(certPath, certData, { mode: 0o600 });
-          fs.writeFileSync(keyPath, keyData, { mode: 0o600 });
-          console.log('[HTTPS] SSL certificate migrated to user-space directory');
-          if (certIncludesOrg(certData)) {
-            return { cert: certData, key: keyData };
-          }
-          console.log('[HTTPS] Migrated certificate lacks organizationName, regenerating...');
-        } catch (err) {
-          console.warn('[HTTPS] Failed to migrate certificate:', err.message);
-        }
-      }
-    }
-  }
-
-  const creds = await generateSelfSignedCert();
-
-  try {
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
-    }
-    fs.writeFileSync(certPath, creds.cert, { mode: 0o600 });
-    fs.writeFileSync(keyPath, creds.key, { mode: 0o600 });
-    console.log('[HTTPS] SSL certificate persisted to', dataDir);
-  } catch (err) {
-    console.warn('[HTTPS] Failed to persist certificate:', err.message);
-  }
-
-  return creds;
-}
-
-/**
- * Check if a PEM certificate includes an organizationName (O=) attribute.
- * @param {string} certPem - PEM-encoded certificate
- * @returns {boolean} True if O=sshift is present
- */
-function certIncludesOrg(certPem) {
-  try {
-    const { X509Certificate } = require('crypto');
-    const x509 = new X509Certificate(certPem);
-    return /O=sshift/i.test(x509.subject);
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Generate self-signed SSL certificates using selfsigned package (pure JS, no OpenSSL dependency)
- * @returns {Promise<Object>} Certificate and private key
- */
-async function generateSelfSignedCert() {
-  console.log('[HTTPS] Generating self-signed certificate...');
-  
-  const os = require('os');
-  
-  const interfaces = os.networkInterfaces();
-  const localIPs = ['127.0.0.1'];
-  
-  Object.values(interfaces).forEach(iface => {
-    iface.forEach(addr => {
-      if (addr.family === 'IPv4' && !addr.internal) {
-        localIPs.push(addr.address);
-      }
-    });
+  const result = await ensureLocalCertificates(dataDir, {
+    log: msg => console.log('[HTTPS]', msg)
   });
-  
-  const hostname = os.hostname() || 'localhost';
-  
-  console.log('[HTTPS] Certificate will be valid for:', localIPs.join(', '), 'and hostname:', hostname);
-  
-  const altNames = [
-    { type: 2, value: 'localhost' },
-    { type: 2, value: hostname },
-    ...localIPs.map(ip => ({ type: 7, ip }))
-  ];
-  
-  try {
-    const attrs = [
-      { name: 'commonName', value: hostname },
-      { name: 'organizationName', value: 'sshift' }
-    ];
-    const pems = await selfsigned.generate(attrs, {
-      days: 365,
-      keySize: 2048,
-      algorithm: 'sha256',
-      extensions: [{
-        name: 'subjectAltName',
-        altNames
-      }]
-    });
-    
-    console.log('[HTTPS] Self-signed certificate generated successfully');
-    return {
-      cert: pems.cert,
-      key: pems.private
-    };
-  } catch (err) {
-    console.error('[HTTPS] Error generating certificate:', err);
-    throw err;
+  if (result.caCreated) {
+    console.log('[HTTPS] NOTE: a new local CA was created. Devices that trusted the previous');
+    console.log('[HTTPS]       self-signed certificate must install the new CA from /api/cert.');
+  } else if (!result.certIssued) {
+    console.log('[HTTPS] Reusing persisted local CA and server certificate from', dataDir);
   }
+  return { cert: result.cert, key: result.key };
 }
 
 // Create Express app
@@ -282,6 +165,9 @@ async function initializeServer() {
   // HTTP to HTTPS redirect middleware (for dual-protocol httpolyglot server)
   if (enableHttpRedirect) {
     app.use((req, res, next) => {
+      // The CA download must stay reachable over plain HTTP: a device that
+      // does not trust the CA yet cannot fetch it over HTTPS without warnings.
+      if (req.path === '/api/cert') return next();
       if (!req.socket.encrypted) {
         const host = req.headers.host ? req.headers.host.split(':')[0] : 'localhost';
         const port = getPort();
@@ -472,8 +358,8 @@ async function initializeServer() {
     console.log(`${ESC}]8;;${protocol}://${address}:${PORT}${ESC}\\Open in browser${ESC}]8;;${ESC}\\`);
     
 if (actuallyHttps) {
-      console.log('[HTTPS] Note: Using self-signed certificate. Your browser may show a security warning.');
-      console.log('[HTTPS] For mobile devices, you may need to accept the certificate warning to use native text selection.');
+      console.log('[HTTPS] Note: the certificate is issued by sshift\'s local CA. Browsers warn until that CA is trusted.');
+      console.log('[HTTPS] Install the CA on each device once: download it from /api/cert (also over plain http://).');
     }
   });
 }

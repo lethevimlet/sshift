@@ -118,19 +118,19 @@ Password protection can also be enabled/disabled through the Settings UI in the 
 
 ### HTTPS Configuration
 
-By default, sshift uses HTTPS with self-signed certificates. This provides:
+By default, sshift uses HTTPS with a certificate issued by its own local certificate authority (CA). This provides:
 - Secure WebSocket connections (WSS)
 - Better mobile device support for text selection
 - Encrypted communication
 
-When HTTPS is enabled, sshift automatically generates a self-signed certificate valid for:
+When HTTPS is enabled, sshift creates a local CA on first start (`ssl-ca-cert.pem` / `ssl-ca-key.pem`, valid 10 years) and issues a server certificate signed by it (`ssl-cert.pem` / `ssl-key.pem`, valid 825 days) covering:
 - `localhost`
 - Your machine's hostname
 - All local IP addresses
 
-The certificate is stored at `~/.local/share/sshift/ssl-cert.pem` and reused on subsequent starts. You can also download it at any time from `https://<your-sshift-host>:8022/api/cert`.
+All four files are stored in `~/.local/share/sshift/` (or `$SSHIFT_DATA_DIR`) and reused on subsequent starts, so they survive `npm update` and reinstalls. The server certificate is re-issued from the same CA automatically when it is missing, about to expire, or no longer lists the machine's current hostname/IPs — devices that trust the CA need no action. The CA certificate is the file to install on your devices; download it at any time from `https://<your-sshift-host>:8022/api/cert` (also served over plain HTTP so untrusted devices can fetch it).
 
-> **Note:** Your browser will show a security warning for self-signed certificates until you add the certificate to your device's trusted root store (see below). To proceed past the warning, click "Advanced" → "Proceed to localhost (unsafe)".
+> **Note:** Your browser will show a security warning until you add the CA certificate to your device's trusted root store (see below). To proceed past the warning, click "Advanced" → "Proceed to localhost (unsafe)".
 
 #### HTTP → HTTPS Redirect
 
@@ -170,15 +170,16 @@ The simplest approach is to add sshift's auto-generated certificate to your devi
 **Step 1: Get the certificate**
 
 Either:
-- Visit `https://<your-sshift-host>:8022/api/cert` in your browser to download it, or
-- Copy it from the server at `~/.local/share/sshift/ssl-cert.pem`
+- Click **Download CA Certificate** in Settings → Security & Connection Info, or
+- Visit `https://<your-sshift-host>:8022/api/cert` (or `http://…/api/cert`) in your browser, or
+- Copy it from the server at `~/.local/share/sshift/ssl-ca-cert.pem`
 
 **Step 2: Trust the certificate on your devices**
 
 - **Windows:** Double-click the `.pem` file → Install Certificate → Local Machine → Place all certificates in "Trusted Root Certification Authorities"
 - **macOS:** Double-click the `.pem` file → Add to Keychain → Set to "Always Trust" in Keychain Access
 - **Linux:** Copy to `/usr/local/share/ca-certificates/` and run `sudo update-ca-certificates`
-- **Android:** Settings → Security → Install from storage → Select the `.pem` file
+- **Android (Chrome/Brave):** Settings → Security & privacy → More security settings → Encryption & credentials → Install a certificate → **CA certificate** → select `sshift-ca.crt` (Android only accepts real CA certificates here, which is why sshift issues its certificate from a local CA)
 - **iOS:** Send the file via AirDrop/email → Open → Install profile → Go to Settings → General → About → Certificate Trust Settings → Enable full trust
 
 After trusting the certificate, the "Not Secure" warning will disappear and PWA installation will work.
@@ -239,7 +240,7 @@ Add the certificate paths to your `config.json`:
 - **Windows:** Double-click the `.pem` file → Install Certificate → Local Machine → Place all certificates in "Trusted Root Certification Authorities"
 - **macOS:** Double-click the `.pem` file → Add to Keychain → Set to "Always Trust" in Keychain Access
 - **Linux:** Copy to `/usr/local/share/ca-certificates/` and run `sudo update-ca-certificates`
-- **Android:** Settings → Security → Install from storage → Select the `.pem` file
+- **Android (Chrome/Brave):** Settings → Security & privacy → More security settings → Encryption & credentials → Install a certificate → **CA certificate** → select `sshift-ca.crt` (Android only accepts real CA certificates here, which is why sshift issues its certificate from a local CA)
 - **iOS:** Send the file via AirDrop/email → Open → Install profile → Go to Settings → General → About → Certificate Trust Settings → Enable full trust
 
 After trusting the certificate, the "Not Secure" warning will disappear and PWA installation will work.

@@ -2325,12 +2325,47 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     });
   }
 
+  /**
+   * The mobile top bar hosts two singleton controls (bookmarks button and
+   * the "..." overflow menu with its big dropdown + listeners). They must
+   * survive layout rebuilds (which recreate every tabs-container), so they
+   * are moved, never recreated: parked in a hidden holder while the layout
+   * is torn down, then mounted into the single panel's tabs-container.
+   */
+  _parkMobileBarSingletons() {
+    let parking = document.getElementById('mobileBarParking');
+    if (!parking) {
+      parking = document.createElement('div');
+      parking.id = 'mobileBarParking';
+      parking.style.display = 'none';
+      document.body.appendChild(parking);
+    }
+    ['mobileBookmarksBtn', 'mobileOverflowMenu'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.parentElement !== parking) parking.appendChild(el);
+    });
+  }
+
+  _mountMobileBarSingletons(tabsContainer) {
+    if (!tabsContainer) return;
+    const bookmarks = document.getElementById('mobileBookmarksBtn');
+    if (bookmarks && bookmarks.parentElement !== tabsContainer) {
+      tabsContainer.insertBefore(bookmarks, tabsContainer.firstChild);
+    }
+    const overflow = document.getElementById('mobileOverflowMenu');
+    const actions = tabsContainer.querySelector('.tabs-actions');
+    if (overflow && actions && overflow.parentElement !== actions) {
+      actions.appendChild(overflow);
+    }
+  }
+
   applyLayout(layout, syncedTabs = null) {
     const layoutContainer = document.getElementById('layoutContainer');
     if (!layoutContainer) {
       console.error('[SSHIFT] Layout container not found');
       return;
     }
+    this._parkMobileBarSingletons();
     
     // On mobile, always force single panel mode
     const effectiveLayout = this.isMobile 
@@ -2367,6 +2402,8 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
         // Clear and recreate single panel
         layoutContainer.innerHTML = '';
         this.createSinglePanel(layoutContainer, 0);
+      } else {
+        this._mountMobileBarSingletons(existingPanel.querySelector('.tabs-container'));
       }
       
       this.currentLayout = layout;
@@ -2744,6 +2781,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     actions.appendChild(speechToTextBtn);
     
     container.appendChild(actions);
+    if (isSingle) this._mountMobileBarSingletons(container);
     
     return container;
   }
@@ -4064,6 +4102,7 @@ const wheelHandler = (e) => {
     if (!element) return defaultHeight;
     
     const style = window.getComputedStyle(element);
+    if (style.display === 'none') return 0;
     const height = parseFloat(style.height) || 0;
     const marginTop = parseFloat(style.marginTop) || 0;
     const marginBottom = parseFloat(style.marginBottom) || 0;
@@ -5764,6 +5803,16 @@ const wheelHandler = (e) => {
     document.getElementById('menuBtn').addEventListener('click', () => {
       this.toggleSidebar();
     });
+    // Mobile top bar (replaces the mobile header): bookmarks button in the
+    // tabs bar, close button inside the sidebar (the sidebar covers the bar).
+    ['mobileBookmarksBtn', 'sidebarCloseBtn'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('click', () => this.toggleSidebar());
+    });
+    const copyInputTraceBtn = document.getElementById('copyInputTraceBtn');
+    if (copyInputTraceBtn) {
+      copyInputTraceBtn.addEventListener('click', () => this.copyInputTrace());
+    }
 
     // Sidebar overlay click to close
     const sidebarOverlay = document.getElementById('sidebarOverlay');
@@ -6984,14 +7033,16 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
       const certPathEl = document.getElementById('debugCertPath');
       const keyPathEl = document.getElementById('debugKeyPath');
       const certTypeEl = document.getElementById('debugCertType');
+      const caCertPathEl = document.getElementById('debugCaCertPath');
 
       if (configPathEl) configPathEl.textContent = info.configPath || 'N/A';
       if (dataDirEl) dataDirEl.textContent = info.dataDir || 'N/A';
       if (certPathEl) certPathEl.textContent = info.certPath || 'N/A';
       if (keyPathEl) keyPathEl.textContent = info.keyPath || 'N/A';
-      if (certTypeEl) certTypeEl.textContent = info.usesCustomCert ? 'Custom' : 'Self-signed';
+      if (caCertPathEl) caCertPathEl.textContent = info.caCertPath || 'N/A';
+      if (certTypeEl) certTypeEl.textContent = info.certType || (info.usesCustomCert ? 'Custom' : 'Local CA-signed');
     }).catch(() => {
-      const ids = ['debugConfigPath', 'debugDataDir', 'debugCertPath', 'debugKeyPath', 'debugCertType'];
+      const ids = ['debugConfigPath', 'debugDataDir', 'debugCertPath', 'debugKeyPath', 'debugCaCertPath', 'debugCertType'];
       ids.forEach(id => {
         const el = document.getElementById(id);
         if (el) el.textContent = 'Error loading';
@@ -6999,6 +7050,49 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     });
 
     this.openModal('debugInfoModal');
+  }
+
+  /**
+   * Copy the mobile handlers' keyboard/IME event trace to the clipboard
+   * (Debug Info dialog). This is the data needed to diagnose Gboard
+   * autocomplete/duplication reports — it records every input,
+   * composition, focus, sync and reset on the hidden textarea.
+   */
+  async copyInputTrace() {
+    const trace = {};
+    this.sessions.forEach((session, id) => {
+      if (session.mobileHandler && typeof session.mobileHandler.getInputTrace === 'function') {
+        trace[id] = session.mobileHandler.getInputTrace();
+      }
+    });
+    const text = JSON.stringify({
+      version: (window.SSHIFT_VERSION || document.getElementById('versionNumber')?.textContent || '').trim(),
+      userAgent: navigator.userAgent,
+      isMobile: this.isMobile,
+      activeSessionId: this.activeSessionId,
+      trace
+    }, null, 1);
+    console.log('[SSHIFT] Input trace:\n' + text);
+    try {
+      await navigator.clipboard.writeText(text);
+      this.showToast('Input trace copied to clipboard', 'success');
+    } catch (err) {
+      // Clipboard API can be unavailable (insecure context, no gesture).
+      // Fall back to a selectable textarea inside the dialog.
+      let box = document.getElementById('inputTraceFallback');
+      if (!box) {
+        box = document.createElement('textarea');
+        box.id = 'inputTraceFallback';
+        box.readOnly = true;
+        box.style.cssText = 'width:100%;height:160px;margin-top:8px;font-size:11px;font-family:monospace;';
+        const body = document.querySelector('#debugInfoModal .modal-body') || document.getElementById('debugInfoModal');
+        if (body) body.appendChild(box);
+      }
+      box.value = text;
+      box.focus();
+      box.select();
+      this.showToast('Clipboard unavailable — trace shown below, long-press to copy', 'info');
+    }
   }
 
   // Sessions Modal

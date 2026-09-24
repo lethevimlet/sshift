@@ -372,18 +372,14 @@ body {
 }
 
 .overflow-toggle {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  padding: 8px;
-  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: var(--transition-fast);
 }
 
-.overflow-toggle:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+/* Mobile-only controls in the tabs bar / sidebar (the mobile header is gone) */
+/* (.btn sets display later in the file; keep specificity above it) */
+.btn.mobile-bookmarks-btn,
+.btn.sidebar-close-btn {
+  display: none;
 }
 
 .overflow-dropdown {
@@ -3453,7 +3449,9 @@ body.dragging-tabs .tabs-container {
 @media (max-width: 768px) {
   :root {
     --sidebar-width: 100%;
-    --header-height: 43px;
+    /* No header on mobile (see .header below); everything that offsets
+       by the header height (tabs bar, sidebar, keyboard math) gets 0. */
+    --header-height: 0px;
   }
 
   /* Thinner xterm scrollbar on mobile */
@@ -3519,9 +3517,39 @@ body.dragging-tabs .tabs-container {
     display: none;
   }
 
-  /* Show mobile overflow menu on mobile */
+  /* Show mobile overflow menu on mobile (lives in the tabs bar) */
   .mobile-overflow-menu {
     display: block;
+    flex-shrink: 0;
+  }
+
+  .tabs-actions .overflow-toggle {
+    min-width: 28px;
+    min-height: 28px;
+    padding: 4px 6px;
+    font-size: 12px;
+  }
+
+  /* Mobile header is removed: the tabs bar is the only top bar. It holds
+     bookmarks | tabs dropdown | resize | font -/+ | keys | mic | ... */
+  .header {
+    display: none;
+  }
+
+  .btn.mobile-bookmarks-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 28px;
+    min-height: 28px;
+    padding: 4px 6px;
+    margin-left: 4px;
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+
+  .btn.sidebar-close-btn {
+    display: inline-flex;
   }
 
   /* Hide desktop tabs on mobile */
@@ -3529,10 +3557,12 @@ body.dragging-tabs .tabs-container {
     display: none;
   }
 
-  /* Show mobile tabs dropdown on mobile */
+  /* Show mobile tabs dropdown on mobile. min-width: 0 lets it shrink
+     (label ellipsis) so the bookmarks and overflow buttons fit. */
   .mobile-tabs-dropdown {
     display: flex;
     margin-left: 4px;
+    min-width: 0;
   }
 
   .mobile-force-resize-btn {
@@ -3545,7 +3575,9 @@ body.dragging-tabs .tabs-container {
 
   .mobile-tabs-toggle {
     min-height: 28px;
+    min-width: 0;
     padding: 4px 6px;
+    gap: 6px;
     font-size: 12px;
   }
 
@@ -3694,7 +3726,8 @@ body.dragging-tabs .tabs-container {
   }
   
   /* Keep tabs-actions buttons at 32px for consistency */
-  .tabs-actions .btn-sm {
+  .tabs-actions .btn-sm,
+  .mobile-bookmarks-btn {
     min-height: 28px;
     min-width: 28px;
     padding: 4px 6px;
@@ -4493,10 +4526,11 @@ body.dragging-tabs .tabs-container {
     transform: none !important;
   }
   
-  /* Add padding to main-content to account for fixed header and tabs */
+  /* Add padding to main-content to account for the fixed tabs bar
+     (there is no header on mobile any more) */
   .main-content {
-    /* Header: 43px + 1px border, Tabs: 35px + 1px border = 80px total */
-    padding-top: 80px;
+    /* Tabs bar: 37px incl. border */
+    padding-top: 37px;
     /* Account for mobile keys bar at bottom - use padding-bottom */
     padding-bottom: 75px;
   }
@@ -4572,8 +4606,8 @@ body.dragging-tabs .tabs-container {
   }
 
   body.keyboard-visible .main-content {
-    /* Header and tabs stay fixed at top when keyboard is open */
-    padding-top: 80px !important;
+    /* Tabs bar stays fixed at top when keyboard is open (no header) */
+    padding-top: 37px !important;
     /* Remove bottom padding since mobile keys bar is positioned above keyboard */
     padding-bottom: 0 !important;
   }

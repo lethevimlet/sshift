@@ -186,19 +186,21 @@ See [Configuration](docs/configuration.md) for details.
 
 When accessing sshift from a LAN IP (e.g., `https://192.168.1.50:8022`), browsers show "Not Secure" warnings because the self-signed certificate is not trusted. This also blocks PWA installation, which requires a trusted secure context.
 
-### Recommended: Trust the Auto-Generated Certificate
+### Recommended: Trust the Auto-Generated Local CA
 
-sshift automatically generates a self-signed TLS certificate on first run. The simplest fix is to add this certificate to your device's trusted root store:
+On first run sshift creates its own small certificate authority (CA) and signs its HTTPS certificate with it. Both live in `~/.local/share/sshift/` and survive updates. Trust the CA once per device and every certificate sshift issues afterwards (new IPs, renewals) is accepted automatically:
 
-1. **Download the certificate** — visit `https://<your-sshift-host>:8022/api/cert` in your browser, or find it at `~/.local/share/sshift/ssl-cert.pem` on the server
+1. **Download the CA certificate** — click **Download CA Certificate** in Settings → Security & Connection Info, visit `https://<your-sshift-host>:8022/api/cert` (works over plain `http://` too), or copy `~/.local/share/sshift/ssl-ca-cert.pem` from the server
 2. **Add it to your device's trusted root store:**
    - **Windows:** Double-click the file → Install Certificate → Local Machine → Trusted Root Certification Authorities
    - **macOS:** Double-click the file → Add to Keychain → Set "Always Trust" in Keychain Access
    - **Linux:** Copy to `/usr/local/share/ca-certificates/` and run `sudo update-ca-certificates`
-   - **Android:** Settings → Security → Install from storage
+   - **Android (Chrome/Brave):** Settings → Security & privacy → More security settings → Encryption & credentials → Install a certificate → **CA certificate** → pick `sshift-ca.crt` from Downloads
    - **iOS:** Send via AirDrop/email → Open → Install profile → Settings → General → About → Certificate Trust Settings → Enable full trust
 
-After trusting the certificate, the "Not Secure" warning will disappear and PWA installation will work.
+After trusting the CA, the "Not Secure" warning will disappear and PWA installation will work.
+
+> Upgrading from a version before 1.8.1: the old certificate was a plain self-signed one that Android refuses to install as a CA. It is replaced by the CA-signed one on first start, so re-download and install the CA once.
 
 ### Using Your Own Certificate
 
