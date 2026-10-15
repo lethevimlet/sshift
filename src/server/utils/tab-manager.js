@@ -13,6 +13,9 @@ let tabOrder = [];
 // Active tab per panel: Map<panelId, sessionId>
 const activeTabsByPanel = new Map();
 
+// Most recently focused tab on the client that last saved tab state.
+let activeSessionId = null;
+
 // Current layout for sync
 let currentLayout = 'single';
 
@@ -104,6 +107,7 @@ function removeTab(sessionId) {
       activeTabsByPanel.delete(panelId);
     }
   }
+  if (activeSessionId === sessionId) activeSessionId = null;
 }
 
 /**
@@ -236,6 +240,14 @@ function getActiveTabsByPanel() {
   return activeTabsByPanel;
 }
 
+function setActiveSession(sessionId) {
+  activeSessionId = sessionId && openTabs.has(sessionId) ? sessionId : null;
+}
+
+function getActiveSession() {
+  return activeSessionId;
+}
+
 /**
  * Get current theme
  * @returns {string} Current theme
@@ -298,6 +310,8 @@ module.exports = {
   setActiveTab,
   getActiveTab,
   getActiveTabsByPanel,
+  setActiveSession,
+  getActiveSession,
   getCurrentTheme,
   setCurrentTheme,
   getCurrentAccent,

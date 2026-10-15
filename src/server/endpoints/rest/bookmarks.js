@@ -3,6 +3,19 @@
  */
 
 const { loadConfig, saveConfig } = require('../../utils/config');
+const {
+  BookmarkEncryptionLockedError,
+  getDecryptedBookmarks,
+  storeBookmarks
+} = require('../../utils/bookmark-encryption');
+
+function handleBookmarkError(res, err) {
+  if (err instanceof BookmarkEncryptionLockedError) {
+    return res.status(423).json({ error: 'Encrypted bookmarks are locked; sign in again' });
+  }
+  console.error('[BOOKMARKS] Failed to process bookmarks:', err.message);
+  return res.status(500).json({ error: 'Failed to process bookmarks' });
+}
 
 /**
  * Register bookmark endpoints
@@ -12,8 +25,12 @@ const { loadConfig, saveConfig } = require('../../utils/config');
 function registerBookmarkEndpoints(app, io) {
   // API: Get bookmarks
   app.get('/api/bookmarks', (req, res) => {
-    const config = loadConfig();
-    res.json(config.bookmarks);
+    try {
+      const config = loadConfig();
+      res.json(getDecryptedBookmarks(config));
+    } catch (err) {
+      handleBookmarkError(res, err);
+    }
   });
 
   // API: Add bookmark
@@ -40,48 +57,62 @@ function registerBookmarkEndpoints(app, io) {
     if (req.body.passphrase) bookmark.passphrase = req.body.passphrase;
     if (req.body.folderId) bookmark.folderId = req.body.folderId;
     
-    config.bookmarks.push(bookmark);
-    if (saveConfig(config)) {
+    try {
+      const bookmarks = getDecryptedBookmarks(config);
+      bookmarks.push(bookmark);
+      storeBookmarks(config, bookmarks);
+      if (!saveConfig(config)) {
+        return res.status(500).json({ error: 'Failed to save bookmark' });
+      }
       // Broadcast to all clients
       io.emit('bookmark-added', bookmark);
       res.json(bookmark);
-    } else {
-      res.status(500).json({ error: 'Failed to save bookmark' });
+    } catch (err) {
+      handleBookmarkError(res, err);
     }
   });
 
   // API: Delete bookmark
   app.delete('/api/bookmarks/:id', (req, res) => {
     const config = loadConfig();
-    config.bookmarks = config.bookmarks.filter(b => b.id !== req.params.id);
-    if (saveConfig(config)) {
+    try {
+      const bookmarks = getDecryptedBookmarks(config).filter(b => b.id !== req.params.id);
+      storeBookmarks(config, bookmarks);
+      if (!saveConfig(config)) {
+        return res.status(500).json({ error: 'Failed to delete bookmark' });
+      }
       // Broadcast to all clients
       io.emit('bookmark-deleted', { id: req.params.id });
       res.json({ success: true });
-    } else {
-      res.status(500).json({ error: 'Failed to delete bookmark' });
+    } catch (err) {
+      handleBookmarkError(res, err);
     }
   });
 
   // API: Update bookmark
   app.put('/api/bookmarks/:id', (req, res) => {
     const config = loadConfig();
-    const index = config.bookmarks.findIndex(b => b.id === req.params.id);
-    if (index !== -1) {
-      config.bookmarks[index] = {
-        ...config.bookmarks[index],
+    try {
+      const bookmarks = getDecryptedBookmarks(config);
+      const index = bookmarks.findIndex(b => b.id === req.params.id);
+      if (index === -1) {
+        return res.status(404).json({ error: 'Bookmark not found' });
+      }
+      bookmarks[index] = {
+        ...bookmarks[index],
         ...req.body,
         id: req.params.id
       };
-      if (saveConfig(config)) {
-        // Broadcast to all clients
-        io.emit('bookmark-updated', config.bookmarks[index]);
-        res.json(config.bookmarks[index]);
-      } else {
-        res.status(500).json({ error: 'Failed to update bookmark' });
+      delete bookmarks[index].encryptedConnection;
+      storeBookmarks(config, bookmarks);
+      if (!saveConfig(config)) {
+        return res.status(500).json({ error: 'Failed to update bookmark' });
       }
-    } else {
-      res.status(404).json({ error: 'Bookmark not found' });
+      // Broadcast decrypted data only to authenticated, connected clients.
+      io.emit('bookmark-updated', bookmarks[index]);
+      res.json(bookmarks[index]);
+    } catch (err) {
+      handleBookmarkError(res, err);
     }
   });
 

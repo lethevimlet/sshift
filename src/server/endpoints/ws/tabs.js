@@ -15,6 +15,7 @@ const {
   updateTabName,
   updateTabPanel,
   setActiveTab,
+  setActiveSession,
   getOpenTabs
 } = require('../../utils/tab-manager');
 const { sshManager, sftpManager } = require('../../services');
@@ -136,6 +137,7 @@ function registerTabHandlers(socket, io) {
           }
         }
       });
+      setActiveSession(data.activeSessionId);
     }
     // Don't update tab order for empty tab lists — a new client syncing
     // before receiving server tabs would wipe the server-side tab order.
@@ -146,7 +148,8 @@ function registerTabHandlers(socket, io) {
     if (data.tabs && data.tabs.length > 0) {
       socket.broadcast.emit('tabs-sync', { 
         tabs: data.tabs,
-        layout: data.layout
+        layout: data.layout,
+        activeSessionId: data.activeSessionId
       });
     }
   });

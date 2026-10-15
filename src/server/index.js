@@ -282,7 +282,7 @@ async function initializeServer() {
     // localStorage (they survive server restarts and can differ per
     // device). Broadcasting them here used to clobber every new client's
     // own preference with the server's in-memory copy.
-    const { getOpenTabs, getTabOrder, getActiveTabsByPanel } = require('./utils/tab-manager');
+    const { getOpenTabs, getTabOrder, getActiveTabsByPanel, getActiveSession } = require('./utils/tab-manager');
     
     const openTabs = getOpenTabs();
     const tabOrder = getTabOrder();
@@ -330,7 +330,8 @@ async function initializeServer() {
     
     socket.emit('open-tabs', { 
       tabs: orderedTabs,
-      activeTabsByPanel
+      activeTabsByPanel,
+      activeSessionId: getActiveSession()
     });
 
     // Sync flash state for tabs that need attention

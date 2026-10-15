@@ -22,7 +22,8 @@ function registerConfigEndpoints(app, io) {
       webglRenderer: config.webglRenderer !== false,
       imageAddonEnabled: config.imageAddonEnabled !== false,
       layouts: config.layouts || null,
-      passwordEnabled: !!config.passwordHash
+      passwordEnabled: !!config.passwordHash,
+      bookmarkEncryptionEnabled: config.bookmarkEncryptionEnabled === true
     });
   });
 

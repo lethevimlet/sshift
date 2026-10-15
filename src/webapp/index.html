@@ -1013,6 +1013,20 @@
                 </button>
               </div>
             </div>
+            <div class="setting-item">
+              <label class="setting-label">
+                <i class="fas fa-key"></i> Bookmark Connection Encryption
+              </label>
+              <div class="setting-description">
+                Encrypt bookmark hosts, usernames, passwords, private keys, passphrases, ports, and URLs using your app password. Decrypted values are kept only in memory. If you lose the password, this connection data cannot be recovered.
+              </div>
+              <div class="setting-control">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="bookmarkEncryptionToggle" disabled>
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
           </div>
 
           <div class="settings-category" id="settings-category-system" style="display:none;">
@@ -1251,8 +1265,18 @@
               <label class="setting-label" style="margin-bottom: 8px;">Confirm Password</label>
               <input type="password" id="passwordModalConfirmInput" class="setting-input" placeholder="Confirm password" autocomplete="off" style="width:100%;">
             </div>
+            <div id="passwordModalEncryptionGroup" style="display: none; margin-top: 16px;">
+              <label class="setting-label" style="display:flex; align-items:center; gap:10px;">
+                <input type="checkbox" id="passwordModalEncryptionToggle">
+                Encrypt bookmark connection data
+              </label>
+              <div class="setting-description" style="margin-top:8px;">
+                If you lose this password, encrypted connection data cannot be recovered.
+              </div>
+            </div>
           </div>
         </div>
+        <p id="passwordModalMessage" class="setting-description" style="display:none; margin-top:8px;"></p>
         <p class="password-modal-error" id="passwordModalError" style="display: none; color: var(--accent-danger); font-size: 13px; margin-top: 8px;"></p>
       </div>
       <div class="modal-footer">

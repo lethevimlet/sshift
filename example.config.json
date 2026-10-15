@@ -12,6 +12,8 @@
   "webglRenderer": true,
   "imageAddonEnabled": true,
   "passwordHash": null,
+  "bookmarkEncryptionEnabled": false,
+  "bookmarkEncryptionSalt": null,
   "plugins": [
     {
       "name": "opencode-attention",

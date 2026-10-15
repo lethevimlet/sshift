@@ -47,6 +47,8 @@ const defaultConfig = {
   bookmarks: [],
   folders: [],
   passwordHash: null,
+  bookmarkEncryptionEnabled: false,
+  bookmarkEncryptionSalt: null,
   scrollback: 10000,
   webglRenderer: true,
   imageAddonEnabled: true,
@@ -142,12 +144,24 @@ function loadConfig() {
  * @returns {boolean} Success status
  */
 function saveConfig(config) {
+  let tempPath = null;
   try {
     const configPath = getConfigPath();
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    tempPath = `${configPath}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
+    const fd = fs.openSync(tempPath, 'w', 0o600);
+    try {
+      fs.writeFileSync(fd, JSON.stringify(config, null, 2));
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tempPath, configPath);
     return true;
   } catch (err) {
     console.error('Error saving config:', err);
+    if (tempPath) {
+      try { fs.unlinkSync(tempPath); } catch (_) {}
+    }
     return false;
   }
 }
@@ -379,7 +393,9 @@ function getLegacyDataDir() {
 }
 
 function hashPassword(password) {
-  return crypto.createHash('sha3-256').update(password).digest('hex');
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(password, salt, 32);
+  return `scrypt$${salt.toString('base64')}$${hash.toString('base64')}`;
 }
 
 function isPasswordSet() {
@@ -390,7 +406,45 @@ function isPasswordSet() {
 function verifyPassword(password) {
   const config = loadConfig();
   if (!config.passwordHash) return true;
-  return hashPassword(password) === config.passwordHash;
+  if (config.passwordHash.startsWith('scrypt$')) {
+    const parts = config.passwordHash.split('$');
+    if (parts.length !== 3) return false;
+    try {
+      const expected = Buffer.from(parts[2], 'base64');
+      const actual = crypto.scryptSync(password, Buffer.from(parts[1], 'base64'), expected.length);
+      return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+    } catch (_) {
+      return false;
+    }
+  }
+  // Legacy password hashes used unsalted SHA3-256. They remain valid until
+  // the password is changed, at which point setPassword writes scrypt.
+  const legacyHash = crypto.createHash('sha3-256').update(password).digest('hex');
+  const expected = Buffer.from(config.passwordHash, 'hex');
+  const actual = Buffer.from(legacyHash, 'hex');
+  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+}
+
+function verifyPasswordAsync(password) {
+  const config = loadConfig();
+  if (!config.passwordHash) return Promise.resolve(true);
+  if (!config.passwordHash.startsWith('scrypt$')) {
+    return Promise.resolve(verifyPassword(password));
+  }
+  const parts = config.passwordHash.split('$');
+  if (parts.length !== 3) return Promise.resolve(false);
+  try {
+    const expected = Buffer.from(parts[2], 'base64');
+    const salt = Buffer.from(parts[1], 'base64');
+    return new Promise(resolve => {
+      crypto.scrypt(password, salt, expected.length, (err, actual) => {
+        if (err || expected.length !== actual.length) return resolve(false);
+        resolve(crypto.timingSafeEqual(expected, actual));
+      });
+    });
+  } catch (_) {
+    return Promise.resolve(false);
+  }
 }
 
 function setPassword(password) {
@@ -552,6 +606,7 @@ module.exports = {
   hashPassword,
   isPasswordSet,
   verifyPassword,
+  verifyPasswordAsync,
   setPassword,
   removePassword,
   getSpeechAiPublicConfig,

@@ -13,6 +13,8 @@
 
 jest.mock('fs', () => {
   const files = new Map();
+  const descriptors = new Map();
+  let nextFd = 10;
   return {
     __files: files,
     existsSync: (p) => files.has(String(p)),
@@ -25,7 +27,22 @@ jest.mock('fs', () => {
       }
       return files.get(key);
     },
-    writeFileSync: (p, data) => { files.set(String(p), String(data)); },
+    openSync: (p) => {
+      const fd = nextFd++;
+      descriptors.set(fd, String(p));
+      return fd;
+    },
+    writeFileSync: (p, data) => {
+      const key = typeof p === 'number' ? descriptors.get(p) : String(p);
+      files.set(key, String(data));
+    },
+    fsyncSync: () => {},
+    closeSync: (fd) => { descriptors.delete(fd); },
+    renameSync: (from, to) => {
+      files.set(String(to), files.get(String(from)));
+      files.delete(String(from));
+    },
+    unlinkSync: (p) => { files.delete(String(p)); },
     mkdirSync: () => {},
     readdirSync: () => [],
     statSync: () => ({ isDirectory: () => false })

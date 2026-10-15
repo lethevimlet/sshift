@@ -243,4 +243,51 @@ describe('saveTabs debounce + signature dedup (Phase 2)', () => {
       jest.useRealTimers();
     }
   });
+
+  test('bookmark encryption prevents connection data from being persisted in localStorage', () => {
+    jest.useFakeTimers();
+    try {
+      seedPanelAndSession('s-encrypted', 'Encrypted bookmark');
+      client.sessions.get('s-encrypted').connectionData = {
+        host: 'private.example.com',
+        username: 'deploy',
+        password: 'secret',
+        privateKey: 'PRIVATE KEY'
+      };
+      client.bookmarkEncryptionEnabled = true;
+      client.saveTabs();
+      jest.advanceTimersByTime(200);
+
+      const saved = JSON.parse(localStorageStore.openTabs);
+      expect(saved.tabs[0].connectionData).toEqual({});
+      expect(localStorageStore.openTabs).not.toContain('private.example.com');
+      expect(localStorageStore.openTabs).not.toContain('secret');
+      expect(localStorageStore.openTabs).not.toContain('PRIVATE KEY');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('scrubbing cancels a pending plaintext sticky-tab write', () => {
+    jest.useFakeTimers();
+    try {
+      seedPanelAndSession('s-race', 'Pending plaintext');
+      client.sessions.get('s-race').connectionData = {
+        host: 'pending.example.com',
+        password: 'pending-secret'
+      };
+      client.bookmarkEncryptionEnabled = false;
+      client.saveTabs();
+
+      client.bookmarkEncryptionEnabled = true;
+      client.clearSensitiveTabStorage();
+      jest.advanceTimersByTime(500);
+
+      expect(localStorageStore.openTabs || '').not.toContain('pending.example.com');
+      expect(localStorageStore.openTabs || '').not.toContain('pending-secret');
+      expect(emittedTabsSave).toHaveLength(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });

@@ -79,6 +79,7 @@ class SSHIFTClient {
     
     // Password protection state
     this.passwordEnabled = false;
+    this.bookmarkEncryptionEnabled = false;
     this.authToken = localStorage.getItem('sshift_auth_token') || null;
     
     this._origFetch = window.fetch.bind(window);
@@ -158,6 +159,7 @@ class SSHIFTClient {
       this.imageAddonEnabled = config.imageAddonEnabled !== undefined ? config.imageAddonEnabled : true;
       this.scrollback = config.scrollback || 10000;
       this.passwordEnabled = config.passwordEnabled || false;
+      this.bookmarkEncryptionEnabled = config.bookmarkEncryptionEnabled === true;
       console.log('[SSHIFT] Loaded from server - Sticky:', this.sticky ? 'enabled' : 'disabled',
                   'Take Control Default:', this.takeControlDefault ? 'enabled' : 'disabled',
                   'Keepalive Interval:', this.sshKeepaliveInterval,
@@ -188,6 +190,8 @@ class SSHIFTClient {
       const response = await this._origFetch('/api/auth/status');
       const data = await response.json();
       this.passwordEnabled = data.passwordEnabled;
+      this.bookmarkEncryptionEnabled = data.bookmarkEncryptionEnabled === true;
+      if (this.bookmarkEncryptionEnabled) this.clearSensitiveTabStorage();
       
       if (!this.passwordEnabled) {
         if (lockScreen) lockScreen.style.display = 'none';
@@ -257,6 +261,7 @@ class SSHIFTClient {
             this.updateSocketAuth();
             lockScreen.style.display = 'none';
             this.passwordEnabled = true;
+            if (this.bookmarkEncryptionEnabled) this.clearSensitiveTabStorage();
             lockScreenForm.removeEventListener('submit', submitHandler);
             resolve();
           } else {
@@ -291,7 +296,10 @@ class SSHIFTClient {
         title: 'Disable Password Protection',
         label: 'Enter current password',
         confirmText: 'Disable',
-        requireConfirm: false
+        requireConfirm: false,
+        message: this.bookmarkEncryptionEnabled
+          ? 'Bookmark connection data will be decrypted and stored in plaintext before password protection is disabled.'
+          : ''
       }, async (password) => {
         try {
           const resp = await fetch('/api/auth/remove-password', {
@@ -316,16 +324,21 @@ class SSHIFTClient {
         title: 'Enable Password Protection',
         label: 'Set a password',
         confirmText: 'Enable',
-        requireConfirm: true
-      }, async (password) => {
+        requireConfirm: true,
+        showEncryptionOption: true
+      }, async (password, options) => {
         try {
           const resp = await fetch('/api/auth/set-password', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ newPassword: password })
+            body: JSON.stringify({
+              newPassword: password,
+              encryptBookmarks: options.encryptBookmarks
+            })
           });
           
           if (resp.ok) {
+            if (options.encryptBookmarks) this.clearSensitiveTabStorage();
             location.reload();
           } else {
             const data = await resp.json();
@@ -346,6 +359,9 @@ class SSHIFTClient {
     const confirmInput = document.getElementById('passwordModalConfirmInput');
     const confirmGroup = document.getElementById('confirmPasswordGroup');
     const errorEl = document.getElementById('passwordModalError');
+    const messageEl = document.getElementById('passwordModalMessage');
+    const encryptionGroup = document.getElementById('passwordModalEncryptionGroup');
+    const encryptionToggle = document.getElementById('passwordModalEncryptionToggle');
     const submitBtn = document.getElementById('passwordModalSubmit');
     const cancelBtn = document.getElementById('passwordModalCancel');
     const closeBtn = document.getElementById('closePasswordModal');
@@ -356,6 +372,14 @@ class SSHIFTClient {
     input.value = '';
     confirmInput.value = '';
     errorEl.style.display = 'none';
+    if (messageEl) {
+      messageEl.textContent = options.message || '';
+      messageEl.style.display = options.message ? 'block' : 'none';
+    }
+    if (encryptionGroup) {
+      encryptionGroup.style.display = options.showEncryptionOption ? 'block' : 'none';
+    }
+    if (encryptionToggle) encryptionToggle.checked = false;
 
     if (options.requireConfirm) {
       confirmGroup.style.display = 'block';
@@ -385,7 +409,9 @@ class SSHIFTClient {
         return;
       }
       cleanup();
-      await onSubmit(password);
+      await onSubmit(password, {
+        encryptBookmarks: !!(encryptionToggle && encryptionToggle.checked)
+      });
     };
 
     const handleCancel = () => { cleanup(); if (onCancel) onCancel(); };
@@ -413,6 +439,11 @@ class SSHIFTClient {
         btn.querySelector('i').className = 'fas fa-lock-open';
         label.textContent = 'Enable Password';
       }
+    }
+    const encryptionToggle = document.getElementById('bookmarkEncryptionToggle');
+    if (encryptionToggle) {
+      encryptionToggle.checked = this.bookmarkEncryptionEnabled;
+      encryptionToggle.disabled = !this.passwordEnabled;
     }
   }
 
@@ -490,7 +521,9 @@ class SSHIFTClient {
             sessionId,
             name: session.name,
             type: session.type,
-            connectionData: session.connectionData,
+            // When bookmark encryption is enabled, do not create a second
+            // plaintext-at-rest copy in this browser's sticky-tab cache.
+            connectionData: this.bookmarkEncryptionEnabled ? {} : session.connectionData,
             active: sessionId === activeInThisPanel, // Active in this specific panel
             panelId: effectivePanelId
           });
@@ -506,7 +539,8 @@ class SSHIFTClient {
       : (this.currentLayout?.id || 'single');
     const tabsData = {
       tabs,
-      layout: savedLayout
+      layout: savedLayout,
+      activeSessionId: this.activeSessionId
     };
 
     // Debounce + dedup: collapse rapid-fire saveTabs calls into one
@@ -541,6 +575,27 @@ class SSHIFTClient {
     } catch (err) {
       console.error('[SSHIFT] Failed to load tabs:', err);
       return null;
+    }
+  }
+
+  clearSensitiveTabStorage() {
+    try {
+      if (this._saveTabsTimer) {
+        clearTimeout(this._saveTabsTimer);
+        this._saveTabsTimer = null;
+      }
+      this._saveTabsSignature = null;
+      const saved = localStorage.getItem('openTabs');
+      if (!saved) return;
+      const data = JSON.parse(saved);
+      const tabs = Array.isArray(data) ? data : data.tabs;
+      if (!Array.isArray(tabs)) return;
+      tabs.forEach(tab => {
+        if (tab && tab.connectionData) tab.connectionData = {};
+      });
+      localStorage.setItem('openTabs', JSON.stringify(data));
+    } catch (err) {
+      console.warn('[SSHIFT] Failed to scrub sensitive sticky-tab data:', err);
     }
   }
 
@@ -631,7 +686,7 @@ class SSHIFTClient {
   }
 
   // Distribute tabs across panels when layout changes
-  distributeTabsToPanels(syncedTabs = null) {
+  distributeTabsToPanels(syncedTabs = null, preferredActiveSessionId = null) {
     // Get all sessions
     const allSessions = [...this.sessions.keys(), ...this.sftpSessions.keys()];
     if (allSessions.length === 0) return;
@@ -665,12 +720,26 @@ class SSHIFTClient {
         });
       });
       
-      // Restore active sessions per panel - only activate the first active tab in each panel
+      // Restore active sessions per local panel. Synced desktop panel IDs do
+      // not exist on mobile, so map them to the same fallback used above.
       const activatedPanels = new Set();
+      if (preferredActiveSessionId) {
+        const preferredTab = syncedTabs.find(tabData => tabData.sessionId === preferredActiveSessionId);
+        if (preferredTab) {
+          const targetPanel = preferredTab.panelId && panels.includes(preferredTab.panelId)
+            ? preferredTab.panelId
+            : clockwisePanels[0];
+          this.switchTab(preferredTab.sessionId, targetPanel);
+          activatedPanels.add(targetPanel);
+        }
+      }
       syncedTabs.forEach(tabData => {
-        if (tabData.active && !activatedPanels.has(tabData.panelId)) {
-          this.switchTab(tabData.sessionId, tabData.panelId);
-          activatedPanels.add(tabData.panelId);
+        const targetPanel = tabData.panelId && panels.includes(tabData.panelId)
+          ? tabData.panelId
+          : clockwisePanels[0];
+        if (tabData.active && !activatedPanels.has(targetPanel)) {
+          this.switchTab(tabData.sessionId, targetPanel);
+          activatedPanels.add(targetPanel);
         }
       });
     } else {
@@ -3340,25 +3409,19 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
     const savedLayoutId = this.loadCurrentLayout();
     const layout = this.layouts.find(l => l.id === savedLayoutId) || this.layouts[0];
     
-    // Check if we should defer layout application (sticky mode with saved tabs)
-    const savedData = this.loadTabs();
-    const savedTabs = Array.isArray(savedData) ? savedData : (savedData?.tabs || []);
-    const shouldDeferLayout = this.sticky && savedTabs.length > 0;
-    
     if (layout) {
       this.currentLayout = layout;
       this.updateLayoutActiveState(layout.id);
-      
-      // Only apply layout if not deferring to restoreTabs()
-      if (!shouldDeferLayout) {
-        this.applyLayout(layout);
-        // Resize terminals after initial layout (with delay for DOM to settle)
-        setTimeout(() => this.handleResize(), 100);
-      }
+
+      // Layout is a per-device preference and must be rendered before tabs
+      // arrive from the server. Tab restoration no longer applies a deferred
+      // layout, so deferring here leaves the DOM in its default single panel.
+      this.applyLayout(layout);
+      // Resize terminals after initial layout (with delay for DOM to settle)
+      setTimeout(() => this.handleResize(), 100);
     }
     
-    console.log('[SSHIFT] Layout system initialized with layout:', layout?.name, 
-                shouldDeferLayout ? '(deferred to restoreTabs)' : '');
+    console.log('[SSHIFT] Layout system initialized with layout:', layout?.name);
   }
 
   async loadBookmarkOrder() {
@@ -3497,7 +3560,7 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
           // The local layout (per-device, applied by initLayoutSystem)
           // already created the panels — just distribute the synced tabs
           // into them.
-          this.syncTabsFromServer(pendingData.tabs, isInitialSync, pendingData.activeTabsByPanel);
+          this.syncTabsFromServer(pendingData.tabs, isInitialSync, pendingData.activeTabsByPanel, pendingData.activeSessionId);
         } else {
           // Server has no tabs (e.g. right after restart). Treat it as a
           // fresh slate: clear stale localStorage and DO NOT resurrect
@@ -4745,7 +4808,7 @@ const wheelHandler = (e) => {
             const isInitialSync = !this._initialSyncDone;
             // The local per-device layout (initLayoutSystem) has already
             // created the panels — distribute the synced tabs into them.
-            this.syncTabsFromServer(data.tabs, isInitialSync, data.activeTabsByPanel);
+            this.syncTabsFromServer(data.tabs, isInitialSync, data.activeTabsByPanel, data.activeSessionId);
           } else if (!this._initialSyncDone) {
             // Server has no tabs and this is the first sync. This is the
             // post-restart / fresh-install / single-client-with-no-sessions
@@ -4821,6 +4884,20 @@ const wheelHandler = (e) => {
       }
     });
 
+    this.socket.on('bookmark-encryption-changed', (data) => {
+      this.bookmarkEncryptionEnabled = data.enabled === true;
+      if (this.bookmarkEncryptionEnabled) this.clearSensitiveTabStorage();
+      this.updatePasswordToggleUI();
+    });
+
+    this.socket.on('auth-state-changed', () => {
+      // A password was enabled, changed, or removed. Reloading clears all
+      // decrypted bookmarks, connection credentials, and terminal history
+      // from this page's memory before applying the new auth state.
+      localStorage.removeItem('sshift_auth_token');
+      location.reload();
+    });
+
     // layout-changed / theme-changed / accent-changed handlers removed:
     // layout, theme and accent are per-device preferences (localStorage)
     // and are no longer broadcast between clients through the server.
@@ -4846,7 +4923,10 @@ const wheelHandler = (e) => {
           // Tabs whose panelId doesn't exist in this device's layout fall
           // back to the first panel (distributeTabsToPanels).
           if (data.tabs && Array.isArray(data.tabs)) {
-            this.distributeTabsToPanels(data.tabs);
+            if (this.isMobile) {
+              this.reorderTabsInDOM(data.tabs.map(tab => tab.sessionId));
+            }
+            this.distributeTabsToPanels(data.tabs, data.activeSessionId);
           }
         } finally {
           // Clear flag after processing
@@ -7245,10 +7325,47 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
         this.togglePasswordProtection();
       });
     }
+    const encryptionToggle = document.getElementById('bookmarkEncryptionToggle');
+    if (encryptionToggle) {
+      encryptionToggle.addEventListener('change', () => {
+        const enabled = encryptionToggle.checked;
+        encryptionToggle.checked = this.bookmarkEncryptionEnabled;
+        this._showPasswordModal({
+          title: enabled ? 'Encrypt Bookmark Connections' : 'Disable Bookmark Encryption',
+          label: 'Enter current password',
+          confirmText: enabled ? 'Encrypt' : 'Decrypt',
+          requireConfirm: false,
+          message: enabled
+            ? 'Hostnames, usernames, passwords, keys, passphrases, ports, and URLs will be encrypted. If you lose this password, the connection data cannot be recovered.'
+            : 'Connection data will be decrypted and stored in plaintext in the configuration file.'
+        }, async (password) => {
+          try {
+            const response = await fetch('/api/auth/bookmark-encryption', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ currentPassword: password, enabled })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed to update bookmark encryption');
+            this.bookmarkEncryptionEnabled = data.bookmarkEncryptionEnabled;
+            if (this.bookmarkEncryptionEnabled) this.clearSensitiveTabStorage();
+            this.updatePasswordToggleUI();
+            await this.loadBookmarks();
+            this.showToast(enabled ? 'Bookmark connections encrypted' : 'Bookmark encryption disabled', 'success');
+          } catch (err) {
+            this.updatePasswordToggleUI();
+            this.showToast(err.message, 'error');
+          }
+        });
+      });
+    }
     const logoutBtn = document.getElementById('logoutBtn');
     if (logoutBtn) {
       if (this.passwordEnabled) logoutBtn.style.display = '';
-      logoutBtn.addEventListener('click', () => {
+      logoutBtn.addEventListener('click', async () => {
+        try {
+          await fetch('/api/auth/logout', { method: 'POST' });
+        } catch (_) {}
         localStorage.removeItem('sshift_auth_token');
         location.reload();
       });
@@ -11269,7 +11386,7 @@ handleTabOpened(data) {
   }
 
   // Sync tabs from server (called on connect when sticky is enabled)
-async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null) {
+async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null, activeSessionId = null) {
     // Wait for any in-progress restoration to complete before syncing
     // This prevents the race condition where restoreTabs starts first,
     // sets isRestoring=true, and then this function returns early, missing
@@ -11376,10 +11493,13 @@ async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null) 
         }
       }
     } else if (activeTabsByPanel) {
-      // Mobile: use the first active tab from any panel
-      const firstActive = Object.values(activeTabsByPanel).find(id => this.sessions.has(id) || this.sftpSessions.has(id));
-      if (firstActive) {
-        this.switchTab(firstActive);
+      // Mobile has one local panel. Prefer the source device's focused tab;
+      // otherwise fall back to an active tab from any source panel.
+      const mobileActive = (activeSessionId && (this.sessions.has(activeSessionId) || this.sftpSessions.has(activeSessionId)))
+        ? activeSessionId
+        : Object.values(activeTabsByPanel).find(id => this.sessions.has(id) || this.sftpSessions.has(id));
+      if (mobileActive) {
+        this.switchTab(mobileActive, 'panel-0');
       }
 } else if (tabs.length > 0) {
       // No active tab info from server — default to first tab
@@ -11459,6 +11579,10 @@ async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null) 
   async loadBookmarks() {
     try {
       const response = await fetch('/api/bookmarks');
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to load bookmarks');
+      }
       let bookmarks = await response.json();
       
       // Apply saved order if exists
