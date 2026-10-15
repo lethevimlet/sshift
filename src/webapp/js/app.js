@@ -13914,6 +13914,9 @@ async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null, 
             this.showToast('You are running the latest version', 'success');
           }
         }
+      } else {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || `Update check failed with status ${response.status}`);
       }
     } catch (error) {
       console.error('Failed to check for updates:', error);

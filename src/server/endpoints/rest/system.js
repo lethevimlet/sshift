@@ -3,11 +3,92 @@
  */
 
 const fs = require('fs');
+const https = require('https');
 const path = require('path');
 const { getDataDir, getCertPath, getKeyPath, getConfigPath } = require('../../utils/config');
 
 const { SSL_CERT_FILE, SSL_KEY_FILE, SSL_CA_CERT_FILE } = require('../../utils/certs');
 const UPDATE_MARKER_FILE = '.updating';
+const VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
+
+function fetchJson(options, request = https.request) {
+  return new Promise((resolve, reject) => {
+    const req = request(options, (response) => {
+      let body = '';
+
+      response.on('data', (chunk) => {
+        body += chunk;
+        if (body.length > 1024 * 1024) {
+          req.destroy(new Error('Update metadata response is too large'));
+        }
+      });
+      response.on('end', () => {
+        if (response.statusCode !== 200) {
+          reject(new Error(`${options.hostname} returned ${response.statusCode}`));
+          return;
+        }
+
+        try {
+          resolve(JSON.parse(body));
+        } catch (error) {
+          reject(new Error(`Invalid JSON from ${options.hostname}: ${error.message}`));
+        }
+      });
+    });
+
+    req.on('error', reject);
+    req.setTimeout(10000, () => req.destroy(new Error(`${options.hostname} request timed out`)));
+    req.end();
+  });
+}
+
+async function getLatestPublishedVersion(request = https.request) {
+  try {
+    const npmPackage = await fetchJson({
+      hostname: 'registry.npmjs.org',
+      path: '/%40lethevimlet%2Fsshift/latest',
+      method: 'GET',
+      headers: {
+        'User-Agent': 'sshift-update-checker',
+        'Accept': 'application/json'
+      }
+    }, request);
+
+    if (!VERSION_PATTERN.test(npmPackage.version)) {
+      throw new Error('npm returned an invalid version');
+    }
+    return npmPackage.version;
+  } catch (npmError) {
+    console.warn('[UPDATE] npm version check failed, trying GitHub:', npmError.message);
+  }
+
+  const githubResponse = await fetchJson({
+    hostname: 'api.github.com',
+    path: '/repos/lethevimlet/sshift/contents/package.json',
+    method: 'GET',
+    headers: {
+      'User-Agent': 'sshift-update-checker',
+      'Accept': 'application/vnd.github.v3+json'
+    }
+  }, request);
+  const content = Buffer.from(githubResponse.content, 'base64').toString('utf8');
+  const githubVersion = JSON.parse(content).version;
+  if (!VERSION_PATTERN.test(githubVersion)) {
+    throw new Error('GitHub returned an invalid version');
+  }
+  return githubVersion;
+}
+
+function compareVersions(v1, v2) {
+  const parts1 = v1.split('.').map(Number);
+  const parts2 = v2.split('.').map(Number);
+
+  for (let i = 0; i < 3; i++) {
+    if (parts1[i] < parts2[i]) return -1;
+    if (parts1[i] > parts2[i]) return 1;
+  }
+  return 0;
+}
 
 /**
  * Register system endpoints
@@ -61,78 +142,18 @@ function registerSystemEndpoints(app, io) {
   // API: Check for updates
   app.get('/api/check-update', async (req, res) => {
     try {
-      const https = require('https');
-      
       // Get local version
       const packagePath = path.join(__dirname, '../../../../package.json');
       const packageData = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
       const localVersion = packageData.version;
-      
-      // Get remote version from GitHub
-      const options = {
-        hostname: 'api.github.com',
-        path: '/repos/lethevimlet/sshift/contents/package.json',
-        method: 'GET',
-        headers: {
-          'User-Agent': 'sshift-update-checker',
-          'Accept': 'application/vnd.github.v3+json'
-        }
-      };
-      
-      const githubRequest = https.request(options, (githubResponse) => {
-        let data = '';
-        
-        githubResponse.on('data', (chunk) => {
-          data += chunk;
-        });
-        
-        githubResponse.on('end', () => {
-          try {
-            if (githubResponse.statusCode !== 200) {
-              console.error('GitHub API error:', githubResponse.statusCode, data);
-              res.status(500).json({ error: 'Failed to check for updates' });
-              return;
-            }
-            
-            const response = JSON.parse(data);
-            const content = Buffer.from(response.content, 'base64').toString('utf8');
-            const remotePackage = JSON.parse(content);
-            const remoteVersion = remotePackage.version;
-            
-            // Compare versions
-            const compareVersions = (v1, v2) => {
-              const parts1 = v1.split('.').map(Number);
-              const parts2 = v2.split('.').map(Number);
-              
-              for (let i = 0; i < 3; i++) {
-                if (parts1[i] < parts2[i]) return -1;
-                if (parts1[i] > parts2[i]) return 1;
-              }
-              return 0;
-            };
-            
-            const comparison = compareVersions(localVersion, remoteVersion);
-            const updateAvailable = comparison < 0;
-            
-            res.json({
-              localVersion,
-              remoteVersion,
-              updateAvailable,
-              checkedAt: new Date().toISOString()
-            });
-          } catch (err) {
-            console.error('Error parsing GitHub response:', err);
-            res.status(500).json({ error: 'Failed to parse update information' });
-          }
-        });
+      const remoteVersion = await getLatestPublishedVersion();
+
+      res.json({
+        localVersion,
+        remoteVersion,
+        updateAvailable: compareVersions(localVersion, remoteVersion) < 0,
+        checkedAt: new Date().toISOString()
       });
-      
-      githubRequest.on('error', (err) => {
-        console.error('Error checking for updates:', err);
-        res.status(500).json({ error: 'Failed to check for updates' });
-      });
-      
-      githubRequest.end();
     } catch (err) {
       console.error('Error in check-update:', err);
       res.status(500).json({ error: 'Failed to check for updates' });
@@ -258,7 +279,6 @@ function registerSystemEndpoints(app, io) {
       let targetVersion = 'latest';
       const currentPkg = require('../../../../package.json');
       try {
-        const https = require('https');
         const githubVersion = await new Promise((resolve, reject) => {
           const opts = {
             hostname: 'api.github.com',
@@ -691,4 +711,4 @@ fi
   });
 }
 
-module.exports = { registerSystemEndpoints };
+module.exports = { compareVersions, getLatestPublishedVersion, registerSystemEndpoints };
