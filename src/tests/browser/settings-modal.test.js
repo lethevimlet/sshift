@@ -78,6 +78,29 @@ describe('Settings Modal Tests', () => {
   });
 
   describe('Modal Controls', () => {
+    test('should explain how to re-accept an untrusted certificate', async () => {
+      const result = await page.evaluate(() => {
+        window._swStatus = 'failed';
+        window._swError = 'An SSL certificate error occurred when fetching the script.';
+        const handled = window.app.handleApiFetchError(new TypeError('Failed to fetch'));
+        const modal = document.getElementById('securityInfoModal');
+        const acceptLink = document.getElementById('acceptCertBtn');
+        return {
+          handled,
+          modalVisible: modal.classList.contains('active'),
+          title: document.getElementById('swStatusTitle').textContent,
+          href: acceptLink.getAttribute('href')
+        };
+      });
+
+      expect(result).toEqual({
+        handled: true,
+        modalVisible: true,
+        title: 'Connection Failed',
+        href: '/api/version'
+      });
+    });
+
     test('should close modal with close button (X)', async () => {
       // Open modal
       await page.click('#settingsBtn');

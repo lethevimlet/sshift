@@ -81,6 +81,7 @@ class SSHIFTClient {
     this.passwordEnabled = false;
     this.bookmarkEncryptionEnabled = false;
     this.authToken = localStorage.getItem('sshift_auth_token') || null;
+    this._certificateAcceptanceRequired = false;
     
     this._origFetch = window.fetch.bind(window);
     window.fetch = (url, options = {}) => {
@@ -7061,7 +7062,7 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     const swStatusContainer = document.getElementById('swStatusContainer');
 
     let swStatus = window._swStatus;
-    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+    if (!this._certificateAcceptanceRequired && navigator.serviceWorker && navigator.serviceWorker.controller) {
       swStatus = 'active';
       window._swStatus = 'active';
     }
@@ -7090,7 +7091,7 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
           '<li><i class="fas fa-times"></i> Installable as app (PWA)</li>' +
           '<li><i class="fas fa-times"></i> Clipboard API access</li>' +
           '</ul>' +
-          '<p class="sw-hint">Trust the HTTPS certificate to enable all features.</p>';
+          '<p class="sw-hint">Re-accept the certificate to continue without installing it, or trust the local CA to enable all features.</p>';
       } else if (swStatus === 'redundant') {
         swStatusContainer.classList.add('sw-status-failed');
         swStatusIcon.innerHTML = '<i class="fas fa-exclamation-triangle"></i>';
@@ -7124,6 +7125,22 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     }
 
     this.openModal('securityInfoModal');
+  }
+
+  handleApiFetchError(err) {
+    const swError = String(window._swError || '').toLowerCase();
+    const certificateFailure = window.location.protocol === 'https:' &&
+      err instanceof TypeError &&
+      window._swStatus === 'failed' &&
+      (swError.includes('ssl') || swError.includes('certificate'));
+
+    if (!certificateFailure) return false;
+
+    this._certificateAcceptanceRequired = true;
+    window._swError = 'The browser no longer accepts this HTTPS certificate. Re-accept it to continue, or install the local CA for permanent trust.';
+    this.showToast('HTTPS certificate approval required', 'error');
+    this.openSecurityInfoDialog();
+    return true;
   }
 
   // Debug Info Dialog
@@ -13131,7 +13148,9 @@ async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null, 
         throw new Error('Failed to save bookmark');
       }
     } catch (err) {
-      this.showToast(err.message, 'error');
+      if (!this.handleApiFetchError(err)) {
+        this.showToast(err.message, 'error');
+      }
     }
   }
 

@@ -1315,9 +1315,15 @@
               <div id="customCertWarning" class="sw-custom-cert-warning" style="display: none; margin-top: 8px;">
                 <i class="fas fa-exclamation-circle"></i> A custom certificate is configured. Download the certificate from your administrator.
               </div>
-              <button class="btn btn-secondary" id="downloadCertBtn" style="margin-top: 8px;">
-                <i class="fas fa-download"></i> Download CA Certificate
-              </button>
+               <button class="btn btn-secondary" id="downloadCertBtn" style="margin-top: 8px;">
+                 <i class="fas fa-download"></i> Download CA Certificate
+               </button>
+               <a class="btn btn-secondary" id="acceptCertBtn" href="/api/version" target="_blank" rel="noopener noreferrer" style="margin-top: 8px;">
+                 <i class="fas fa-external-link-alt"></i> Re-accept Certificate
+               </a>
+               <div class="setting-description" style="margin-top: 8px;">
+                 If the app loaded but API requests fail, open this link, choose <strong>Advanced → Proceed</strong>, then return and reload SSHIFT. This exception is temporary; installing the CA is optional but permanent.
+               </div>
 </div>
           </div>
         </div>
