@@ -53,9 +53,11 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Regenerate package-lock.json to ensure it stays in sync with package.json,
-# then install only production dependencies
-RUN npm install --package-lock-only --ignore-scripts && \
+# Disable V8 JIT only during installation: generated instructions can crash
+# under QEMU when building ARM images (SIGILL / exit 132). Keep runtime JIT on.
+# Synchronize the npm lockfile before installing production dependencies.
+RUN export NODE_OPTIONS=--jitless && \
+    npm install --package-lock-only --ignore-scripts && \
     npm ci --omit=dev && \
     npm cache clean --force && \
     chown -R sshift:sshift /app
