@@ -3,6 +3,7 @@
  */
 
 const { loadConfig, saveConfig } = require('../../utils/config');
+const { saveBookmark } = require('../../services/bookmarks');
 const {
   BookmarkEncryptionLockedError,
   getDecryptedBookmarks,
@@ -10,6 +11,7 @@ const {
 } = require('../../utils/bookmark-encryption');
 
 function handleBookmarkError(res, err) {
+  if (err.status === 404) return res.status(404).json({ error: err.message });
   if (err instanceof BookmarkEncryptionLockedError) {
     return res.status(423).json({ error: 'Encrypted bookmarks are locked; sign in again' });
   }
@@ -35,38 +37,8 @@ function registerBookmarkEndpoints(app, io) {
 
   // API: Add bookmark
   app.post('/api/bookmarks', (req, res) => {
-    const config = loadConfig();
-    const bookmark = {
-      id: Date.now().toString(),
-      name: req.body.name,
-      type: req.body.type || 'ssh'
-    };
-    
-    // Add type-specific fields
-    if (req.body.type === 'url') {
-      bookmark.url = req.body.url;
-    } else {
-      bookmark.host = req.body.host;
-      bookmark.port = req.body.port || 22;
-      bookmark.username = req.body.username;
-    }
-    
-    // Add optional fields
-    if (req.body.password) bookmark.password = req.body.password;
-    if (req.body.privateKey) bookmark.privateKey = req.body.privateKey;
-    if (req.body.passphrase) bookmark.passphrase = req.body.passphrase;
-    if (req.body.folderId) bookmark.folderId = req.body.folderId;
-    
     try {
-      const bookmarks = getDecryptedBookmarks(config);
-      bookmarks.push(bookmark);
-      storeBookmarks(config, bookmarks);
-      if (!saveConfig(config)) {
-        return res.status(500).json({ error: 'Failed to save bookmark' });
-      }
-      // Broadcast to all clients
-      io.emit('bookmark-added', bookmark);
-      res.json(bookmark);
+      res.json(saveBookmark(null, req.body, io));
     } catch (err) {
       handleBookmarkError(res, err);
     }
@@ -91,26 +63,8 @@ function registerBookmarkEndpoints(app, io) {
 
   // API: Update bookmark
   app.put('/api/bookmarks/:id', (req, res) => {
-    const config = loadConfig();
     try {
-      const bookmarks = getDecryptedBookmarks(config);
-      const index = bookmarks.findIndex(b => b.id === req.params.id);
-      if (index === -1) {
-        return res.status(404).json({ error: 'Bookmark not found' });
-      }
-      bookmarks[index] = {
-        ...bookmarks[index],
-        ...req.body,
-        id: req.params.id
-      };
-      delete bookmarks[index].encryptedConnection;
-      storeBookmarks(config, bookmarks);
-      if (!saveConfig(config)) {
-        return res.status(500).json({ error: 'Failed to update bookmark' });
-      }
-      // Broadcast decrypted data only to authenticated, connected clients.
-      io.emit('bookmark-updated', bookmarks[index]);
-      res.json(bookmarks[index]);
+      res.json(saveBookmark(req.params.id, req.body, io));
     } catch (err) {
       handleBookmarkError(res, err);
     }

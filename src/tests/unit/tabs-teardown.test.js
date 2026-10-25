@@ -1,11 +1,6 @@
 /**
- * Phase 7 hardening tests for sticky-session teardown.
- *
- * Verifies that explicit `tab-close` / `ssh-disconnect` / `sftp-disconnect`
- * from one client does NOT yank the underlying SSH/SFTP stream out from
- * under other viewers when sticky is enabled, and that the same flow
- * schedules a cancelable grace period for non-sticky sessions with no
- * remaining viewers.
+ * Explicit closes end shared sessions; detach/disconnect retains sticky
+ * sessions and reconnect grace without interrupting other viewers.
  *
  * Tests drive the WS handlers via mock sockets/io and assert on emitted
  * events + direct calls into sshManager/sftpManager/tab-manager.
@@ -43,7 +38,7 @@ function makeMockIo() {
   };
 }
 
-describe('sticky tab close respects remaining viewers', () => {
+describe('explicit close versus temporary detach', () => {
   let registerSSHHandlers;
   let registerSFTPHandlers;
   let registerTabHandlers;
@@ -72,114 +67,35 @@ describe('sticky tab close respects remaining viewers', () => {
     }
   });
 
-  test('tab-close with remaining viewers keeps the session alive (no tab-closed emit)', () => {
+  test.each([
+    ['ssh', true, ['sock-closer', 'sock-remain']],
+    ['ssh', true, ['sock-closer']],
+    ['ssh', false, ['sock-closer']],
+    ['sftp', true, ['sock-closer', 'sock-remain']],
+    ['sftp', false, ['sock-closer']]
+  ])('tab-close terminates %s (sticky=%s, viewers=%j) immediately', (type, sticky, viewers) => {
     const { socket, handlers } = makeMockSocket('sock-closer');
     const { io, ioEmitted } = makeMockIo();
     registerTabHandlers(socket, io);
-
-    // Set up a tab with TWO active sockets (the closer + one remaining viewer).
+    const disconnect = jest.spyOn(type === 'ssh' ? sshManager : sftpManager, 'disconnect').mockImplementation(() => {});
     tabManager.addTab('s-sticky-1', {
       name: 'Test',
-      type: 'ssh',
+      type,
       connectionData: {},
-      activeSockets: new Set(['sock-closer', 'sock-remain']),
-      sticky: true
+      activeSockets: new Set(viewers),
+      sticky
     });
-
-    // Drive the tab-close handler.
+    tabManager.setActiveTab('panel-0', 's-sticky-1');
+    tabManager.setActiveSession('s-sticky-1');
+    const timer = setTimeout(() => { throw new Error('Closed session timer fired'); }, 5000);
+    tabManager.setCloseTimer('s-sticky-1', timer);
     handlers.get('tab-close')({ sessionId: 's-sticky-1' });
-
-    // The tab record should still exist (we only removed the closer's socket).
-    const tab = tabManager.getTab('s-sticky-1');
-    expect(tab).toBeDefined();
-    expect(tab.activeSockets.size).toBe(1);
-    expect([...tab.activeSockets][0]).toBe('sock-remain');
-
-    // The handler must NOT emit `tab-closed` (the session is still in use).
-    const tabClosed = ioEmitted.filter(e => e.event === 'tab-closed');
-    expect(tabClosed.length).toBe(0);
-    // It should emit `sessions-updated` so remaining viewers refresh counts.
-    const sessionsUpdated = ioEmitted.filter(e => e.event === 'sessions-updated');
-    expect(sessionsUpdated.length).toBeGreaterThanOrEqual(1);
-  });
-
-  test('tab-close for the LAST viewer on a sticky session keeps it alive indefinitely', () => {
-    const { socket, handlers } = makeMockSocket('sock-last-sticky');
-    const { io, ioEmitted } = makeMockIo();
-    registerTabHandlers(socket, io);
-
-    tabManager.addTab('s-sticky-last', {
-      name: 'Test',
-      type: 'ssh',
-      connectionData: {},
-      activeSockets: new Set(['sock-last-sticky']),
-      sticky: true
-    });
-
-    handlers.get('tab-close')({ sessionId: 's-sticky-last' });
-
-    // After the close, no viewers remain. Sticky sessions must NOT schedule
-    // a grace timer OR destroy the underlying session — the tab remains
-    // for another client to rejoin later.
-    const tab = tabManager.getTab('s-sticky-last');
-    expect(tab).toBeDefined();
-    expect(tab.closeTimer).toBeFalsy();
-    // No tab-closed broadcast (session is still alive on the server).
-    const tabClosed = ioEmitted.filter(e => e.event === 'tab-closed');
-    expect(tabClosed.length).toBe(0);
-  });
-
-  test('tab-close for the LAST viewer on a NON-sticky session schedules a 5s grace timer', () => {
-    const { socket, handlers } = makeMockSocket('sock-nonsticky');
-    const { io, ioEmitted } = makeMockIo();
-    registerTabHandlers(socket, io);
-
-    tabManager.addTab('s-nonsticky-1', {
-      name: 'Test',
-      type: 'ssh',
-      connectionData: {},
-      activeSockets: new Set(['sock-nonsticky']),
-      sticky: false
-    });
-
-    // Use fake timers so we can control the 5s grace window.
-    jest.useFakeTimers();
-    try {
-      handlers.get('tab-close')({ sessionId: 's-nonsticky-1' });
-
-      // Grace timer should be armed but the tab and SSH stream are still alive
-      // until the timer fires.
-      const tab = tabManager.getTab('s-nonsticky-1');
-      expect(tab).toBeDefined();
-      expect(tab.closeTimer).toBeTruthy();
-      expect(ioEmitted.filter(e => e.event === 'tab-closed').length).toBe(0);
-
-      // Spy on the manager's disconnect so we can assert it fires only
-      // after the grace period.
-      const realDisconnect = sshManager.disconnect.bind(sshManager);
-      let disconnectCalls = [];
-      sshManager.disconnect = (sid) => { disconnectCalls.push(sid); };
-      try {
-        // Re-running the handler with the spy in place.
-        tabManager.addTab('s-nonsticky-2', {
-          name: 'Test',
-          type: 'ssh',
-          connectionData: {},
-          activeSockets: new Set(['sock-nonsticky-2']),
-          sticky: false
-        });
-        handlers.get('tab-close')({ sessionId: 's-nonsticky-2' });
-        // Not yet fired.
-        expect(disconnectCalls.length).toBe(0);
-        jest.advanceTimersByTime(5001);
-        // After the 5s grace, disconnect fires for the second session.
-        expect(disconnectCalls.length).toBeGreaterThanOrEqual(1);
-      } finally {
-        sshManager.disconnect = realDisconnect;
-      }
-    } finally {
-      jest.useRealTimers();
-    }
+    expect(disconnect).toHaveBeenCalledWith('s-sticky-1');
+    expect(tabManager.getTab('s-sticky-1')).toBeUndefined();
+    expect(tabManager.getTabOrder()).not.toContain('s-sticky-1');
+    expect(tabManager.getActiveSession()).toBeNull();
+    expect(ioEmitted).toContainEqual({ event: 'tab-closed', data: { sessionId: 's-sticky-1' }, target: 'io' });
+    expect(ioEmitted.some(e => e.event === 'sessions-updated')).toBe(true);
   });
 
   test('ssh-disconnect with remaining viewers calls leaveSession and keeps session alive', () => {

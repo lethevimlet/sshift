@@ -6053,7 +6053,8 @@ const wheelHandler = (e) => {
       this.closeModal('bookmarkModal');
     });
 
-    document.getElementById('saveBookmarkBtn').addEventListener('click', () => {
+    document.getElementById('bookmarkForm').addEventListener('submit', (event) => {
+      event.preventDefault();
       this.saveBookmark();
     });
 
@@ -11090,7 +11091,6 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
 
     // Disconnect
     if (session.type === 'ssh') {
-      this.socket.emit('ssh-disconnect', { sessionId });
       // Clean up ResizeObserver
       if (session.resizeObserver) {
         session.resizeObserver.disconnect();
@@ -11152,7 +11152,6 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
       }
       this.sessions.delete(sessionId);
     } else {
-      this.socket.emit('sftp-disconnect', { sessionId });
       this.sftpSessions.delete(sessionId);
     }
 
@@ -13085,6 +13084,7 @@ async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null, 
   }
 
   async saveBookmark() {
+    if (this._savingBookmark) return;
     const id = document.getElementById('bookmarkId').value;
     const name = document.getElementById('bookmarkName').value.trim();
     const type = document.getElementById('bookmarkType').value;
@@ -13124,33 +13124,38 @@ async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null, 
       if (passphrase) bookmark.passphrase = passphrase;
     }
 
+    this._savingBookmark = true;
     try {
-      let response;
-      if (id) {
-        response = await fetch(`/api/bookmarks/${id}`, {
-          method: 'PUT',
+      let savedBookmark;
+      // Reuse the authenticated terminal connection. A fresh HTTPS fetch can
+      // fail when the browser's temporary certificate exception has expired,
+      // even though this socket is still healthy. REST remains available when
+      // the socket is offline; never retry an ambiguous create automatically.
+      if (this.socket.connected) {
+        const result = await this.socket.timeout(10000).emitWithAck('bookmark-save', { id, bookmark });
+        if (result.error) throw new Error(result.error);
+        savedBookmark = result.bookmark;
+      } else {
+        const response = await fetch(id ? `/api/bookmarks/${encodeURIComponent(id)}` : '/api/bookmarks', {
+          method: id ? 'PUT' : 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(bookmark)
         });
-      } else {
-        response = await fetch('/api/bookmarks', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(bookmark)
-        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Failed to save bookmark');
+        savedBookmark = result;
       }
-
-      if (response.ok) {
-        this.showToast(id ? 'Bookmark updated' : 'Bookmark added', 'success');
-        this.loadBookmarks();
-        this.closeModal('bookmarkModal');
-      } else {
-        throw new Error('Failed to save bookmark');
-      }
+      if (!savedBookmark || !savedBookmark.id) throw new Error('Failed to save bookmark');
+      const index = this.bookmarks.findIndex(b => b.id === savedBookmark.id);
+      if (index === -1) this.bookmarks.push(savedBookmark);
+      else this.bookmarks[index] = savedBookmark;
+      this.renderBookmarks();
+      this.showToast(id ? 'Bookmark updated' : 'Bookmark added', 'success');
+      this.closeModal('bookmarkModal');
     } catch (err) {
-      if (!this.handleApiFetchError(err)) {
-        this.showToast(err.message, 'error');
-      }
+      this.showToast(err.message, 'error');
+    } finally {
+      this._savingBookmark = false;
     }
   }
 

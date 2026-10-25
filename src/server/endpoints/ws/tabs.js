@@ -26,70 +26,24 @@ const { sshManager, sftpManager } = require('../../services');
  * @param {Object} io - Socket.IO instance
  */
 function registerTabHandlers(socket, io) {
-  // Tab close event (client-side tab close, not full disconnect)
+  // An explicit close ends the shared session. Socket disconnect/reload is
+  // handled separately below and retains sticky sessions/reconnect grace.
   socket.on('tab-close', (data) => {
     console.log('[TAB] Tab closed:', data.sessionId, 'by socket:', socket.id);
-
-    // Remove this socket from the tab's active sockets
     const tab = getTab(data.sessionId);
+    clearCloseTimer(data.sessionId);
+    // Remove restoration state before disconnecting the stream, which can
+    // synchronously emit events. No reconnect should resurrect a closed tab.
+    removeTab(data.sessionId);
     if (tab) {
-      removeSocketFromTab(data.sessionId, socket.id);
-
-      // If other sockets are still viewing this tab, the originating
-      // client's close must NOT tear down the session for them.
-      // Just notify remaining viewers to refresh their sessions list.
-      // The originating client already removed the tab locally via
-      // closeTab() (app.js), so it does NOT need a tab-closed echo.
-      if (tab.activeSockets.size > 0) {
-        console.log('[TAB] Tab closed by', socket.id, 'but', tab.activeSockets.size, 'viewer(s) remain; keeping session:', data.sessionId);
-        // SSH: drop this socket from the session room so it stops
-        // receiving broadcasts from this session.
-        if (tab.type === 'ssh') {
-          sshManager.leaveSession(socket, data.sessionId);
-        }
-        // Tell remaining clients to refresh any open "manage sessions"
-        // modal — they may want to reflect the new viewer count.
-        io.emit('sessions-updated');
-        return;
+      if (tab.type === 'ssh') {
+        sshManager.disconnect(data.sessionId);
+      } else if (tab.type === 'sftp') {
+        sftpManager.disconnect(data.sessionId);
       }
-
-      // No more viewers left after this close. Honor the sticky flag:
-      // sticky sessions stay alive on the server indefinitely (until
-      // explicitly killed by another path or server restart). Non-
-      // sticky sessions get the same 5s grace path used by
-      // handleTabDisconnect, so a transient close-then-reopen round-
-      // trip (e.g. closing and reloading a devtools session) doesn't
-      // yank the SSH connection out from under the user.
-      clearCloseTimer(data.sessionId);
-      if (tab.sticky) {
-        console.log('[TAB] Sticky session remains open on server (no viewers):', data.sessionId);
-        io.emit('sessions-updated');
-        return;
-      }
-
-      console.log('[TAB] Non-sticky session, scheduling close after grace period:', data.sessionId);
-      const gracePeriod = 5000;
-      setCloseTimer(data.sessionId, setTimeout(() => {
-        const currentTab = getTab(data.sessionId);
-        if (currentTab && currentTab.activeSockets.size === 0) {
-          console.log('[TAB] Grace period expired, closing session:', data.sessionId);
-          if (currentTab.type === 'ssh') {
-            sshManager.disconnect(data.sessionId);
-          } else if (currentTab.type === 'sftp') {
-            sftpManager.disconnect(data.sessionId);
-          }
-          removeTab(data.sessionId);
-          io.emit('tab-closed', { sessionId: data.sessionId });
-          io.emit('sessions-updated');
-        } else {
-          console.log('[TAB] Session has new sockets, canceling close:', data.sessionId);
-        }
-      }, gracePeriod));
-    } else {
-      // No tab record — broadcast close so stale client UIs clear it.
-      io.emit('tab-closed', { sessionId: data.sessionId });
-      io.emit('sessions-updated');
     }
+    io.emit('tab-closed', { sessionId: data.sessionId });
+    io.emit('sessions-updated');
   });
 
   // Tab reorder event

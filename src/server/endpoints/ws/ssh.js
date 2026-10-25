@@ -262,7 +262,7 @@ function registerSSHHandlers(socket, io) {
   });
 
   // SSH disconnect — historically meant "I'm done with this session locally".
-  // Treat it identically to tab-close: viewer-aware + sticky-aware teardown.
+  // Detach this viewer, unlike tab-close which explicitly ends the session.
   // Only destroy the underlying SSH stream when no other clients remain AND
   // the session is non-sticky. This lets the orchestrator close their view
   // without yanking the session out from under sticky observers (or shedding

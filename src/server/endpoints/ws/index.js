@@ -7,6 +7,7 @@ const { registerSSHHandlers, handleSSHDisconnect } = require('./ssh');
 const { registerSFTPHandlers, handleSFTPDisconnect } = require('./sftp');
 const { registerTabHandlers, handleTabDisconnect } = require('./tabs');
 const { registerLayoutHandlers, getCurrentLayout, setCurrentLayout } = require('./layout');
+const { registerBookmarkHandlers } = require('./bookmarks');
 
 /**
  * Register all WebSocket handlers
@@ -18,6 +19,7 @@ function registerAllWSHandlers(socket, io) {
   registerSFTPHandlers(socket, io);
   registerTabHandlers(socket, io);
   registerLayoutHandlers(socket, io);
+  registerBookmarkHandlers(socket, io);
 }
 
 /**
