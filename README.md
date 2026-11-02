@@ -271,6 +271,19 @@ Add plugins to your `config.json`:
 
 See [Configuration > Plugins](docs/configuration.md#plugins) for full details.
 
+### Remote Control (local assistants)
+
+The opt-in `remote-control` plugin exposes a **loopback-only, token-protected** HTTP API so a
+local assistant (for example a voice assistant's MCP server) can list and switch tabs, open
+bookmarks, read a terminal's screen as plain text, type text and press keys. Typing never
+presses Enter; submitting is always a separate, explicit key request.
+
+```json
+{ "plugins": [{ "name": "remote-control", "enabled": true, "config": { "port": 8044 } }] }
+```
+
+See [Configuration > Remote Control](docs/configuration.md#remote-control-plugin).
+
 ## 🛠️ Technology Stack
 
 **Backend:** Node.js, Express, Socket.IO, ssh2  

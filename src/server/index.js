@@ -336,6 +336,7 @@ async function initializeServer() {
 
     // Sync flash state for tabs that need attention
     pluginManager.syncFlashState(socket);
+    pluginManager.registerSocket(socket);
 
     // Register all WebSocket handlers
     ws.registerAllWSHandlers(socket, io);

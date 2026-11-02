@@ -607,6 +607,41 @@ if (this.io) {
     return this.sessions.has(sessionId);
   }
 
+  // Plain-text view of the active buffer for remote-control/automation
+  // plugins: the visible screen plus up to `history` earlier lines, with
+  // the input modes a client needs to send correct key sequences. Reads the
+  // headless terminal directly — no ANSI serialization.
+  getTerminalText(sessionId, { history = 0 } = {}) {
+    const session = this.sessions.get(sessionId);
+    if (!session || !session.terminal) return null;
+    try {
+      const terminal = session.terminal;
+      const buffer = terminal.buffer.active;
+      const extra = Math.max(0, Math.min(Number(history) || 0, 2000));
+      const start = Math.max(0, buffer.baseY - extra);
+      const end = buffer.baseY + terminal.rows;
+      const lines = [];
+      for (let y = start; y < end; y++) {
+        const line = buffer.getLine(y);
+        lines.push(line ? line.translateToString(true) : '');
+      }
+      while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+      const modes = terminal.modes || {};
+      return {
+        lines,
+        cursorLine: buffer.baseY + buffer.cursorY - start,
+        alternateScreen: buffer.type === 'alternate',
+        bracketedPaste: !!modes.bracketedPasteMode,
+        applicationCursorKeys: !!modes.applicationCursorKeysMode,
+        cols: session.cols,
+        rows: session.rows
+      };
+    } catch (err) {
+      console.error(`[SSH] Error reading terminal text:`, err.message);
+      return null;
+    }
+  }
+
   // Serialize a session's screen for a client sync, shrinking the amount
   // of scrollback until the payload fits under `maxBytes`.
   //

@@ -240,12 +240,14 @@ function getActiveTabsByPanel() {
   return activeTabsByPanel;
 }
 
+// Keep the id even if the tab is not registered yet: a client that opens a
+// tab can report focus before its ssh-connect completes on the server.
 function setActiveSession(sessionId) {
-  activeSessionId = sessionId && openTabs.has(sessionId) ? sessionId : null;
+  activeSessionId = sessionId || null;
 }
 
 function getActiveSession() {
-  return activeSessionId;
+  return activeSessionId && openTabs.has(activeSessionId) ? activeSessionId : null;
 }
 
 /**

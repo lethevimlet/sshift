@@ -5800,6 +5800,27 @@ const wheelHandler = (e) => {
     this.socket.on('tab-flash-stop', (data) => {
       this.stopTabFlash(data.sessionId);
     });
+
+    // Remote-control plugin requests (e.g. voice assistants). Switching is
+    // applied by every client, like a tabs-sync. Opening a bookmark must
+    // happen exactly once: clients claim the request (visible ones first)
+    // and only the client the server grants it to connects.
+    this.socket.on('remote-switch-tab', (data) => {
+      if (data && data.sessionId && this.sessions.has(data.sessionId)) {
+        this.switchTab(data.sessionId);
+      }
+    });
+
+    this.socket.on('remote-open-bookmark', (data) => {
+      const bookmark = data && this.bookmarks.find(b => b.id === data.bookmarkId);
+      if (!bookmark || !data.requestId) return;
+      const delay = document.visibilityState === 'visible' ? 0 : 1500;
+      setTimeout(() => {
+        this.socket.emit('remote-action-claim', { requestId: data.requestId }, (response) => {
+          if (response && response.granted) this.connectFromBookmark(bookmark);
+        });
+      }, delay);
+    });
   }
 
   // Event Listeners

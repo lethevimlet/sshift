@@ -22,6 +22,16 @@
  *   - ctx.getTerminalViewport(sessionId)          - Get the visible screen only (cheap)
  *   - ctx.getActiveSessions()                     - Get list of active session IDs
  *   - ctx.getConfig()                             - Get current server config
+ *   - ctx.sendInput(sessionId, data)              - Write input on the user's behalf (fires onUserInput)
+ *   - ctx.getTerminalText(sessionId, options)     - Plain-text screen (+ history) and input modes
+ *   - ctx.getTabs()                               - Open tabs in order, with the focused session
+ *   - ctx.switchTab(sessionId)                    - Focus a tab on every connected client
+ *   - ctx.getBookmarks()                          - Bookmark names/types (never credentials)
+ *   - ctx.requestClientAction(event, data, opts)  - Ask exactly ONE connected client to act
+ *   - ctx.getDataDir()                            - User data directory (private plugin state)
+ *
+ * Plugins that hold resources (servers, timers) should implement destroy();
+ * it is called before a reload replaces the instance.
  */
 
 const path = require('path');
@@ -44,6 +54,7 @@ class PluginManager {
     this.config = null;
     this._lineBuffers = new Map();
     this.flashingSessions = new Map(); // sessionId -> options
+    this.pendingClaims = new Map(); // requestId -> { resolve, timer }
   }
 
   discoverPlugins() {
@@ -87,6 +98,11 @@ class PluginManager {
 
     for (const [name, pluginEntry] of this.plugins.entries()) {
       const instance = pluginEntry.instance;
+      if (instance && typeof instance.destroy === 'function') {
+        try { instance.destroy(); } catch (e) {
+          console.error(`[PLUGINS] Error destroying plugin "${name}":`, e.message);
+        }
+      }
       if (instance && typeof instance.onSessionDisconnect === 'function') {
         for (const sessionId of this._lineBuffers.keys()) {
           try { instance.onSessionDisconnect(sessionId); } catch (e) { /* ignore */ }
@@ -255,7 +271,115 @@ class PluginManager {
       getPluginConfig() {
         return pluginConfig.config || {};
       },
+
+      sendInput(sessionId, data) {
+        if (!self.sshManager || !self.sshManager.hasSession(sessionId)) return false;
+        self.sshManager.write(sessionId, data);
+        self.onUserInput(sessionId, data);
+        return true;
+      },
+
+      getTerminalText(sessionId, options = {}) {
+        if (self.sshManager && typeof self.sshManager.getTerminalText === 'function') {
+          return self.sshManager.getTerminalText(sessionId, options);
+        }
+        return null;
+      },
+
+      getTabs() {
+        return self.getTabs();
+      },
+
+      switchTab(sessionId) {
+        const tm = self.tabManager;
+        if (!tm || !tm.getTab(sessionId)) return false;
+        tm.setActiveSession(sessionId);
+        const tab = tm.getTab(sessionId);
+        if (tab.panelId) tm.setActiveTab(tab.panelId, sessionId);
+        if (self.io) self.io.emit('remote-switch-tab', { sessionId });
+        return true;
+      },
+
+      getBookmarks() {
+        const { loadConfig } = require('../utils/config');
+        const config = loadConfig();
+        const folders = new Map((config.folders || []).map(f => [f.id, f.name]));
+        return (config.bookmarks || []).map(b => ({
+          id: b.id,
+          name: b.name,
+          type: b.type || 'ssh',
+          folder: b.folderId ? folders.get(b.folderId) || null : null,
+        }));
+      },
+
+      requestClientAction(event, data = {}, options = {}) {
+        return self.requestClientAction(event, data, options);
+      },
+
+      getDataDir() {
+        const { getDataDir } = require('../utils/config');
+        return getDataDir();
+      },
     };
+  }
+
+  getTabs() {
+    const tm = this.tabManager;
+    if (!tm) return { activeSessionId: null, tabs: [] };
+    const openTabs = tm.getOpenTabs();
+    const order = tm.getTabOrder().filter(id => openTabs.has(id));
+    for (const id of openTabs.keys()) if (!order.includes(id)) order.push(id);
+    const activeByPanel = tm.getActiveTabsByPanel();
+    return {
+      activeSessionId: tm.getActiveSession(),
+      tabs: order.map((sessionId, index) => {
+        const tab = openTabs.get(sessionId);
+        return {
+          sessionId,
+          position: index + 1,
+          name: tab.name || tab.connectionData?.name || tab.connectionData?.host || 'Tab',
+          type: tab.type,
+          host: tab.connectionData?.host || null,
+          username: tab.connectionData?.username || null,
+          panelId: tab.panelId || 'panel-0',
+          activeInPanel: activeByPanel.get(tab.panelId || 'panel-0') === sessionId,
+          connected: tab.type === 'ssh' ? !!this.sshManager?.hasSession(sessionId) : true,
+          viewers: tab.activeSockets ? tab.activeSockets.size : 0,
+        };
+      }),
+    };
+  }
+
+  // Broadcast an action request and let exactly one client claim it (the
+  // first to answer). Clients answer quickly when visible and with a delay
+  // when hidden, so the device the user is looking at normally wins and an
+  // action like "open a tab" never runs once per open browser.
+  requestClientAction(event, data = {}, { timeoutMs = 4000 } = {}) {
+    if (!this.io || this.io.sockets.sockets.size === 0) {
+      return Promise.resolve({ claimed: false, reason: 'no-clients' });
+    }
+    const requestId = require('crypto').randomUUID();
+    return new Promise(resolve => {
+      const timer = setTimeout(() => {
+        this.pendingClaims.delete(requestId);
+        resolve({ claimed: false, reason: 'timeout', requestId });
+      }, timeoutMs);
+      this.pendingClaims.set(requestId, { resolve, timer });
+      this.io.emit(event, { ...data, requestId });
+    });
+  }
+
+  registerSocket(socket) {
+    socket.on('remote-action-claim', (data, ack) => {
+      const pending = data && this.pendingClaims.get(data.requestId);
+      const granted = !!pending;
+      if (pending) {
+        this.pendingClaims.delete(data.requestId);
+        clearTimeout(pending.timer);
+        pending.resolve({ claimed: true, requestId: data.requestId, socketId: socket.id });
+      }
+      if (typeof ack === 'function') ack({ granted });
+    });
   }
 
   _processLineBuffer(sessionId, dataStr) {
