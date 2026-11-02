@@ -26,6 +26,7 @@
  *   - ctx.getTerminalText(sessionId, options)     - Plain-text screen (+ history) and input modes
  *   - ctx.getTabs()                               - Open tabs in order, with the focused session
  *   - ctx.switchTab(sessionId)                    - Focus a tab on every connected client
+ *   - ctx.renameTab(sessionId, name)              - Rename a tab on the server and every client
  *   - ctx.getBookmarks()                          - Bookmark names/types (never credentials)
  *   - ctx.requestClientAction(event, data, opts)  - Ask exactly ONE connected client to act
  *   - ctx.getDataDir()                            - User data directory (private plugin state)
@@ -297,6 +298,14 @@ class PluginManager {
         const tab = tm.getTab(sessionId);
         if (tab.panelId) tm.setActiveTab(tab.panelId, sessionId);
         if (self.io) self.io.emit('remote-switch-tab', { sessionId });
+        return true;
+      },
+
+      renameTab(sessionId, name) {
+        const tm = self.tabManager;
+        if (!tm || !tm.getTab(sessionId)) return false;
+        tm.updateTabName(sessionId, name);
+        if (self.io) self.io.emit('tab-renamed', { sessionId, name });
         return true;
       },
 

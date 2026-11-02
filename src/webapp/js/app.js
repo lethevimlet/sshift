@@ -4873,7 +4873,7 @@ const wheelHandler = (e) => {
         if (tab) {
           const nameSpan = tab.querySelector('.tab-name');
           if (nameSpan) {
-            nameSpan.textContent = this.escapeHtml(data.name);
+            nameSpan.textContent = data.name; // textContent is already safe; escaping here showed "&amp;"
           }
         }
         

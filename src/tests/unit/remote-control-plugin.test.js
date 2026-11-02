@@ -55,6 +55,8 @@ function makeCtx(dir) {
     ],
     getTerminalText: id => screens.get(id) || { lines: ['$ '], cursorLine: 0, alternateScreen: false, bracketedPaste: false, applicationCursorKeys: false },
     sendInput: (id, data) => { ctx.writes.push([id, data]); return true; },
+    renamed: [],
+    renameTab: (id, name) => { if (!ctx.tabs.some(t => t.sessionId === id)) return false; ctx.renamed.push([id, name]); return true; },
     switchTab: id => { if (!ctx.tabs.some(t => t.sessionId === id)) return false; ctx.active = id; ctx.switched.push(id); return true; },
     requestClientAction: async () => {
       if (ctx.claimResult.claimed) ctx.tabs.push({ sessionId: 's3', position: 4, name: 'levi', type: 'ssh', connected: true });
@@ -144,6 +146,15 @@ describe('remote-control plugin', () => {
     expect((await request(port, 'POST', '/v1/open', { token, body: { bookmarkId: 'u1' } })).status).toBe(409);
     ctx.claimResult = { claimed: false, reason: 'no-clients' };
     expect((await request(port, 'POST', '/v1/open', { token, body: { bookmarkId: 'b1' } })).status).toBe(409);
+  });
+
+  test('renames tabs with validated names', async () => {
+    expect((await request(port, 'POST', '/v1/rename', { token, body: { sessionId: 's2', name: '  snake   game ' } })).body).toEqual({ renamed: true, sessionId: 's2', name: 'snake game' });
+    expect(ctx.renamed).toEqual([['s2', 'snake game']]);
+    expect((await request(port, 'POST', '/v1/rename', { token, body: { sessionId: 's2', name: '' } })).status).toBe(400);
+    expect((await request(port, 'POST', '/v1/rename', { token, body: { sessionId: 's2', name: 'x'.repeat(41) } })).status).toBe(400);
+    expect((await request(port, 'POST', '/v1/rename', { token, body: { sessionId: 's2', name: 'a\x1b[2J' } })).status).toBe(400);
+    expect((await request(port, 'POST', '/v1/rename', { token, body: { sessionId: 'nope', name: 'x' } })).status).toBe(404);
   });
 
   test('bookmarks never expose credentials', async () => {

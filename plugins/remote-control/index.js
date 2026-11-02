@@ -25,6 +25,7 @@
  *   GET  /v1/bookmarks                → { bookmarks: [{ id, name, type, folder }] }
  *   GET  /v1/screen?sessionId=&history=N
  *   POST /v1/switch { sessionId }
+ *   POST /v1/rename { sessionId, name }  → renames the tab on every browser
  *   POST /v1/open   { bookmarkId }    → opens it on ONE connected browser
  *   POST /v1/type   { sessionId?, text }
  *   POST /v1/key    { sessionId?, key, repeat? }
@@ -160,6 +161,7 @@ class RemoteControlPlugin {
         case 'GET /v1/bookmarks': return send(200, { bookmarks: this.ctx.getBookmarks() });
         case 'GET /v1/screen': return send(200, this.screen(url.searchParams.get('sessionId'), url.searchParams.get('history')));
         case 'POST /v1/switch': return send(200, this.switchTab(body.sessionId));
+        case 'POST /v1/rename': return send(200, this.renameTab(body.sessionId, body.name));
         case 'POST /v1/open': return send(200, await this.open(body.bookmarkId));
         case 'POST /v1/type': return send(200, await this.type(body.sessionId, body.text));
         case 'POST /v1/key': return send(200, await this.key(body.sessionId, body.key, body.repeat));
@@ -232,6 +234,14 @@ class RemoteControlPlugin {
     if (!this.ctx.switchTab(sessionId)) throw new HttpError(404, 'Tab not found');
     const tab = this.ctx.getTabs().tabs.find(t => t.sessionId === sessionId);
     return { switched: true, sessionId, name: tab?.name || null };
+  }
+
+  renameTab(sessionId, name) {
+    if (typeof sessionId !== 'string' || !sessionId) throw new HttpError(400, 'sessionId required');
+    const clean = typeof name === 'string' ? name.trim().replace(/\s+/g, ' ') : '';
+    if (!clean || clean.length > 40 || /[\x00-\x1f\x7f-\x9f]/.test(clean)) throw new HttpError(400, 'name must be 1-40 printable characters');
+    if (typeof this.ctx.renameTab !== 'function' || !this.ctx.renameTab(sessionId, clean)) throw new HttpError(404, 'Tab not found');
+    return { renamed: true, sessionId, name: clean };
   }
 
   async open(bookmarkId) {
