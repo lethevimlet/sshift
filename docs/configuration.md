@@ -562,7 +562,7 @@ Anyone who can read the token file can type into your sessions.
 | `POST /v1/rename` | `{ sessionId, name }` | Renames the tab on the server and every browser (1–40 printable characters) |
 | `POST /v1/open` | `{ bookmarkId }` | Opens the bookmark in **one** open browser page (409 if none is open) |
 | `POST /v1/type` | `{ sessionId?, text }` | Types text without submitting. Control characters are rejected; multi-line text is sent as a bracketed paste and refused if the app has not enabled bracketed paste |
-| `POST /v1/key` | `{ sessionId?, key, repeat? }` | Named keys: `enter`, `tab`, `shift-tab`, `escape`, `backspace`, `delete`, `space`, arrows, `home`, `end`, `page-up`, `page-down`, `ctrl-a/c/d/e/k/l/r/u/w/z` |
+| `POST /v1/key` | `{ sessionId?, key, repeat? }` | Named keys: `enter`, `tab`, `shift-tab`, `escape`, `backspace`, `delete`, `space`, arrows, `home`, `end`, `page-up`, `page-down`, `ctrl-a/c/d/e/j/k/l/r/u/w/z` (`ctrl-j` inserts a newline in Claude Code / opencode prompts without submitting) |
 
 `sessionId` defaults to the focused tab. Plugins can use the same capabilities through the
 plugin context: `sendInput`, `getTerminalText`, `getTabs`, `switchTab`, `renameTab`, `closeTab`, `getBookmarks`,

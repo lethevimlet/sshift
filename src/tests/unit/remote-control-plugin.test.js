@@ -130,7 +130,8 @@ describe('remote-control plugin', () => {
     await request(port, 'POST', '/v1/key', { token, body: { key: 'up', repeat: 2 } });
     ctx.screens.set('s1', { lines: [''], cursorLine: 0, applicationCursorKeys: true });
     await request(port, 'POST', '/v1/key', { token, body: { key: 'up' } });
-    expect(ctx.writes.map(w => w[1])).toEqual(['\r', '\x1b[A\x1b[A', '\x1bOA']);
+    await request(port, 'POST', '/v1/key', { token, body: { key: 'ctrl-j' } });
+    expect(ctx.writes.map(w => w[1])).toEqual(['\r', '\x1b[A\x1b[A', '\x1bOA', '\n']);
     expect((await request(port, 'POST', '/v1/key', { token, body: { key: 'rm' } })).status).toBe(400);
     expect((await request(port, 'POST', '/v1/key', { token, body: { key: 'enter', repeat: 99 } })).status).toBe(400);
   });

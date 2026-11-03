@@ -55,6 +55,8 @@ const KEYS = {
   'ctrl-c': '\x03',
   'ctrl-d': '\x04',
   'ctrl-e': '\x05',
+  // Newline inside Claude Code / opencode prompt boxes without submitting (Enter submits).
+  'ctrl-j': '\n',
   'ctrl-k': '\x0b',
   'ctrl-l': '\x0c',
   'ctrl-r': '\x12',
