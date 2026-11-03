@@ -26,6 +26,7 @@
  *   GET  /v1/screen?sessionId=&history=N
  *   POST /v1/switch { sessionId }
  *   POST /v1/rename { sessionId, name }  → renames the tab on every browser
+ *   POST /v1/close  { sessionId }        → closes the tab (ends its SSH session) everywhere
  *   POST /v1/open   { bookmarkId }    → opens it on ONE connected browser
  *   POST /v1/type   { sessionId?, text }
  *   POST /v1/key    { sessionId?, key, repeat? }
@@ -162,6 +163,7 @@ class RemoteControlPlugin {
         case 'GET /v1/screen': return send(200, this.screen(url.searchParams.get('sessionId'), url.searchParams.get('history')));
         case 'POST /v1/switch': return send(200, this.switchTab(body.sessionId));
         case 'POST /v1/rename': return send(200, this.renameTab(body.sessionId, body.name));
+        case 'POST /v1/close': return send(200, this.closeTab(body.sessionId));
         case 'POST /v1/open': return send(200, await this.open(body.bookmarkId));
         case 'POST /v1/type': return send(200, await this.type(body.sessionId, body.text));
         case 'POST /v1/key': return send(200, await this.key(body.sessionId, body.key, body.repeat));
@@ -234,6 +236,14 @@ class RemoteControlPlugin {
     if (!this.ctx.switchTab(sessionId)) throw new HttpError(404, 'Tab not found');
     const tab = this.ctx.getTabs().tabs.find(t => t.sessionId === sessionId);
     return { switched: true, sessionId, name: tab?.name || null };
+  }
+
+  closeTab(sessionId) {
+    if (typeof sessionId !== 'string' || !sessionId) throw new HttpError(400, 'sessionId required');
+    const tab = this.ctx.getTabs().tabs.find(t => t.sessionId === sessionId);
+    if (!tab) throw new HttpError(404, 'Tab not found');
+    if (typeof this.ctx.closeTab !== 'function' || !this.ctx.closeTab(sessionId)) throw new HttpError(404, 'Tab not found');
+    return { closed: true, sessionId, name: tab.name, position: tab.position };
   }
 
   renameTab(sessionId, name) {

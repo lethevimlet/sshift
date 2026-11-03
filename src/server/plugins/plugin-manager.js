@@ -27,6 +27,7 @@
  *   - ctx.getTabs()                               - Open tabs in order, with the focused session
  *   - ctx.switchTab(sessionId)                    - Focus a tab on every connected client
  *   - ctx.renameTab(sessionId, name)              - Rename a tab on the server and every client
+ *   - ctx.closeTab(sessionId)                     - Close a tab (ends its session) everywhere
  *   - ctx.getBookmarks()                          - Bookmark names/types (never credentials)
  *   - ctx.requestClientAction(event, data, opts)  - Ask exactly ONE connected client to act
  *   - ctx.getDataDir()                            - User data directory (private plugin state)
@@ -298,6 +299,21 @@ class PluginManager {
         const tab = tm.getTab(sessionId);
         if (tab.panelId) tm.setActiveTab(tab.panelId, sessionId);
         if (self.io) self.io.emit('remote-switch-tab', { sessionId });
+        return true;
+      },
+
+      closeTab(sessionId) {
+        // Same as a user closing the tab: end the SSH/SFTP session and remove it everywhere.
+        const tm = self.tabManager;
+        const tab = tm && tm.getTab(sessionId);
+        if (!tab) return false;
+        tm.clearCloseTimer(sessionId);
+        tm.removeTab(sessionId);
+        if (tab.type === 'ssh' && self.sshManager) self.sshManager.disconnect(sessionId);
+        if (tab.type === 'sftp') {
+          try { require('../services').sftpManager.disconnect(sessionId); } catch (e) { /* ignore */ }
+        }
+        if (self.io) { self.io.emit('tab-closed', { sessionId }); self.io.emit('sessions-updated'); }
         return true;
       },
 

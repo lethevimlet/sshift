@@ -55,7 +55,8 @@ function makeCtx(dir) {
     ],
     getTerminalText: id => screens.get(id) || { lines: ['$ '], cursorLine: 0, alternateScreen: false, bracketedPaste: false, applicationCursorKeys: false },
     sendInput: (id, data) => { ctx.writes.push([id, data]); return true; },
-    renamed: [],
+    renamed: [], closed: [],
+    closeTab: id => { const i = ctx.tabs.findIndex(t => t.sessionId === id); if (i < 0) return false; ctx.closed.push(id); ctx.tabs.splice(i, 1); return true; },
     renameTab: (id, name) => { if (!ctx.tabs.some(t => t.sessionId === id)) return false; ctx.renamed.push([id, name]); return true; },
     switchTab: id => { if (!ctx.tabs.some(t => t.sessionId === id)) return false; ctx.active = id; ctx.switched.push(id); return true; },
     requestClientAction: async () => {
@@ -155,6 +156,13 @@ describe('remote-control plugin', () => {
     expect((await request(port, 'POST', '/v1/rename', { token, body: { sessionId: 's2', name: 'x'.repeat(41) } })).status).toBe(400);
     expect((await request(port, 'POST', '/v1/rename', { token, body: { sessionId: 's2', name: 'a\x1b[2J' } })).status).toBe(400);
     expect((await request(port, 'POST', '/v1/rename', { token, body: { sessionId: 'nope', name: 'x' } })).status).toBe(404);
+  });
+
+  test('closes tabs by session id', async () => {
+    expect((await request(port, 'POST', '/v1/close', { token, body: { sessionId: 's2' } })).body).toEqual({ closed: true, sessionId: 's2', name: 'box', position: 2 });
+    expect(ctx.closed).toEqual(['s2']);
+    expect((await request(port, 'POST', '/v1/close', { token, body: { sessionId: 's2' } })).status).toBe(404);
+    expect((await request(port, 'POST', '/v1/close', { token, body: {} })).status).toBe(400);
   });
 
   test('bookmarks never expose credentials', async () => {
