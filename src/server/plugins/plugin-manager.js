@@ -30,6 +30,7 @@
  *   - ctx.closeTab(sessionId)                     - Close a tab (ends its session) everywhere
  *   - ctx.getBookmarks()                          - Bookmark names/types (never credentials)
  *   - ctx.requestClientAction(event, data, opts)  - Ask exactly ONE connected client to act
+ *   - ctx.openBookmark(bookmarkId)                - Connect an SSH bookmark on the server (no browser needed)
  *   - ctx.getDataDir()                            - User data directory (private plugin state)
  *
  * Plugins that hold resources (servers, timers) should implement destroy();
@@ -339,6 +340,12 @@ class PluginManager {
 
       requestClientAction(event, data = {}, options = {}) {
         return self.requestClientAction(event, data, options);
+      },
+
+      // Connect an SSH bookmark on the server (no browser needed); browsers attach via tab-opened.
+      async openBookmark(bookmarkId, options = {}) {
+        const { openBookmarkHeadless } = require('../services/headless-open');
+        return openBookmarkHeadless(self.io, bookmarkId, options);
       },
 
       getDataDir() {

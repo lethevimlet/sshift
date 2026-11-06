@@ -276,7 +276,8 @@ See [Configuration > Plugins](docs/configuration.md#plugins) for full details.
 The opt-in `remote-control` plugin exposes a **loopback-only, token-protected** HTTP API so a
 local assistant (for example a voice assistant's MCP server) can list, switch and rename tabs, open
 bookmarks, read a terminal's screen as plain text, type text and press keys. Typing never
-presses Enter; submitting is always a separate, explicit key request.
+presses Enter; submitting is always a separate, explicit key request. It works with no sshift
+page open: SSH bookmarks are connected by the server itself, and pages show those tabs when opened.
 
 ```json
 { "plugins": [{ "name": "remote-control", "enabled": true, "config": { "port": 8044 } }] }

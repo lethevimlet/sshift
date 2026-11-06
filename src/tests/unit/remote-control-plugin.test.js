@@ -150,6 +150,21 @@ describe('remote-control plugin', () => {
     expect((await request(port, 'POST', '/v1/open', { token, body: { bookmarkId: 'b1' } })).status).toBe(409);
   });
 
+  test('opens SSH bookmarks on the server when no browser is open', async () => {
+    ctx.claimResult = { claimed: false, reason: 'no-clients' };
+    ctx.openBookmark = async id => {
+      if (id !== 'b1') throw Object.assign(new Error('Bookmark not found'), { status: 404 });
+      ctx.tabs.push({ sessionId: 's9', position: 4, name: 'levi', type: 'ssh', connected: true });
+      return { sessionId: 's9', name: 'levi' };
+    };
+    expect((await request(port, 'POST', '/v1/open', { token, body: { bookmarkId: 'b1' } })).body).toEqual({ opened: true, sessionId: 's9', name: 'levi', connected: true, headless: true });
+    expect(ctx.active).toBe('s9');
+    ctx.openBookmark = async () => { throw Object.assign(new Error('Could not connect levi: refused'), { status: 502 }); };
+    const failed = await request(port, 'POST', '/v1/open', { token, body: { bookmarkId: 'b1' } });
+    expect(failed.status).toBe(502);
+    expect(failed.body.error).toMatch(/refused/);
+  });
+
   test('renames tabs with validated names', async () => {
     expect((await request(port, 'POST', '/v1/rename', { token, body: { sessionId: 's2', name: '  snake   game ' } })).body).toEqual({ renamed: true, sessionId: 's2', name: 'snake game' });
     expect(ctx.renamed).toEqual([['s2', 'snake game']]);

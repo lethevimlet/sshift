@@ -383,6 +383,10 @@ class SSHManager {
     // Now join the session room to receive future updates
     socket.join(`session-${sessionId}`);
     session.sockets.add(socket.id);
+    // Nobody holds control (a server-opened tab, or every client left): the
+    // joining client takes it, otherwise its input would be dropped until a
+    // manual "take control".
+    if (!session.controllerSocket) session.controllerSocket = socket.id;
     console.log(`[SSH] Socket ${socket.id} joined session ${sessionId}`);
     
     // Notify client that they've joined, including whether terminal state was sent

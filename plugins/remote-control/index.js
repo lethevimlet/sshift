@@ -27,7 +27,8 @@
  *   POST /v1/switch { sessionId }
  *   POST /v1/rename { sessionId, name }  → renames the tab on every browser
  *   POST /v1/close  { sessionId }        → closes the tab (ends its SSH session) everywhere
- *   POST /v1/open   { bookmarkId }    → opens it on ONE connected browser
+ *   POST /v1/open   { bookmarkId }    → SSH: the server connects it (no browser needed) and every
+ *                                       open page attaches; SFTP: opened by ONE connected browser
  *   POST /v1/type   { sessionId?, text }
  *   POST /v1/key    { sessionId?, key, repeat? }
  * sessionId defaults to the focused tab.
@@ -260,6 +261,17 @@ class RemoteControlPlugin {
     const bookmark = this.ctx.getBookmarks().find(b => b.id === bookmarkId);
     if (!bookmark) throw new HttpError(404, 'Bookmark not found');
     if (!['ssh', 'sftp'].includes(bookmark.type)) throw new HttpError(409, 'Only SSH/SFTP bookmarks can be opened');
+    // SSH: the server connects it itself — works with no browser open; open pages attach to the tab.
+    if (bookmark.type === 'ssh' && typeof this.ctx.openBookmark === 'function') {
+      let opened;
+      try {
+        opened = await this.ctx.openBookmark(bookmarkId);
+      } catch (err) {
+        throw new HttpError(err.status || 502, err.message);
+      }
+      this.ctx.switchTab(opened.sessionId);
+      return { opened: true, sessionId: opened.sessionId, name: opened.name, connected: true, headless: true };
+    }
     const before = new Set(this.ctx.getTabs().tabs.map(t => t.sessionId));
     const claim = await this.ctx.requestClientAction('remote-open-bookmark', { bookmarkId });
     if (!claim.claimed) {

@@ -560,7 +560,7 @@ Anyone who can read the token file can type into your sessions.
 | `POST /v1/switch` | `{ sessionId }` | Focuses the tab on every connected browser |
 | `POST /v1/close` | `{ sessionId }` | Closes the tab and ends its SSH/SFTP session on every browser |
 | `POST /v1/rename` | `{ sessionId, name }` | Renames the tab on the server and every browser (1–40 printable characters) |
-| `POST /v1/open` | `{ bookmarkId }` | Opens the bookmark in **one** open browser page (409 if none is open) |
+| `POST /v1/open` | `{ bookmarkId }` | SSH bookmarks: the server connects it itself, so **no browser page has to be open**; open pages show the new tab, and pages opened later find it. SFTP bookmarks open in **one** open browser page (409 if none is open) |
 | `POST /v1/type` | `{ sessionId?, text }` | Types text without submitting. Control characters are rejected; multi-line text is sent as a bracketed paste and refused if the app has not enabled bracketed paste |
 | `POST /v1/key` | `{ sessionId?, key, repeat? }` | Named keys: `enter`, `tab`, `shift-tab`, `escape`, `backspace`, `delete`, `space`, arrows, `home`, `end`, `page-up`, `page-down`, `ctrl-a/c/d/e/j/k/l/r/u/w/z` (`ctrl-j` inserts a newline in Claude Code / opencode prompts without submitting) |
 
