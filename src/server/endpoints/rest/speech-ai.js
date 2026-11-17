@@ -168,6 +168,7 @@ function registerSpeechAiEndpoints(app, io) {
   app.post('/api/speech-ai/stt', (req, res) => {
     handleSttProxy(req, res).catch(err => {
       console.error('[SPEECH-AI] STT proxy error:', err);
+      if (res.headersSent) return;
       res.status(502).json({ error: 'Speech-to-text proxy failed', detail: String(err.message || err) });
     });
   });
@@ -178,6 +179,7 @@ function registerSpeechAiEndpoints(app, io) {
   app.post('/api/speech-ai/wand', (req, res) => {
     handleWandProxy(req, res).catch(err => {
       console.error('[SPEECH-AI] Wand proxy error:', err);
+      if (res.headersSent) return;
       res.status(502).json({ error: 'LLM wand proxy failed', detail: String(err.message || err) });
     });
   });
@@ -189,6 +191,8 @@ function sanitizeProfileName(raw) {
   if (typeof raw !== 'string') return null;
   const name = raw.trim();
   if (!name || name.length > 64) return null;
+  // Names are object keys in config.json.
+  if (name === '__proto__' || name === 'constructor' || name === 'prototype') return null;
   return name;
 }
 
@@ -227,20 +231,38 @@ async function handleSttProxy(req, res) {
   if (!cfg.sttEndpoint) return res.status(400).json({ error: 'STT endpoint not configured' });
   if (!cfg.sttAuthKey) return res.status(400).json({ error: 'STT auth key not configured' });
 
-  // Collect raw body bytes.
+  // Collect raw body bytes (bounded). A body express.json already
+  // consumed (JSON content type) never emits 'end' again: reject it
+  // instead of hanging the request forever.
+  if (req.readableEnded || req._body) {
+    return res.status(400).json({ error: 'Send the audio as the raw request body' });
+  }
+  const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
   const chunks = [];
-  await new Promise((resolve, reject) => {
-    req.on('data', c => chunks.push(c));
-    req.on('end', resolve);
+  let total = 0;
+  const tooLarge = await new Promise((resolve, reject) => {
+    req.on('data', (c) => {
+      total += c.length;
+      if (total > MAX_AUDIO_BYTES) {
+        req.removeAllListeners('data');
+        req.resume();
+        return resolve(true);
+      }
+      chunks.push(c);
+    });
+    req.on('end', () => resolve(false));
     req.on('error', reject);
   });
+  if (tooLarge) return res.status(413).json({ error: 'Recording too large' });
   const audioBuffer = Buffer.concat(chunks);
   if (!audioBuffer.length) return res.status(400).json({ error: 'No audio received' });
 
   // Build multipart/form-data manually — we deliberately avoid adding
   // multer/formidable as dependencies just for one endpoint.
   const boundary = 'sshift-' + Math.random().toString(16).slice(2) + '-' + Date.now().toString(16);
-  const filename = req.headers['x-audio-filename'] || `recording-${Date.now()}.webm`;
+  // Header values end up inside the multipart headers: keep them plain.
+  const filename = String(req.headers['x-audio-filename'] || `recording-${Date.now()}.webm`)
+    .replace(/[^\w.\-]/g, '_').slice(0, 100);
   const mime = (req.headers['content-type'] && !req.headers['content-type'].includes('application/json'))
     ? req.headers['content-type']
     : 'audio/webm';
@@ -270,13 +292,15 @@ async function handleSttProxy(req, res) {
       'Authorization': `Bearer ${cfg.sttAuthKey}`,
       'Content-Type': `multipart/form-data; boundary=${boundary}`
     },
-    body
+    body,
+    signal: AbortSignal.timeout(120000)
   });
 
   const text = await upstream.text();
   if (!upstream.ok) {
     console.error('[SPEECH-AI] STT upstream error', upstream.status, text);
-    return res.status(upstream.status).json({ error: 'STT upstream error', detail: text });
+    return res.status(upstream.status === 401 || upstream.status === 403 ? 502 : upstream.status)
+      .json({ error: 'STT upstream error', upstreamStatus: upstream.status, detail: text.slice(0, 2000) });
   }
 
   // OpenAI-compatible transcription returns { text: "..." }
@@ -310,13 +334,15 @@ async function handleWandProxy(req, res) {
       ],
       temperature: 0.2,
       max_tokens: Math.min(2048, Math.max(64, Math.ceil(userText.length / 2)))
-    })
+    }),
+    signal: AbortSignal.timeout(120000)
   });
 
   const text = await upstream.text();
   if (!upstream.ok) {
     console.error('[SPEECH-AI] LLM upstream error', upstream.status, text);
-    return res.status(upstream.status).json({ error: 'LLM upstream error', detail: text });
+    return res.status(upstream.status === 401 || upstream.status === 403 ? 502 : upstream.status)
+      .json({ error: 'LLM upstream error', upstreamStatus: upstream.status, detail: text.slice(0, 2000) });
   }
   let parsed;
   try { parsed = JSON.parse(text); }

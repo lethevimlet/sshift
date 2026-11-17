@@ -3,7 +3,7 @@
  */
 
 const { loadConfig, getStickySetting } = require('../../utils/config');
-const { addTab, getTab, removeTab, addSocketToTab, removeSocketFromTab, clearCloseTimer, setCloseTimer } = require('../../utils/tab-manager');
+const { wasRecentlyClosed, addTab, getTab, removeTab, addSocketToTab, removeSocketFromTab, clearCloseTimer, setCloseTimer } = require('../../utils/tab-manager');
 const { sftpManager } = require('../../services');
 
 /**
@@ -40,7 +40,8 @@ function registerSFTPHandlers(socket, io) {
         name: data.name || 'SFTP',
         type: 'sftp',
         connectionData: data,
-        activeSockets: new Set([socket.id]),
+        // The socket may have gone away during the (up to 30 s) connect.
+        activeSockets: new Set(socket.connected ? [socket.id] : []),
         sticky: sticky
       });
       
@@ -48,7 +49,14 @@ function registerSFTPHandlers(socket, io) {
         sessionId,
         name: data.name || 'SFTP',
         type: 'sftp',
-        connectionData: data
+        // Never broadcast secrets (password, key, passphrase) to other
+        // browsers; they join the running session by id.
+        connectionData: {
+          host: data.host,
+          port: data.port,
+          username: data.username,
+          name: data.name
+        }
       });
 
       io.emit('sessions-updated');
@@ -69,7 +77,7 @@ function registerSFTPHandlers(socket, io) {
       addSocketToTab(data.sessionId, socket.id);
       socket.emit('sftp-joined', { sessionId: data.sessionId });
     } else {
-      socket.emit('sftp-error', { message: 'Session not found', sessionId: data.sessionId });
+      socket.emit('sftp-error', { message: 'Session not found', sessionId: data.sessionId, closed: wasRecentlyClosed(data.sessionId) });
     }
   });
 
@@ -136,13 +144,29 @@ function registerSFTPHandlers(socket, io) {
   });
 
   // SFTP download (streamed)
+  const activeDownloads = new Map(); // `${sessionId}\0${path}` -> read stream
+  socket.on('disconnect', () => {
+    for (const stream of activeDownloads.values()) {
+      try { stream.destroy(); } catch (_) {}
+    }
+    activeDownloads.clear();
+  });
+  socket.on('sftp-download-cancel', (data) => {
+    if (!data) return;
+    const key = `${data.sessionId}\0${data.path}`;
+    const stream = activeDownloads.get(key);
+    if (stream) {
+      activeDownloads.delete(key);
+      try { stream.destroy(); } catch (_) {}
+    }
+  });
   socket.on('sftp-download', async (data) => {
     try {
       const { sessionId, path } = data;
       const stats = await sftpManager.stat(sessionId, path);
 
       if (stats.isDirectory()) {
-        socket.emit('sftp-error', { message: 'Cannot download a directory' });
+        socket.emit('sftp-error', { message: 'Cannot download a directory', sessionId, path, download: true });
         return;
       }
 
@@ -157,8 +181,27 @@ function registerSFTPHandlers(socket, io) {
 
       const stream = sftpManager.getReadStream(sessionId, path);
       const FLUSH_SIZE = 1024 * 1024;
+      // Backpressure: at most this many chunks queued for the browser.
+      // Without it a multi-GB file was read as fast as SSH delivers and
+      // piled up base64 chunks in memory for a slow (mobile) client.
+      const MAX_QUEUED_PACKETS = 4;
       let buffer = Buffer.alloc(0);
       let bytesDownloaded = 0;
+
+      // One download per (session, path) per socket; cancel and
+      // disconnect stop reading from the remote server.
+      const key = `${sessionId}\0${path}`;
+      const previous = activeDownloads.get(key);
+      if (previous) previous.destroy();
+      activeDownloads.set(key, stream);
+      const finish = () => {
+        if (activeDownloads.get(key) === stream) activeDownloads.delete(key);
+        if (socket.conn) socket.conn.off('drain', onDrain);
+      };
+      const onDrain = () => {
+        if (stream.isPaused && stream.isPaused()) stream.resume();
+      };
+      if (socket.conn) socket.conn.on('drain', onDrain);
 
       stream.on('data', (chunk) => {
         buffer = Buffer.concat([buffer, chunk]);
@@ -173,8 +216,11 @@ function registerSFTPHandlers(socket, io) {
             totalBytes: stats.size
           });
           buffer = Buffer.alloc(0);
+          const queued = socket.conn && socket.conn.writeBuffer ? socket.conn.writeBuffer.length : 0;
+          if (queued >= MAX_QUEUED_PACKETS) stream.pause();
         }
       });
+      stream.on('close', finish);
 
       stream.on('end', () => {
         if (buffer.length > 0) {
@@ -195,7 +241,8 @@ function registerSFTPHandlers(socket, io) {
       });
 
       stream.on('error', (err) => {
-        socket.emit('sftp-error', { message: `Download failed: ${err.message}` });
+        finish();
+        socket.emit('sftp-error', { message: `Download failed: ${err.message}`, sessionId, path, download: true });
       });
     } catch (err) {
       socket.emit('sftp-error', { message: err.message });
@@ -204,6 +251,8 @@ function registerSFTPHandlers(socket, io) {
 
   // SFTP upload (chunked)
   socket.on('sftp-upload-start', async (data, callback) => {
+    if (typeof callback !== 'function') callback = () => {};
+    data = data || {};
     try {
       const uploadId = sftpManager.uploadStart(
         data.sessionId,
@@ -218,6 +267,8 @@ function registerSFTPHandlers(socket, io) {
   });
 
   socket.on('sftp-upload-chunk', async (data, callback) => {
+    if (typeof callback !== 'function') callback = () => {};
+    data = data || {};
     try {
       const result = await sftpManager.uploadChunk(data.uploadId, data.data);
       callback(result);
@@ -227,6 +278,8 @@ function registerSFTPHandlers(socket, io) {
   });
 
   socket.on('sftp-upload-end', async (data, callback) => {
+    if (typeof callback !== 'function') callback = () => {};
+    data = data || {};
     try {
       const result = await sftpManager.uploadEnd(data.uploadId);
       callback(result);
@@ -251,26 +304,33 @@ function registerSFTPHandlers(socket, io) {
   });
 
   // SFTP delete
-  socket.on('sftp-delete', async (data) => {
+  // With an ack callback the result (or error) goes only to the ack, so
+  // the requester can match it; without one (older pages) the broadcast
+  // result/error events are used as before.
+  socket.on('sftp-delete', async (data, ack) => {
     try {
       await sftpManager.delete(data.sessionId, data.path);
+      if (typeof ack === 'function') return ack({ success: true, path: data.path });
       socket.emit('sftp-delete-result', { path: data.path, success: true });
     } catch (err) {
-      socket.emit('sftp-error', { message: err.message });
+      if (typeof ack === 'function') return ack({ success: false, error: err.message });
+      socket.emit('sftp-error', { message: err.message, sessionId: data.sessionId });
     }
   });
 
   // SFTP rename
-  socket.on('sftp-rename', async (data) => {
+  socket.on('sftp-rename', async (data, ack) => {
     try {
       await sftpManager.rename(data.sessionId, data.oldPath, data.newPath);
+      if (typeof ack === 'function') return ack({ success: true, oldPath: data.oldPath, newPath: data.newPath });
       socket.emit('sftp-rename-result', { 
         oldPath: data.oldPath, 
         newPath: data.newPath, 
         success: true 
       });
     } catch (err) {
-      socket.emit('sftp-error', { message: err.message });
+      if (typeof ack === 'function') return ack({ success: false, error: err.message });
+      socket.emit('sftp-error', { message: err.message, sessionId: data.sessionId });
     }
   });
 

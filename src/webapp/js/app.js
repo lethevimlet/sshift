@@ -29,6 +29,9 @@ class SSHIFTClient {
     this._disconnectToastTimer = null;
     this._disconnectToastShown = false;
     this.DISCONNECT_TOAST_GRACE_MS = 2500;
+    this.WAKE_GAP_MS = 15000;      // timer gap that means the machine slept
+    this.PROBE_TIMEOUT_MS = 4000;  // ack deadline for the liveness probe
+    this._authRejected = false;
     this._staleReloadFor = null;
     this._initReady = false; // Set true once init() completes
     this._pendingOpenTabs = null; // Deferred open-tabs data
@@ -108,7 +111,9 @@ class SSHIFTClient {
     
     console.log('[SSHIFT] Mobile detection - isMobile:', this.isMobile, 'window width:', window.innerWidth);
     
-    this.init();
+    Promise.resolve(this.init()).catch((err) => {
+      console.error('[SSHIFT] Initialization failed:', err);
+    });
   }
 
   async loadStickyConfig() {
@@ -124,13 +129,15 @@ class SSHIFTClient {
     
     // If we have localStorage values, use them
     if (localSticky !== null) {
-      this.sticky = JSON.parse(localSticky);
-      this.takeControlDefault = localTakeControl !== null ? JSON.parse(localTakeControl) : true;
+      // A corrupt stored value must not stop the app from starting.
+      const parse = (v, fallback) => { try { return v === null ? fallback : JSON.parse(v); } catch (_) { return fallback; } };
+      this.sticky = parse(localSticky, true);
+      this.takeControlDefault = parse(localTakeControl, true);
       this.sshKeepaliveInterval = localKeepaliveInterval !== null ? parseInt(localKeepaliveInterval) : 10000;
       this.sshKeepaliveCountMax = localKeepaliveCountMax !== null ? parseInt(localKeepaliveCountMax) : 1000;
-      this.mobileKeysBarEnabled = localMobileKeysBar !== null ? JSON.parse(localMobileKeysBar) : true;
-      this.webglRenderer = localWebglRenderer !== null ? JSON.parse(localWebglRenderer) : true;
-      this.imageAddonEnabled = localImageAddonEnabled !== null ? JSON.parse(localImageAddonEnabled) : true;
+      this.mobileKeysBarEnabled = parse(localMobileKeysBar, true);
+      this.webglRenderer = parse(localWebglRenderer, true);
+      this.imageAddonEnabled = parse(localImageAddonEnabled, true);
       this.scrollback = localScrollback !== null ? parseInt(localScrollback) : 10000;
       console.log('[SSHIFT] Loaded from localStorage - Sticky:', this.sticky ? 'enabled' : 'disabled',
                   'Take Control Default:', this.takeControlDefault ? 'enabled' : 'disabled',
@@ -205,13 +212,21 @@ class SSHIFTClient {
           const verifyResp = await this._origFetch('/api/config', {
             headers: { 'Authorization': `Bearer ${storedToken}` }
           });
-          if (verifyResp.ok) {
+          // Only a definite rejection forgets the remembered login. A
+          // server that is restarting, a proxy error or a network blip
+          // must not throw the user back to the password prompt.
+          if (verifyResp.status !== 401) {
             this.authToken = storedToken;
             this.updateSocketAuth();
             if (lockScreen) lockScreen.style.display = 'none';
             return;
           }
-        } catch (e) {}
+        } catch (e) {
+          this.authToken = storedToken;
+          this.updateSocketAuth();
+          if (lockScreen) lockScreen.style.display = 'none';
+          return;
+        }
         localStorage.removeItem('sshift_auth_token');
         this.authToken = null;
       }
@@ -224,7 +239,10 @@ class SSHIFTClient {
   }
 
   showLockScreen() {
-    return new Promise((resolve) => {
+    // connect_error and checkAuthStatus can both ask for the lock screen;
+    // one prompt (and one submit handler) at a time.
+    if (this._lockScreenPromise) return this._lockScreenPromise;
+    this._lockScreenPromise = new Promise((resolve) => {
       const lockScreen = document.getElementById('lockScreen');
       const lockScreenForm = document.getElementById('lockScreenForm');
       const lockScreenPassword = document.getElementById('lockScreenPassword');
@@ -264,6 +282,7 @@ class SSHIFTClient {
             this.passwordEnabled = true;
             if (this.bookmarkEncryptionEnabled) this.clearSensitiveTabStorage();
             lockScreenForm.removeEventListener('submit', submitHandler);
+            this._lockScreenPromise = null;
             resolve();
           } else {
             const data = await resp.json();
@@ -280,10 +299,14 @@ class SSHIFTClient {
       
       lockScreenForm.addEventListener('submit', submitHandler);
     });
+    return this._lockScreenPromise;
   }
 
   updateSocketAuth() {
     if (this.socket && this.authToken) {
+      // Already connected with this token (the socket is created with the
+      // stored token): nothing to swap, don't drop the connection.
+      if (this.socket.connected && this.socket.auth && this.socket.auth.token === this.authToken) return;
       this.socket.auth = { token: this.authToken };
       // Deliberate reconnect: no Disconnected/Reconnected toasts for it.
       this._silentReconnect = true;
@@ -550,6 +573,11 @@ class SSHIFTClient {
     // fire saveTabs in tight succession with identical payloads; that
     // amplified duplicates across clients and spammed the server.
     const signature = JSON.stringify(tabsData);
+    // Decided now, not when the timer fires: by then the sync flags have
+    // long been reset.
+    if (!this.isSyncingTabs && !(this._tabSyncDepth > 0)) {
+      this._saveTabsLocalChange = true;
+    }
     if (this._saveTabsTimer) clearTimeout(this._saveTabsTimer);
     this._saveTabsTimer = setTimeout(() => {
       this._saveTabsTimer = null;
@@ -563,7 +591,9 @@ class SSHIFTClient {
 
       // Sync to server for cross-tab sync
       // Don't emit if we're currently syncing from another client to prevent loops
-      if (this.socket && this.socket.connected && !this.isSyncingTabs) {
+      const localChange = !!this._saveTabsLocalChange;
+      this._saveTabsLocalChange = false;
+      if (this.socket && this.socket.connected && localChange) {
         this.socket.emit('tabs-save', tabsData);
       }
     }, 150);
@@ -919,8 +949,11 @@ class SSHIFTClient {
     
     // Fallback to execCommand (also requires user gesture in modern browsers)
     try {
+      const previousFocus = document.activeElement;
       const textarea = document.createElement('textarea');
       textarea.value = text;
+      // readonly: selecting it must not pop the phone keyboard
+      textarea.setAttribute('readonly', '');
       textarea.style.position = 'fixed';
       textarea.style.left = '-9999px';
       textarea.style.top = '-9999px';
@@ -928,8 +961,12 @@ class SSHIFTClient {
       document.body.appendChild(textarea);
       textarea.focus();
       textarea.select();
+      try { textarea.setSelectionRange(0, text.length); } catch (_) {} // iOS
       const success = document.execCommand('copy');
       document.body.removeChild(textarea);
+      if (previousFocus && previousFocus !== document.body && typeof previousFocus.focus === 'function') {
+        try { previousFocus.focus({ preventScroll: true }); } catch (_) {}
+      }
       if (success) {
         console.log('[SSHIFT] execCommand copy succeeded, length:', text.length);
       } else {
@@ -3438,8 +3475,12 @@ sendChunkedInput(sessionId, data, chunkSize = 2048) {
       console.error('Failed to load bookmark order from server:', err);
     }
     // Fall back to localStorage
-    const saved = localStorage.getItem('bookmarkOrder');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('bookmarkOrder');
+      return saved ? JSON.parse(saved) : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   async saveBookmarkOrder() {
@@ -4704,6 +4745,7 @@ const wheelHandler = (e) => {
       const wasDisconnected = this._wasDisconnected;
       this._wasDisconnected = false;
       this._silentReconnect = false;
+      this._authRejected = false;
       this._cancelDisconnectToast();
       if (wasDisconnected) {
         // Only announce the recovery of an outage that was announced.
@@ -4723,12 +4765,17 @@ const wheelHandler = (e) => {
       console.log('[SSHIFT] Disconnected from server:', reason);
       this._wasDisconnected = true;
       if (reason === 'io server disconnect') {
-        // Server intentionally disconnected us (e.g. auth failure) — don't auto-reconnect
-        // Socket.IO won't retry after server-initiated disconnect anyway
+        // The server dropped us on purpose (credentials revoked). Socket.IO
+        // never retries this by itself; try once more shortly so the page
+        // either comes back or shows the lock screen instead of sitting
+        // dead until F5.
+        setTimeout(() => this._ensureConnection('server disconnect'), 1000);
       } else if (!this.isUpdating && !this._silentReconnect) {
         this._armDisconnectToast();
       }
     });
+
+    this._installConnectionWatchdog();
 
     // When the tab becomes visible again, reconnect the socket if needed
     // and refresh WebGL terminal renderers (the browser may reclaim GPU
@@ -4737,10 +4784,9 @@ const wheelHandler = (e) => {
       if (document.hidden) return;
       if (!this.socket.connected) {
         console.log('[SSHIFT] Tab visible and socket disconnected, triggering reconnect');
-        this.socket.connect();
-        // Give the reconnect the same grace period before complaining.
-        this._armDisconnectToast();
+        this._ensureConnection('visible');
       } else {
+        this._ensureConnection('visible');
         this._checkServerVersion();
       }
       this.clearFlashesForVisibleSessions();
@@ -4760,6 +4806,7 @@ const wheelHandler = (e) => {
     this.socket.on('connect_error', (error) => {
       console.error('[SSHIFT] Connection error:', error);
       if (error.message === 'Authentication required') {
+        this._authRejected = true;
         this.authToken = null;
         localStorage.removeItem('sshift_auth_token');
         this.showLockScreen();
@@ -5460,6 +5507,14 @@ const wheelHandler = (e) => {
       console.error('[SSHIFT] SSH Error:', data.message, 'sessionId:', data.sessionId);
       this._dismissConnectingToasts();
       
+      // The session ended on the server while this page was away (closed
+      // on another device, remote exit): drop the tab instead of
+      // recreating the connection from stored credentials.
+      if (data.sessionId && data.message === 'Session not found' && data.closed) {
+        console.log('[SSHIFT] Session was closed while disconnected, removing tab:', data.sessionId);
+        this.handleTabClosed(data.sessionId);
+        return;
+      }
       // If session not found and we're restoring, try to reconnect
       if (data.sessionId && data.message === 'Session not found') {
         const session = this.sessions.get(data.sessionId);
@@ -5616,6 +5671,11 @@ const wheelHandler = (e) => {
       this._dismissConnectingToasts();
       console.error('[SSHIFT] SFTP Error:', data.message, 'sessionId:', data?.sessionId);
 
+      if (data?.sessionId && data.message === 'Session not found' && data.closed) {
+        console.log('[SFTP] Session was closed while disconnected, removing tab:', data.sessionId);
+        this.handleTabClosed(data.sessionId);
+        return;
+      }
       // If session not found and we're restoring, try to reconnect
       if (data?.sessionId && data.message === 'Session not found') {
         const session = this.sftpSessions.get(data.sessionId);
@@ -5669,8 +5729,13 @@ const wheelHandler = (e) => {
         this.showToast(data.message, 'error');
       }
 
-      if (this._activeDownload) {
-        this.hideTransferProgress(this._activeDownload.sessionId);
+      // Only an error about the download itself aborts it (errors from
+      // other SFTP tabs or a failed listing used to drop it silently while
+      // the server kept streaming).
+      const dl = this._activeDownload;
+      if (dl && data && data.download && data.sessionId === dl.sessionId &&
+          (!data.path || data.path === dl.path)) {
+        this.hideTransferProgress(dl.sessionId);
         this._activeDownload = null;
       }
     });
@@ -5689,7 +5754,7 @@ const wheelHandler = (e) => {
 
     this.socket.on('sftp-download-chunk', (data) => {
       const dl = this._activeDownload;
-      if (dl && dl.path === data.path) {
+      if (dl && dl.path === data.path && dl.sessionId === data.sessionId) {
         const binaryStr = atob(data.data);
         const bytes = new Uint8Array(binaryStr.length);
         for (let i = 0; i < binaryStr.length; i++) {
@@ -5712,7 +5777,7 @@ const wheelHandler = (e) => {
 
     this.socket.on('sftp-download-end', (data) => {
       const dl = this._activeDownload;
-      if (dl && dl.path === data.path) {
+      if (dl && dl.path === data.path && dl.sessionId === data.sessionId) {
         if (data.success) {
           const blob = new Blob(dl.chunks, { type: 'application/octet-stream' });
           const url = URL.createObjectURL(blob);
@@ -5720,7 +5785,8 @@ const wheelHandler = (e) => {
           a.href = url;
           a.download = dl.fileName;
           a.click();
-          URL.revokeObjectURL(url);
+          // Revoking synchronously can abort the save in some browsers.
+          setTimeout(() => URL.revokeObjectURL(url), 60000);
           this.showToast(`Downloaded: ${dl.fileName}`, 'success');
         }
         this.hideTransferProgress(dl.sessionId);
@@ -7667,7 +7733,7 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
           }
           option.innerHTML = `
             <i class="fas ${icon} tab-icon ${iconClass}"></i>
-            <span class="tab-name">${displayName}</span>
+            <span class="tab-name">${this.escapeHtml(displayName)}</span>
             <button class="tab-rename" data-session-id="${sessionId}" title="Rename">
               <i class="fas fa-pen"></i>
             </button>
@@ -7786,7 +7852,7 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
               : '';
             option.innerHTML = `
               <i class="fas ${icon} tab-icon ${iconClass}"></i>
-              <span class="tab-name">${name}</span>
+              <span class="tab-name">${this.escapeHtml(name)}</span>
               ${panelIndicator}
               <button class="tab-rename" data-session-id="${sessionId}" title="Rename">
                 <i class="fas fa-pen"></i>
@@ -10447,15 +10513,9 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
       }
     }
     
-    // Method 3: Find active wrapper, then container
-    if (!container) {
-      const activeWrapper = document.querySelector('.terminal-wrapper.active');
-      console.log('[SSHIFT] Active wrapper found:', !!activeWrapper);
-      if (activeWrapper) {
-        container = activeWrapper.querySelector('.sftp-file-list');
-        console.log('[SSHIFT] Method 3 (via active wrapper):', !!container);
-      }
-    }
+    // No "active wrapper" fallback: a late result for a closed or not yet
+    // built tab used to render into whatever SFTP pane was active, where
+    // every click then acted on the other session.
     
     if (!container) {
       console.error('[SSHIFT] SFTP file list container not found');
@@ -10775,6 +10835,8 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     const download = this._activeDownload;
     if (download && download.sessionId === sessionId) {
       this._activeDownload = null;
+      // Stop the server reading the rest of the file.
+      this.socket.emit('sftp-download-cancel', { sessionId, path: download.path });
     }
 
     this.hideTransferProgress(sessionId);
@@ -11097,6 +11159,54 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     this.saveTabs();
   }
 
+  /**
+   * Release everything a terminal session holds in this page: observers,
+   * timers, frame callbacks, the mobile touch/keyboard handler (window and
+   * document listeners), wheel and OSC 52 listeners, and the xterm
+   * instance. Shared by closeTab, removeTabLocally and handleTabClosed:
+   * the last two used to skip most of it, so every tab closed from another
+   * device left listeners and timers running against a disposed terminal.
+   * Idempotent.
+   */
+  _releaseSessionResources(session) {
+    if (!session || session._released) return;
+    session._released = true;
+    if (session.type !== 'ssh') return;
+    const clear = (key, fn) => {
+      if (session[key]) {
+        try { fn(session[key]); } catch (_) {}
+        session[key] = null;
+      }
+    };
+    clear('resizeObserver', (o) => o.disconnect());
+    clear('_scrollbarObserver', (o) => o.disconnect());
+    for (const key of ['resizeTimeout', 'roFitTimeout', 'scrollbackRestoreTimer', 'settleRefreshTimer', 'syncTimeout', 'overlayUpdateTimeout', 'scrollTimeout']) {
+      clear(key, clearTimeout);
+    }
+    for (const key of ['writeRAF', 'scrollRAF', 'scrollApplyRAF', 'momentumRAF']) {
+      clear(key, cancelAnimationFrame);
+    }
+    if (session.originalScrollback && session.terminal) {
+      try { session.terminal.options.scrollback = session.originalScrollback; } catch (_) {}
+    }
+    clear('mobileHandler', (h) => h.destroy());
+    if (session.wheelHandler && session.wheelElement) {
+      session.wheelElement.removeEventListener('wheel', session.wheelHandler);
+    }
+    session.wheelHandler = null;
+    session.wheelElement = null;
+    if (session.osc52FlushListener) {
+      document.removeEventListener('click', session.osc52FlushListener, true);
+      document.removeEventListener('keydown', session.osc52FlushListener, true);
+      document.removeEventListener('touchstart', session.osc52FlushListener, true);
+      session.osc52FlushListener = null;
+    }
+    // Keep the (disposed) reference: late callbacks test session.terminal.
+    if (session.terminal) {
+      try { session.terminal.dispose(); } catch (_) {}
+    }
+  }
+
   closeTab(sessionId) {
     const session = this.sessions.get(sessionId) || this.sftpSessions.get(sessionId);
     if (!session) return;
@@ -11111,66 +11221,8 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     this.socket.emit('tab-close', { sessionId });
 
     // Disconnect
+    this._releaseSessionResources(session);
     if (session.type === 'ssh') {
-      // Clean up ResizeObserver
-      if (session.resizeObserver) {
-        session.resizeObserver.disconnect();
-        session.resizeObserver = null;
-      }
-      // Clean up resize timeouts (emit debounce + ResizeObserver fit debounce)
-      if (session.resizeTimeout) {
-        clearTimeout(session.resizeTimeout);
-        session.resizeTimeout = null;
-      }
-      if (session.roFitTimeout) {
-        clearTimeout(session.roFitTimeout);
-        session.roFitTimeout = null;
-      }
-      // Clean up scrollbar MutationObserver (mobile-only)
-      if (session._scrollbarObserver) {
-        session._scrollbarObserver.disconnect();
-        session._scrollbarObserver = null;
-      }
-      // Clean up write buffer RAF
-      if (session.writeRAF) {
-        cancelAnimationFrame(session.writeRAF);
-        session.writeRAF = null;
-      }
-      // Clean up scrollback restore timer
-      if (session.scrollbackRestoreTimer) {
-        clearTimeout(session.scrollbackRestoreTimer);
-        session.scrollbackRestoreTimer = null;
-      }
-      // Clean up settle-refresh timer
-      if (session.settleRefreshTimer) {
-        clearTimeout(session.settleRefreshTimer);
-        session.settleRefreshTimer = null;
-      }
-      // Restore scrollback if it was dynamically reduced
-      if (session.originalScrollback && session.terminal) {
-        session.terminal.options.scrollback = session.originalScrollback;
-      }
-      // Clean up mobile handler
-      if (session.mobileHandler) {
-        session.mobileHandler.destroy();
-        session.mobileHandler = null;
-      }
-      // Clean up wheel handler
-      if (session.wheelHandler && session.wheelElement) {
-        session.wheelElement.removeEventListener('wheel', session.wheelHandler);
-        session.wheelHandler = null;
-        session.wheelElement = null;
-      }
-      // Clean up OSC 52 clipboard flush listeners
-      if (session.osc52FlushListener) {
-        document.removeEventListener('click', session.osc52FlushListener, true);
-        document.removeEventListener('keydown', session.osc52FlushListener, true);
-        document.removeEventListener('touchstart', session.osc52FlushListener, true);
-        session.osc52FlushListener = null;
-      }
-      if (session.terminal) {
-        session.terminal.dispose();
-      }
       this.sessions.delete(sessionId);
     } else {
       this.sftpSessions.delete(sessionId);
@@ -11242,37 +11294,7 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
     // Disconnect from server session (without emitting tab-close)
     if (session.type === 'ssh') {
       this.socket.emit('ssh-disconnect', { sessionId });
-      if (session.writeRAF) cancelAnimationFrame(session.writeRAF);
-      if (session.scrollbackRestoreTimer) clearTimeout(session.scrollbackRestoreTimer);
-      if (session.settleRefreshTimer) clearTimeout(session.settleRefreshTimer);
-      if (session.originalScrollback && session.terminal) {
-        session.terminal.options.scrollback = session.originalScrollback;
-      }
-      if (session.resizeObserver) {
-        session.resizeObserver.disconnect();
-        session.resizeObserver = null;
-      }
-      if (session.resizeTimeout) {
-        clearTimeout(session.resizeTimeout);
-        session.resizeTimeout = null;
-      }
-      if (session.roFitTimeout) {
-        clearTimeout(session.roFitTimeout);
-        session.roFitTimeout = null;
-      }
-      if (session.wheelHandler && session.wheelElement) {
-        session.wheelElement.removeEventListener('wheel', session.wheelHandler);
-      }
-      if (session.osc52FlushListener) {
-        document.removeEventListener('click', session.osc52FlushListener, true);
-        document.removeEventListener('keydown', session.osc52FlushListener, true);
-        document.removeEventListener('touchstart', session.osc52FlushListener, true);
-      }
-      if (session.terminal) session.terminal.dispose();
-      if (session.mobileHandler) {
-        session.mobileHandler.destroy();
-        session.mobileHandler = null;
-      }
+      this._releaseSessionResources(session);
       this.sessions.delete(sessionId);
     } else {
       this.socket.emit('sftp-disconnect', { sessionId });
@@ -11361,28 +11383,12 @@ handleTabOpened(data) {
     const panelId = this.getPanelForSession(sessionId);
     
     // Clean up the session locally (don't emit tab-close again)
+    this._serverPanelMap.delete(sessionId);
+    if (this.activeSessionsByPanel.get(panelId) === sessionId) {
+      this.activeSessionsByPanel.delete(panelId);
+    }
+    this._releaseSessionResources(session);
     if (session.type === 'ssh') {
-      if (session.writeRAF) {
-        cancelAnimationFrame(session.writeRAF);
-      }
-      if (session.scrollbackRestoreTimer) {
-        clearTimeout(session.scrollbackRestoreTimer);
-      }
-      if (session.originalScrollback && session.terminal) {
-        session.terminal.options.scrollback = session.originalScrollback;
-      }
-      if (session.wheelHandler && session.wheelElement) {
-        session.wheelElement.removeEventListener('wheel', session.wheelHandler);
-      }
-      if (session.osc52FlushListener) {
-        document.removeEventListener('click', session.osc52FlushListener, true);
-        document.removeEventListener('keydown', session.osc52FlushListener, true);
-        document.removeEventListener('touchstart', session.osc52FlushListener, true);
-        session.osc52FlushListener = null;
-      }
-      if (session.terminal) {
-        session.terminal.dispose();
-      }
       this.sessions.delete(sessionId);
     } else {
       this.sftpSessions.delete(sessionId);
@@ -11423,7 +11429,20 @@ handleTabOpened(data) {
   }
 
   // Sync tabs from server (called on connect when sticky is enabled)
-async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null, activeSessionId = null) {
+async syncTabsFromServer(...args) {
+    // Held across all awaits of the sync: saveTabs calls made while
+    // applying server state must not be broadcast back (echo loops
+    // between clients). The callers' isSyncingTabs flag is reset
+    // synchronously, long before this async body finishes.
+    this._tabSyncDepth = (this._tabSyncDepth || 0) + 1;
+    try {
+      return await this._syncTabsFromServerImpl(...args);
+    } finally {
+      this._tabSyncDepth--;
+    }
+  }
+
+  async _syncTabsFromServerImpl(tabs, isInitialSync = false, activeTabsByPanel = null, activeSessionId = null) {
     // Wait for any in-progress restoration to complete before syncing
     // This prevents the race condition where restoreTabs starts first,
     // sets isRestoring=true, and then this function returns early, missing
@@ -11846,19 +11865,19 @@ async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null, 
     let iconClass, details;
     if (bookmark.type === 'url') {
       iconClass = 'fa-globe';
-      details = bookmark.url || '';
+      details = this.escapeHtml(bookmark.url || '');
     } else if (bookmark.type === 'sftp') {
       iconClass = 'fa-folder-open';
-      details = `${this.escapeHtml(bookmark.username)}@${this.escapeHtml(bookmark.host)}:${bookmark.port}`;
+      details = `${this.escapeHtml(bookmark.username)}@${this.escapeHtml(bookmark.host)}:${this.escapeHtml(bookmark.port)}`;
     } else {
       iconClass = 'fa-terminal';
-      details = `${this.escapeHtml(bookmark.username)}@${this.escapeHtml(bookmark.host)}:${bookmark.port}`;
+      details = `${this.escapeHtml(bookmark.username)}@${this.escapeHtml(bookmark.host)}:${this.escapeHtml(bookmark.port)}`;
     }
     
     item.innerHTML = `
       <div class="bookmark-icon ${bookmark.type}">
         <i class="fas ${iconClass}"></i>
-        <span class="bookmark-letter">${firstLetter}</span>
+        <span class="bookmark-letter">${this.escapeHtml(firstLetter)}</span>
       </div>
       <div class="bookmark-info">
         <div class="bookmark-name">${this.escapeHtml(bookmark.name)}</div>
@@ -12460,26 +12479,30 @@ async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null, 
     pathParts.pop();
     const newPath = pathParts.join('/') + '/' + newName;
 
-    this.socket.emit('sftp-rename', {
-      sessionId,
-      oldPath: oldPath,
-      newPath: newPath
-    });
-
-    // Listen for result
-    this.socket.once('sftp-rename-result', (data) => {
+    this._sftpRequest('sftp-rename', { sessionId, oldPath, newPath }).then((data) => {
       if (data.success) {
-        // Get current path and refresh
         const sftpSession = this.sftpSessions.get(sessionId);
         if (sftpSession) {
           this.navigateSFTPPath(sftpSession.currentPath, sessionId);
         }
+      } else {
+        this.showToast('Error renaming: ' + data.error, 'error');
       }
     });
+  }
 
-    // Listen for errors
-    this.socket.once('sftp-error', (data) => {
-      alert('Error renaming: ' + data.message);
+  /**
+   * SFTP request answered through a Socket.IO ack, so the reply belongs to
+   * this request only. (The previous once('sftp-error') listeners stayed
+   * registered after a success and later fired for unrelated errors from
+   * any SFTP tab.) Resolves to { success, error? }.
+   */
+  _sftpRequest(event, payload, timeoutMs = 60000) {
+    return new Promise((resolve) => {
+      this.socket.timeout(timeoutMs).emit(event, payload, (err, data) => {
+        if (err) return resolve({ success: false, error: 'No response from server' });
+        resolve(data || { success: false, error: 'Empty response' });
+      });
     });
   }
 
@@ -12921,25 +12944,15 @@ async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null, 
     
     if (!confirm(confirmMsg)) return;
 
-    this.socket.emit('sftp-delete', {
-      sessionId,
-      path: filePath
-    });
-
-    // Listen for result
-    this.socket.once('sftp-delete-result', (data) => {
+    this._sftpRequest('sftp-delete', { sessionId, path: filePath }).then((data) => {
       if (data.success) {
-        // Get current path and refresh
         const sftpSession = this.sftpSessions.get(sessionId);
         if (sftpSession) {
           this.navigateSFTPPath(sftpSession.currentPath, sessionId);
         }
+      } else {
+        this.showToast('Error deleting: ' + data.error, 'error');
       }
-    });
-
-    // Listen for errors
-    this.socket.once('sftp-error', (data) => {
-      alert('Error deleting: ' + data.message);
     });
   }
 
@@ -12996,23 +13009,15 @@ async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null, 
 
     if (this.sftpClipboard.action === 'cut') {
       // Move (rename) the file
-      this.socket.emit('sftp-rename', {
-        sessionId,
-        oldPath: sourcePath,
-        newPath: destPath
-      });
-
-      this.socket.once('sftp-rename-result', (data) => {
+      this._sftpRequest('sftp-rename', { sessionId, oldPath: sourcePath, newPath: destPath }).then((data) => {
         if (data.success) {
           this.showToast(`Moved ${sourceName}`, 'success');
           this.navigateSFTPPath(currentPath, sessionId);
           // Clear clipboard after successful cut
           this.sftpClipboard = null;
+        } else {
+          this.showToast('Error moving: ' + data.error, 'error');
         }
-      });
-
-      this.socket.once('sftp-error', (data) => {
-        this.showToast('Error moving: ' + data.message, 'error');
       });
     } else {
       // Copy operation - need to download and re-upload
@@ -13272,7 +13277,15 @@ async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null, 
     // Handle URL type - open in new tab
     if (bookmark.type === 'url') {
       if (bookmark.url) {
-        window.open(bookmark.url, '_blank');
+        // Only web links, and without handing the opened page a handle
+        // on this window (window.opener).
+        let parsed = null;
+        try { parsed = new URL(bookmark.url, window.location.href); } catch (_) {}
+        if (parsed && (parsed.protocol === 'http:' || parsed.protocol === 'https:')) {
+          window.open(parsed.href, '_blank', 'noopener,noreferrer');
+        } else {
+          this.showToast('Only http(s) links can be opened', 'error');
+        }
       }
       return;
     }
@@ -13405,8 +13418,12 @@ async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null, 
       console.error('Failed to load folder order from server:', err);
     }
     // Fall back to localStorage
-    const saved = localStorage.getItem('folderOrder');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('folderOrder');
+      return saved ? JSON.parse(saved) : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   async saveFolderOrder() {
@@ -13438,8 +13455,12 @@ async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null, 
       console.error('Failed to load folder expanded states from server:', err);
     }
     // Fall back to localStorage
-    const saved = localStorage.getItem('folderExpandedStates');
-    return saved ? JSON.parse(saved) : {};
+    try {
+      const saved = localStorage.getItem('folderExpandedStates');
+      return saved ? JSON.parse(saved) : {};
+    } catch (_) {
+      return {};
+    }
   }
 
   async saveFolderExpandedStates() {
@@ -13706,6 +13727,84 @@ async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null, 
     }, this.DISCONNECT_TOAST_GRACE_MS);
   }
 
+  /**
+   * Keep the socket alive across laptop sleep, network changes and
+   * background freezes (v1.9.9). Socket.IO alone recovers too slowly:
+   *  - a socket that died while the machine slept still reports
+   *    "connected" until its 85 s heartbeat timer fires, and timers do
+   *    not advance during suspend, so that can be well over a minute
+   *    after the lid opens (or minutes when the network changed and no
+   *    TCP reset ever arrives);
+   *  - while disconnected, socket.connect() does not cut short a pending
+   *    reconnect backoff (up to 30 s), so the old visibilitychange kick
+   *    did nothing.
+   * Wake-ups are detected by a timer gap, `online`, `pageshow`, focus and
+   * visibility; each one probes a connected socket with an acked ping and
+   * forces a fresh connection when the probe fails, and makes a
+   * disconnected socket retry immediately.
+   */
+  _installConnectionWatchdog() {
+    if (this._connectionWatchdogInstalled) return;
+    this._connectionWatchdogInstalled = true;
+    this._lastWatchdogTick = Date.now();
+    const timer = setInterval(() => {
+      const now = Date.now();
+      const gap = now - this._lastWatchdogTick;
+      this._lastWatchdogTick = now;
+      if (gap > this.WAKE_GAP_MS) {
+        console.log('[SSHIFT] Resumed after', Math.round(gap / 1000), 's pause, checking connection');
+        this._ensureConnection('wake', { force: true });
+      } else if (!this.socket.connected && !this.socket.active && !this._authRejected) {
+        // Nothing is retrying (server-side disconnect, manual close):
+        // keep trying in the background.
+        this._ensureConnection('idle');
+      }
+    }, 5000);
+    // Node (unit tests) only: don't keep the process alive.
+    if (timer && typeof timer.unref === 'function') timer.unref();
+    if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+    window.addEventListener('online', () => this._ensureConnection('online', { force: true }));
+    window.addEventListener('pageshow', (e) => {
+      if (e.persisted) this._ensureConnection('pageshow', { force: true });
+    });
+    window.addEventListener('focus', () => this._ensureConnection('focus'));
+  }
+
+  _ensureConnection(reason, opts) {
+    const socket = this.socket;
+    if (!socket || this.isUpdating || this._authRejected || this._lockScreenPromise) return;
+    const force = !!(opts && opts.force);
+    if (!socket.connected) {
+      // Skip a pending backoff and dial now. disconnect() resets the
+      // manager (and its backoff); connect() opens a new transport, and
+      // a failure there resumes the normal automatic retries.
+      const now = Date.now();
+      if (!force && this._lastKickAt && now - this._lastKickAt < 3000) return;
+      this._lastKickAt = now;
+      console.log('[SSHIFT] Reconnecting now (' + reason + ')');
+      socket.disconnect();
+      socket.connect();
+      this._armDisconnectToast();
+      return;
+    }
+    // Connected on paper: prove it. Throttled unless this is a real wake.
+    const now = Date.now();
+    if (this._probeInFlight) return;
+    if (!force && this._lastProbeAt && now - this._lastProbeAt < 15000) return;
+    this._lastProbeAt = now;
+    this._probeInFlight = true;
+    const engine = socket.io && socket.io.engine;
+    socket.timeout(this.PROBE_TIMEOUT_MS).emit('sshift-ping', (err) => {
+      this._probeInFlight = false;
+      if (!err) return;
+      // Only tear down the transport the probe was sent on.
+      if (socket.connected && socket.io && socket.io.engine === engine) {
+        console.warn('[SSHIFT] Connection probe timed out (' + reason + '), reconnecting');
+        try { engine.close(); } catch (_) {}
+      }
+    });
+  }
+
   _cancelDisconnectToast() {
     if (this._disconnectToastTimer) {
       clearTimeout(this._disconnectToastTimer);
@@ -13832,9 +13931,13 @@ async syncTabsFromServer(tabs, isInitialSync = false, activeTabsByPanel = null, 
 
   // Utility Functions
   escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    // Also safe inside quoted attributes (tab names, URLs, ids).
+    return String(text == null ? '' : text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   formatSize(bytes) {

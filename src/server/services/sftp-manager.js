@@ -106,24 +106,62 @@ class SFTPManager {
               console.warn(`[SFTP] Could not resolve home directory: ${realpathErr?.message}`);
             }
 
+            // A client-chosen id can collide with a live session (two
+            // browsers recreating the same tab): retire the old connection
+            // so its late close event cannot tear down this one.
+            const previous = this.sessions.get(sessionId);
+            if (previous && previous !== session) {
+              console.warn(`[SFTP] Replacing existing session with the same id: ${sessionId}`);
+              previous.replaced = true;
+              try { previous.conn.end(); } catch (_) {}
+            }
             this.sessions.set(sessionId, session);
+            ownSession = session;
+            established = true;
+            // Every viewer (creator + sftp-join) hears errors/disconnects,
+            // not only the socket that created the session.
+            try { socket.join(`sftp-${sessionId}`); } catch (_) {}
             console.log(`[SFTP] SFTP session started: ${sessionId}`);
             resolve(sessionId);
           });
         });
       });
 
+      let established = false;
+      let ownSession = null;
+      const owns = () => {
+        const current = this.sessions.get(sessionId);
+        if (current && current.conn === conn) ownSession = current;
+        return !!current && current.conn === conn;
+      };
+      const notify = (event, payload) => {
+        if (established && socket.nsp) socket.nsp.to(`sftp-${sessionId}`).emit(event, payload);
+        else socket.emit(event, payload);
+      };
+
       conn.on('error', (err) => {
         console.error(`[SFTP] Connection error: ${err.message}`);
-        socket.emit('sftp-error', { sessionId, message: err.message });
-        this.sessions.delete(sessionId);
-        removeTab(sessionId);
+        if (ownSession && ownSession.replaced) return reject(err);
+        notify('sftp-error', { sessionId, message: err.message });
+        if (owns()) {
+          this.sessions.delete(sessionId);
+          removeTab(sessionId);
+        } else if (!this.sessions.has(sessionId)) {
+          removeTab(sessionId);
+        }
         reject(err);
       });
 
       conn.on('close', () => {
         console.log(`[SFTP] Connection closed: ${sessionId}`);
-        socket.emit('sftp-disconnected', { sessionId });
+        if (!owns()) {
+          // Replaced by a newer connection with the same id, or never
+          // established: leave the live session and its tab alone.
+          if (!established && !this.sessions.has(sessionId)) removeTab(sessionId);
+          reject(new Error('Connection closed'));
+          return;
+        }
+        notify('sftp-disconnected', { sessionId });
         this.sessions.delete(sessionId);
         removeTab(sessionId);
       });
@@ -233,6 +271,19 @@ try {
     return session.sftp.createReadStream(path);
   }
 
+  // An upload whose browser vanished (tab closed, network lost) never sends
+  // end/cancel: drop it after this long without a chunk, closing the
+  // remote file handle it holds.
+  _armUploadIdle(upload) {
+    if (upload.idleTimer) clearTimeout(upload.idleTimer);
+    upload.idleTimer = setTimeout(() => {
+      if (!this.activeUploads.has(upload.id)) return;
+      console.warn(`[SFTP] Upload ${upload.id} (${upload.path}) idle for 2 minutes, aborting`);
+      this.uploadCancel(upload.id);
+    }, 2 * 60 * 1000);
+    if (upload.idleTimer.unref) upload.idleTimer.unref();
+  }
+
   uploadStart(sessionId, path, fileName, fileSize) {
     const session = this.sessions.get(sessionId);
     if (!session) {
@@ -244,6 +295,7 @@ try {
 
     const upload = {
       id: uploadId,
+      sessionId,
       stream,
       bytesWritten: 0,
       totalBytes: fileSize,
@@ -261,10 +313,12 @@ try {
         upload.rejectEnd = null;
         upload.resolveEnd = null;
       }
+      if (upload.idleTimer) clearTimeout(upload.idleTimer);
       this.activeUploads.delete(uploadId);
     });
 
     stream.on('close', () => {
+      if (upload.idleTimer) clearTimeout(upload.idleTimer);
       if (upload.resolveEnd) {
         upload.resolveEnd({ path: upload.path, fileName: upload.fileName });
         upload.resolveEnd = null;
@@ -274,6 +328,7 @@ try {
     });
 
     this.activeUploads.set(uploadId, upload);
+    this._armUploadIdle(upload);
     return uploadId;
   }
 
@@ -289,9 +344,18 @@ try {
         return;
       }
 
+      if (typeof chunkBase64 !== 'string') {
+        reject(new Error('Invalid chunk'));
+        return;
+      }
+      this._armUploadIdle(upload);
       const chunkData = Buffer.from(chunkBase64, 'base64');
 
-      upload.stream.write(chunkData, () => {
+      upload.stream.write(chunkData, (err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
         upload.bytesWritten += chunkData.length;
         resolve({
           bytesWritten: upload.bytesWritten,
@@ -323,7 +387,13 @@ try {
   uploadCancel(uploadId) {
     const upload = this.activeUploads.get(uploadId);
     if (upload) {
-      upload.stream.destroy();
+      if (upload.idleTimer) clearTimeout(upload.idleTimer);
+      try { upload.stream.destroy(); } catch (_) {}
+      if (upload.rejectEnd) {
+        upload.rejectEnd(new Error('Upload cancelled'));
+        upload.rejectEnd = null;
+        upload.resolveEnd = null;
+      }
       this.activeUploads.delete(uploadId);
     }
   }
@@ -436,6 +506,9 @@ try {
   disconnect(sessionId) {
     const session = this.sessions.get(sessionId);
     if (session) {
+      for (const upload of [...this.activeUploads.values()]) {
+        if (upload.sessionId === sessionId) this.uploadCancel(upload.id);
+      }
       if (session.conn) {
         session.conn.end();
       }
@@ -463,7 +536,7 @@ try {
       console.log(`[SFTP] Cannot join session ${sessionId}: session not found`);
       return false;
     }
-
+    try { socket.join(`sftp-${sessionId}`); } catch (_) {}
     return true;
   }
 

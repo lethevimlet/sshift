@@ -87,6 +87,48 @@ async function getSSLCredentials() {
 // Create Express app
 const app = express();
 
+/**
+ * Cross-site guard shared by Socket.IO and state-changing REST calls.
+ * A browser always sends Origin on these requests: it must name this host
+ * (Host or X-Forwarded-Host) or an entry of config.allowedOrigins.
+ * Requests without Origin (curl, scripts, plugins) are not browsers'
+ * cross-site requests and pass.
+ */
+function isSameOriginRequest(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  let originHost = null;
+  try { originHost = new URL(origin).host.toLowerCase(); } catch (_) {}
+  const hosts = [req.headers['x-forwarded-host'], req.headers.host]
+    .filter(Boolean)
+    .map(h => String(h).split(',')[0].trim().toLowerCase());
+  let allowed = [];
+  try { allowed = loadConfig().allowedOrigins || []; } catch (_) {}
+  const ok = !!originHost && (
+    hosts.includes(originHost) ||
+    (Array.isArray(allowed) && allowed.some(a => String(a).toLowerCase() === origin.toLowerCase() || String(a).toLowerCase() === originHost))
+  );
+  if (!ok) {
+    console.warn(`[SECURITY] Rejected cross-site request from ${origin} (host ${hosts.join(', ') || 'none'}). Add it to "allowedOrigins" in config.json if it is yours.`);
+  }
+  return ok;
+}
+const { guardSocket, guardExpressApp, expressErrorHandler } = require('./utils/safe-handlers');
+guardExpressApp(app);
+
+// Last line of defence: one bad request or a library bug must not kill the
+// process, because that ends every SSH session it hosts. Errors are logged.
+// Startup failures (port in use, before listen) still exit so a supervisor
+// can see them.
+let serverListening = false;
+process.on('unhandledRejection', (reason) => {
+  console.error('[PROCESS] Unhandled promise rejection:', reason && reason.stack ? reason.stack : reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[PROCESS] Uncaught exception:', err && err.stack ? err.stack : err);
+  if (!serverListening || (err && err.code === 'EADDRINUSE')) process.exit(1);
+});
+
 // Determine if HTTPS should be enabled
 const enableHttps = getEnableHttps();
 const enableHttpRedirect = enableHttps && getHttpRedirect();
@@ -139,7 +181,17 @@ async function initializeServer() {
     },
     pingTimeout: 60000,
     pingInterval: 25000,
-    maxHttpBufferSize: 5e6
+    maxHttpBufferSize: 5e6,
+    // Cross-site WebSocket hijacking guard. WebSockets ignore CORS, so
+    // without a password any web page open in the user's browser could
+    // connect to this server and type into their terminals. A browser
+    // always sends Origin: it must name this same host (or one listed in
+    // config.allowedOrigins). Non-browser clients send no Origin. With a
+    // password set the auth token already blocks foreign pages.
+    allowRequest: (req, callback) => {
+      if (isPasswordSet()) return callback(null, true);
+      callback(null, isSameOriginRequest(req));
+    }
   });
 
   // Socket.IO auth middleware
@@ -184,6 +236,15 @@ async function initializeServer() {
   const { isValidAuthToken } = require('./endpoints/rest/auth');
   const AUTH_WHITELIST = ['/auth/status', '/auth/login', '/cert', '/security-info', '/version', '/update-status'];
 
+  // CSRF: a foreign page can auto-submit a form POST (no preflight) to
+  // /api/update or /api/sessions/close-all. Reject state-changing calls
+  // whose Origin is another site.
+  app.use('/api', (req, res, next) => {
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+    if (isSameOriginRequest(req)) return next();
+    res.status(403).json({ error: 'Cross-site request rejected' });
+  });
+
   app.use('/api', (req, res, next) => {
     if (AUTH_WHITELIST.some(p => req.path === p)) return next();
     if (!isPasswordSet()) return next();
@@ -213,7 +274,7 @@ async function initializeServer() {
     const swPath = path.join(webappPath, 'sw.js');
     fs.readFile(swPath, 'utf8', (err, data) => {
       if (err) return res.status(500).send('/* SW load error */');
-      const version = require(path.join(__dirname, '../../package.json')).version;
+      const version = require('./utils/asset-version').getAssetVersion();
       res.send(data.replace(/__VERSION__/g, version));
     });
   });
@@ -229,7 +290,7 @@ async function initializeServer() {
     const htmlPath = path.join(webappPath, 'index.html');
     fs.readFile(htmlPath, 'utf8', (err, data) => {
       if (err) return res.status(500).send('Error loading page');
-      const version = require(path.join(__dirname, '../../package.json')).version;
+      const version = require('./utils/asset-version').getAssetVersion();
       res.send(data.replace(/__VERSION__/g, version));
     });
   });
@@ -271,9 +332,11 @@ async function initializeServer() {
 
   // Register REST endpoints
   rest.registerAllRestEndpoints(app, io);
+  app.use(expressErrorHandler);
 
   // Socket.IO connection handling
   io.on('connection', (socket) => {
+    guardSocket(socket);
     console.log('Client connected:', socket.id);
 
     // Send current open tabs to new client.
@@ -351,7 +414,28 @@ async function initializeServer() {
   const PORT = getPort();
   const BIND = getBindAddress();
 
+  // Certificates were only checked at startup: a server running for months
+  // kept serving a certificate past its expiry, or without the machine's
+  // new IP address. Re-check daily and swap the new one into the running
+  // server (existing connections keep working; new ones get the new cert).
+  if (actuallyHttps && typeof server.setSecureContext === 'function') {
+    const timer = setInterval(async () => {
+      try {
+        const fresh = await getSSLCredentials();
+        if (fresh && sslCredentials && (fresh.cert !== sslCredentials.cert || fresh.key !== sslCredentials.key)) {
+          server.setSecureContext({ key: fresh.key, cert: fresh.cert });
+          sslCredentials = fresh;
+          console.log('[HTTPS] Certificate renewed without a restart');
+        }
+      } catch (err) {
+        console.error('[HTTPS] Daily certificate check failed:', err.message);
+      }
+    }, 24 * 60 * 60 * 1000);
+    if (timer.unref) timer.unref();
+  }
+
   server.listen(PORT, BIND, () => {
+    serverListening = true;
     const address = BIND === '0.0.0.0' || BIND === '::' ? 'localhost' : BIND;
     const protocol = actuallyHttps ? 'https' : 'http';
     console.log(`Web SSH/SFTP Client running at ${protocol}://${address}:${PORT}`);

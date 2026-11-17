@@ -102,6 +102,7 @@ If no config file exists at any path, `ensureConfig()` creates one at `<PACKAGE_
 - **`certPath`** (string|null): Absolute path to a custom TLS certificate file (PEM format). Both `certPath` and `keyPath` must be set together (default: `null`)
 - **`keyPath`** (string|null): Absolute path to a custom TLS private key file (PEM format). Both `certPath` and `keyPath` must be set together (default: `null`)
 - **`sticky`** (boolean): Enable sticky sessions (default: `true`)
+- **`allowedOrigins`** (string[]): Extra browser origins allowed to open the WebSocket and make state-changing API calls, e.g. `["https://sshift.example.com"]` (default: `[]`). Requests from a page on another site are rejected (cross-site protection); the origin matching the request's `Host` / `X-Forwarded-Host` is always allowed. Only needed behind a reverse proxy that rewrites the `Host` header.
 
 ### SSH Settings
 
@@ -115,6 +116,8 @@ If no config file exists at any path, `ensureConfig()` creates one at `<PACKAGE_
 > **Note:** Password protection is intended as a basic access restriction for local/private networks. It is **not** a replacement for proper authentication. If you expose sshift to a public network, use additional security measures such as a reverse proxy with authentication, a VPN, or firewall rules.
 
 Password protection can also be enabled/disabled through the Settings UI in the application. When enabling, you will be prompted to set a password; when disabling, you must provide the current password.
+
+Each browser that logs in is remembered: the login survives server restarts and updates, and only ends when you click **Logout** in Settings or the password is changed or removed. Remembered logins are stored as hashes in `~/.local/share/sshift/auth-tokens.json`; delete that file to log out every browser.
 
 ### HTTPS Configuration
 
@@ -284,6 +287,8 @@ Then configure sshift to listen on localhost only:
   "enableHttps": true
 }
 ```
+
+> **Note:** Keep `proxy_set_header Host $host;` (or set `allowedOrigins`): sshift rejects WebSocket and API requests whose browser `Origin` does not match the `Host` it receives.
 
 > **Note:** If you use nginx with HTTPS in front, you can also set `"enableHttps": false` in sshift's config to have nginx handle all TLS termination. Configure nginx to proxy to `http://127.0.0.1:8022` in that case.
 

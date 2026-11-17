@@ -107,7 +107,12 @@ class PluginManager {
         }
       }
       if (instance && typeof instance.onSessionDisconnect === 'function') {
-        for (const sessionId of this._lineBuffers.keys()) {
+        const ids = new Set(this._lineBuffers.keys());
+        const live = this.sshManager && this.sshManager.sessions;
+        if (live && typeof live.keys === 'function') {
+          for (const id of live.keys()) ids.add(id);
+        }
+        for (const sessionId of ids) {
           try { instance.onSessionDisconnect(sessionId); } catch (e) { /* ignore */ }
         }
       }
@@ -415,6 +420,12 @@ class PluginManager {
   }
 
   _processLineBuffer(sessionId, dataStr) {
+    // Nobody listens for lines: don't accumulate (full-screen apps that
+    // never print a newline grew this buffer without bound).
+    if (!this.hooks.onTerminalLine || this.hooks.onTerminalLine.length === 0) {
+      this._lineBuffers.delete(sessionId);
+      return;
+    }
     if (!this._lineBuffers.has(sessionId)) {
       this._lineBuffers.set(sessionId, '');
     }
@@ -428,6 +439,8 @@ class PluginManager {
       const split = rawLines.split('\n');
       lines.push(...split);
     }
+    // Cap an unterminated line at 64 KB (keep the newest output).
+    if (buffer.length > 65536) buffer = buffer.slice(-65536);
     this._lineBuffers.set(sessionId, buffer);
 
     for (const line of lines) {

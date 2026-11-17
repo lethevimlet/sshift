@@ -351,7 +351,29 @@ class MobileTerminalHandler {
       this.touchState.isSelecting = true;
       this.touchState.isDragging = true;
       this.touchState.dragHandle = type;
+      // The container never sees this touchstart (stopPropagation), so
+      // reset the gesture flags of the long press that made the selection
+      // here; otherwise a cancelled drag left isDragging stuck (see the
+      // touchcancel listener below).
+      this.touchState.isLongPress = false;
+      this.touchState.gestureHandled = false;
       handle.classList.add('active');
+
+      // The handle hangs below the text and the finger lands on the
+      // handle, not on the character. Remember how far the finger is from
+      // the middle of the selected cell, so a sideways drag stays on the
+      // same row instead of jumping to the row under the handle.
+      this._dragGrabOffset = { x: 0, y: 0 };
+      const touch = e.touches && e.touches[0];
+      const anchor = type === 'start' ? this.selection.start : this.selection.end;
+      const cell = anchor ? this._terminalToScreenCoords(anchor.x, anchor.y) : null;
+      const containerRect = this.container.getBoundingClientRect();
+      if (touch && cell) {
+        this._dragGrabOffset = {
+          x: touch.clientX - (containerRect.left + cell.x + cell.width / 2),
+          y: touch.clientY - (containerRect.top + cell.y + cell.height / 2)
+        };
+      }
     }, { passive: false });
     
     handle.addEventListener('touchmove', (e) => {
@@ -359,7 +381,8 @@ class MobileTerminalHandler {
       e.preventDefault();
 
       const touch = e.touches[0];
-      const coords = this._screenToTerminalCoords(touch.clientX, touch.clientY);
+      const off = this._dragGrabOffset || { x: 0, y: 0 };
+      const coords = this._screenToTerminalCoords(touch.clientX - off.x, touch.clientY - off.y);
 
       if (coords) {
         if (type === 'start') {
@@ -372,8 +395,8 @@ class MobileTerminalHandler {
       }
     }, { passive: false });
     
-    handle.addEventListener('touchend', (e) => {
-      e.preventDefault();
+    const endDrag = (e) => {
+      if (e.cancelable) e.preventDefault();
       e.stopPropagation();
       this.touchState.isDragging = false;
       this.touchState.dragHandle = null;
@@ -383,7 +406,10 @@ class MobileTerminalHandler {
       if (this.selection.active) {
         this._positionContextMenu();
       }
-    }, { passive: false });
+    };
+    handle.addEventListener('touchend', endDrag, { passive: false });
+    // The OS can cancel a touch (notification shade, back gesture, call).
+    handle.addEventListener('touchcancel', endDrag, { passive: false });
   }
   
   /**
@@ -455,12 +481,14 @@ class MobileTerminalHandler {
       }, { passive: true });
     });
     
-    // Close menu on outside click
-    document.addEventListener('click', (e) => {
-      if (!this.contextMenu.contains(e.target)) {
-        this.hideContextMenu();
-      }
-    });
+    // Close menu on outside click. Ignore the click a browser may still
+    // synthesize from the gesture that opened the menu.
+    this._boundDocumentClick = (e) => {
+      if (!this.contextMenu || this.contextMenu.contains(e.target)) return;
+      if (this._menuShownAt && Date.now() - this._menuShownAt < 400) return;
+      this.hideContextMenu();
+    };
+    document.addEventListener('click', this._boundDocumentClick);
   }
   
   /**
@@ -492,7 +520,11 @@ class MobileTerminalHandler {
       dragHandle.style.cursor = 'grabbing';
     }, { passive: false });
     
-    document.addEventListener('touchmove', (e) => {
+    // Touch events keep targeting the element the touch started on, so
+    // the move/end listeners live on the drag handle itself (they used to
+    // be added to document per handler and were never removed, keeping
+    // every closed tab's handler and terminal alive).
+    dragHandle.addEventListener('touchmove', (e) => {
       if (!isDragging) return;
       
       const touch = e.touches[0];
@@ -514,12 +546,14 @@ class MobileTerminalHandler {
       this.contextMenuUserPositioned = true;
     }, { passive: true });
     
-    document.addEventListener('touchend', () => {
+    const endMenuDrag = () => {
       if (isDragging) {
         isDragging = false;
         dragHandle.style.cursor = 'grab';
       }
-    });
+    };
+    dragHandle.addEventListener('touchend', endMenuDrag);
+    dragHandle.addEventListener('touchcancel', endMenuDrag);
   }
   
   /**
@@ -1048,11 +1082,34 @@ class MobileTerminalHandler {
     // Terminal resize events - refresh selection overlay when dimensions change
     if (this.terminal && this.terminal.onResize) {
       this._resizeDisposable = this.terminal.onResize(() => {
+        // A width change reflows the buffer (long lines wrap differently,
+        // rows shift): move the selection with its text before redrawing.
+        if (this.selection.active) this._remapSelectionAfterReflow();
         requestAnimationFrame(() => {
           if (this.selection.active) {
             this._updateSelection();
+            this._revealSelection();
           }
         });
+      });
+    }
+
+    // Output keeps arriving while text is selected. When the scrollback is
+    // full, every new line drops the oldest one and shifts all buffer rows
+    // up: follow the selected text through its markers. A switch to the
+    // alternate screen (vim, less, a TUI) leaves nothing to point at.
+    if (this.terminal && typeof this.terminal.onWriteParsed === 'function') {
+      this._writeParsedDisposable = this.terminal.onWriteParsed(() => {
+        if (!this.selection.active || !this._selAnchor || this._selFollowRAF) return;
+        this._selFollowRAF = requestAnimationFrame(() => {
+          this._selFollowRAF = null;
+          if (!this._destroyed) this._followSelectionAnchor();
+        });
+      });
+    }
+    if (this.terminal && this.terminal.buffer && typeof this.terminal.buffer.onBufferChange === 'function') {
+      this._bufferChangeDisposable = this.terminal.buffer.onBufferChange(() => {
+        if (this.selection.active) this.clearSelection();
       });
     }
 
@@ -1083,6 +1140,29 @@ class MobileTerminalHandler {
    * Detach all event listeners
    */
   destroy() {
+    // Queued frame callbacks / timers check this and do nothing.
+    this._destroyed = true;
+    for (const key of ['_writeParsedDisposable', '_bufferChangeDisposable']) {
+      if (this[key]) {
+        try { this[key].dispose(); } catch (_) {}
+        this[key] = null;
+      }
+    }
+    if (this._selFollowRAF) {
+      cancelAnimationFrame(this._selFollowRAF);
+      this._selFollowRAF = null;
+    }
+    if (this.touchState && this.touchState.longPressTimer) {
+      clearTimeout(this.touchState.longPressTimer);
+      this.touchState.longPressTimer = null;
+    }
+    if (this._selectionUpdateRAF) {
+      cancelAnimationFrame(this._selectionUpdateRAF);
+      this._selectionUpdateRAF = null;
+    }
+    this._stopScrollTracking();
+    if (this.selection) this.selection.active = false;
+    this._disposeSelectionAnchor();
     this._releaseTerminalFocus();
     if (this._deferredSyncTimer) {
       clearTimeout(this._deferredSyncTimer);
@@ -1104,6 +1184,10 @@ class MobileTerminalHandler {
     }
     
     document.removeEventListener('keydown', this._boundHandleKeyDown);
+    if (this._boundDocumentClick) {
+      document.removeEventListener('click', this._boundDocumentClick);
+      this._boundDocumentClick = null;
+    }
 
     // Dispose terminal resize listener
     if (this._resizeDisposable) {
@@ -1158,6 +1242,19 @@ class MobileTerminalHandler {
   _handleTouchStart(e) {
     // Ignore if not on mobile or if dragging a handle
     if (!this.app.isMobile || this.touchState.isDragging) return;
+
+    // A second finger (pinch zoom) is never a tap, double tap or long press.
+    if (e.touches && e.touches.length > 1) {
+      if (this.touchState.longPressTimer) {
+        clearTimeout(this.touchState.longPressTimer);
+        this.touchState.longPressTimer = null;
+      }
+      this.touchState.multiTouch = true;
+      this.touchState.isSelecting = false;
+      this.touchState.lastTapTime = 0;
+      return;
+    }
+    this.touchState.multiTouch = false;
     
     // Set selecting mode immediately to prevent keyboard from appearing
     // during long press detection. This will be reset in touchEnd if it's
@@ -1185,21 +1282,27 @@ class MobileTerminalHandler {
     
     // Check for double-tap
     const timeSinceLastTap = now - this.touchState.lastTapTime;
+    this.touchState.gestureHandled = false;
     if (timeSinceLastTap < this.config.doubleTapDelay) {
       // Double-tap detected - select line
       e.preventDefault();
       this._handleDoubleTap(touch);
       this.touchState.lastTapTime = 0;
+      // The touchend of this same tap must not be treated as a new tap
+      // (which clears the selection it just made — the v1.8.2 regression).
+      this.touchState.gestureHandled = true;
       return;
     }
     
     // Start long-press timer
+    if (this.touchState.longPressTimer) clearTimeout(this.touchState.longPressTimer);
     this.touchState.longPressTimer = setTimeout(() => {
+      this.touchState.longPressTimer = null;
       this.touchState.isLongPress = true;
       this._handleLongPress(touch);
     }, this.config.longPressDelay);
-    
-    this.touchState.lastTapTime = now;
+    // lastTapTime is set in touchend, and only for real taps: two quick
+    // scroll flicks used to count as a double tap and select a line.
   }
   
   /**
@@ -1228,7 +1331,11 @@ class MobileTerminalHandler {
     if (this.selection.active && this.touchState.isDragging) {
       e.preventDefault();
       const touch = e.touches[0];
-      const coords = this._screenToTerminalCoords(touch.clientX, touch.clientY);
+      // Same grab offset as the handle's own touchmove (the event bubbles
+      // here from the handle; without it this handler overwrote the
+      // corrected position with the row under the finger).
+      const off = this._dragGrabOffset || { x: 0, y: 0 };
+      const coords = this._screenToTerminalCoords(touch.clientX - off.x, touch.clientY - off.y);
 
       if (coords) {
         if (this.touchState.dragHandle === 'start') {
@@ -1247,6 +1354,18 @@ class MobileTerminalHandler {
    */
   _handleTouchEnd(e) {
     if (!this.app.isMobile) return;
+
+    // Pinch: wait for the last finger, and never treat it as a tap.
+    if (e && e.touches && e.touches.length > 0) return;
+    if (this.touchState.multiTouch) {
+      this.touchState.multiTouch = false;
+      this.touchState.isSelecting = false;
+      if (this.touchState.longPressTimer) {
+        clearTimeout(this.touchState.longPressTimer);
+        this.touchState.longPressTimer = null;
+      }
+      return;
+    }
     
     // Clear long-press timer
     if (this.touchState.longPressTimer) {
@@ -1254,8 +1373,15 @@ class MobileTerminalHandler {
       this.touchState.longPressTimer = null;
     }
     
-    // If it was a long-press, don't do anything else
-    if (this.touchState.isLongPress) {
+    // A long press or double tap already did its job (selected text,
+    // opened the menu). Swallow the touchend so the browser does not
+    // synthesize mousedown/click from it: that click reached the
+    // document-level "click outside closes the menu" listener and hid
+    // the copy/paste menu the gesture had just opened, and a tap-style
+    // touchend cleared the double-tap line selection.
+    if (this.touchState.isLongPress || this.touchState.gestureHandled) {
+      this.touchState.gestureHandled = false;
+      if (e && e.cancelable) e.preventDefault();
       return;
     }
     
@@ -1282,6 +1408,9 @@ class MobileTerminalHandler {
       if (Math.sqrt(dx * dx + dy * dy) > 10) return;
     }
 
+    // A real tap: remembered for double-tap detection (start-to-start).
+    this.touchState.lastTapTime = this.touchState.startTime;
+
     // Tap: clear the selection if there is one, otherwise focus for input.
     if (this.selection.active) {
       this.clearSelection();
@@ -1296,7 +1425,10 @@ class MobileTerminalHandler {
    */
   _handleDoubleTap(touch) {
     const coords = this._screenToTerminalCoords(touch.clientX, touch.clientY);
-    if (!coords) return;
+    if (!coords) {
+      this.touchState.isSelecting = false;
+      return;
+    }
     
     // Set selecting mode to prevent keyboard from appearing
     this.touchState.isSelecting = true;
@@ -1318,8 +1450,13 @@ class MobileTerminalHandler {
    * @private
    */
   _handleLongPress(touch) {
+    if (this._destroyed) return;
     const coords = this._screenToTerminalCoords(touch.clientX, touch.clientY);
-    if (!coords) return;
+    if (!coords) {
+      this.touchState.isLongPress = false;
+      this.touchState.isSelecting = false;
+      return;
+    }
     
     // Set selecting mode to prevent keyboard from appearing
     this.touchState.isSelecting = true;
@@ -1344,34 +1481,44 @@ class MobileTerminalHandler {
    * @private
    */
   _getWordAtPosition(x, y) {
-    // Get the line buffer
+    // Work on cells, not on translateToString() indexes: a wide character
+    // (CJK, many emoji) takes two cells but one string position, and an
+    // astral character takes one cell but two UTF-16 units, so string
+    // indexes drifted from columns and long press picked the wrong word.
     const buffer = this.terminal.buffer.active;
     const line = buffer.getLine(y);
-    
     if (!line) return null;
-    
-    const lineText = line.translateToString(true);
-    
-    // Find word boundaries
-    let start = x;
-    let end = x;
-    
-    // Expand left
-    while (start > 0 && this._isWordChar(lineText[start - 1])) {
-      start--;
+
+    const cols = Math.min(line.length, this.terminal.cols);
+    const cell = typeof buffer.getNullCell === 'function' ? buffer.getNullCell() : undefined;
+    const chars = new Array(cols);
+    const widths = new Array(cols);
+    for (let i = 0; i < cols; i++) {
+      const c = line.getCell(i, cell);
+      chars[i] = c ? c.getChars() : '';
+      widths[i] = c ? c.getWidth() : 1;
     }
-    
-    // Expand right
-    while (end < lineText.length && this._isWordChar(lineText[end])) {
-      end++;
+    // The right half of a wide character (width 0) belongs to the cell
+    // before it.
+    const isWord = (i) => {
+      let j = i;
+      while (j > 0 && widths[j] === 0) j--;
+      return this._isWordChar(chars[j]);
+    };
+    let px = Math.max(0, Math.min(cols - 1, x));
+    while (px > 0 && widths[px] === 0) px--;
+
+    if (!isWord(px)) {
+      // No word: select the character (both cells if it is wide).
+      const w = Math.max(1, widths[px] || 1);
+      return { start: { x: px, y }, end: { x: Math.min(cols - 1, px + w - 1), y } };
     }
-    
-    if (start === end) {
-      // No word found, select single character
-      return { start: { x, y }, end: { x, y } };
-    }
-    
-    return { start: { x: start, y }, end: { x: end - 1, y } };
+    let start = px;
+    while (start > 0 && isWord(start - 1)) start--;
+    while (start > 0 && widths[start] === 0) start--;
+    let end = px;
+    while (end + 1 < cols && isWord(end + 1)) end++;
+    return { start: { x: start, y }, end: { x: end, y } };
   }
   
   /**
@@ -1379,7 +1526,10 @@ class MobileTerminalHandler {
    * @private
    */
   _isWordChar(char) {
-    return /[\w\-_./@]/.test(char);
+    // Letters and digits of any script (accents, CJK, Cyrillic...), plus
+    // the punctuation that belongs to paths, hosts and emails.
+    if (!char) return false;
+    return /^[\p{L}\p{N}\p{M}_\-./@~:+]+$/u.test(char);
   }
   
   /**
@@ -1452,6 +1602,7 @@ class MobileTerminalHandler {
    * @private
    */
   _updateSelection() {
+    if (this._destroyed) return;
     if (!this.selection.active || !this.selection.start || !this.selection.end) {
       this._stopScrollTracking();
       this.selectionOverlay.style.display = 'none';
@@ -1469,6 +1620,14 @@ class MobileTerminalHandler {
     // Normalize selection (start should be before end)
     const start = this.selection.start;
     const end = this.selection.end;
+
+    // Keep a reflow-proof anchor of the endpoints (see
+    // _remapSelectionAfterReflow). A pending width change is remapped
+    // first so a stale anchor never overwrites the moved selection.
+    if (this._selAnchor && this._selAnchor.cols !== this.terminal.cols) {
+      this._remapSelectionAfterReflow();
+    }
+    this._anchorSelection();
     
     // Get selection text
     this.selection.text = this._getSelectionText();
@@ -1521,13 +1680,19 @@ class MobileTerminalHandler {
         lineText = line.translateToString(false);
       }
       
-      text += lineText;
-      if (y < endPos.y) {
+      // A row continued by a soft wrap is one logical line: no newline and
+      // no trimming (its trailing cells are real text). Otherwise drop the
+      // blank cells xterm pads every row with up to the terminal width.
+      const next = y < endPos.y ? buffer.getLine(y + 1) : null;
+      const wrapsIntoNext = !!(next && next.isWrapped);
+      text += wrapsIntoNext ? lineText : lineText.replace(/\s+$/, '');
+      if (y < endPos.y && !wrapsIntoNext) {
         text += '\n';
       }
     }
     
-    return text.trim();
+    // Keep the first line's indentation (copied code); drop trailing blanks.
+    return text.replace(/\s+$/, '');
   }
   
   /**
@@ -1654,7 +1819,7 @@ class MobileTerminalHandler {
    * @private
    */
   _startScrollTracking() {
-    if (this._scrollTracking) return;
+    if (this._scrollTracking || this._destroyed) return;
     this._scrollTracking = true;
     this._lastScrollOffset = this.terminal.buffer.active.viewportY;
     this._scrollTrackLoop();
@@ -1745,6 +1910,7 @@ class MobileTerminalHandler {
     
     this.contextMenu.style.left = `${posX}px`;
     this.contextMenu.style.top = `${posY}px`;
+    if (this.contextMenu.style.display !== 'block') this._menuShownAt = Date.now();
     this.contextMenu.style.display = 'block';
   }
   
@@ -1791,13 +1957,21 @@ class MobileTerminalHandler {
   async _copySelection() {
     if (!this.selection.text) return;
     
+    // The app helper tries the Clipboard API and falls back to
+    // execCommand('copy'), which also works on plain-http origins where
+    // navigator.clipboard does not exist.
+    let ok = false;
     try {
-      await navigator.clipboard.writeText(this.selection.text);
-      this.app.showToast('Copied to clipboard', 'success');
+      if (this.app && typeof this.app.copyToClipboard === 'function') {
+        ok = await this.app.copyToClipboard(this.selection.text);
+      } else {
+        await navigator.clipboard.writeText(this.selection.text);
+        ok = true;
+      }
     } catch (err) {
       console.error('[MobileTerminal] Failed to copy:', err);
-      this.app.showToast('Failed to copy', 'error');
     }
+    this.app.showToast(ok ? 'Copied to clipboard' : 'Failed to copy', ok ? 'success' : 'error');
   }
   
   /**
@@ -1806,11 +1980,20 @@ class MobileTerminalHandler {
    */
   async _pasteFromClipboard() {
     try {
+      if (!navigator.clipboard || typeof navigator.clipboard.readText !== 'function') {
+        throw new Error('Clipboard API not available');
+      }
       const text = await navigator.clipboard.readText();
       this._pasteText(text);
     } catch (err) {
-      console.error('[MobileTerminal] Failed to paste:', err);
-      this.app.showToast('Failed to paste', 'error');
+      // No API (plain http) or permission denied: let the user paste into
+      // the app's paste dialog with the OS paste action instead.
+      console.warn('[MobileTerminal] Clipboard read failed, opening paste dialog:', err && err.message);
+      if (this.app && typeof this.app.showPasteModal === 'function') {
+        this.app.showPasteModal(this.sessionId);
+      } else {
+        this.app.showToast('Failed to paste', 'error');
+      }
     }
   }
   
@@ -1833,7 +2016,15 @@ class MobileTerminalHandler {
    * @private
    */
   async _readClipboard() {
+    // Pre-reading runs from the long-press timer, not a user gesture: only
+    // do it when reading is already allowed, so it never pops a browser
+    // permission prompt or paste callout on every long press. Paste reads
+    // the clipboard itself when tapped.
     try {
+      this.app.terminalClipboardContent = null;
+      if (!navigator.clipboard || !navigator.permissions || typeof navigator.permissions.query !== 'function') return;
+      const status = await navigator.permissions.query({ name: 'clipboard-read' });
+      if (!status || status.state !== 'granted') return;
       this.app.terminalClipboardContent = await navigator.clipboard.readText();
     } catch (err) {
       // Clipboard read might fail due to permissions
@@ -1862,11 +2053,146 @@ class MobileTerminalHandler {
   /**
    * Clear selection
    */
+  /**
+   * Record each selection endpoint as (marker on the first row of its
+   * logical line, character offset into that logical line). xterm moves
+   * markers when a resize reflows the buffer, so the endpoints can be
+   * recomputed for the new width: resizing the text (font size, pinch
+   * zoom) changes the column count, and plain row/column coordinates then
+   * pointed at different text or at rows scrolled out of view.
+   * @private
+   */
+  _anchorSelection() {
+    const sel = this.selection;
+    const t = this.terminal;
+    if (!sel.active || !sel.start || !sel.end || !t || typeof t.registerMarker !== 'function') return;
+    const a = this._selAnchor;
+    if (a && a.cols === t.cols && a.sx === sel.start.x && a.sy === sel.start.y &&
+        a.ex === sel.end.x && a.ey === sel.end.y && !a.start.marker.isDisposed && !a.end.marker.isDisposed) {
+      return; // unchanged
+    }
+    const make = (pos) => {
+      const buffer = t.buffer.active;
+      let row = pos.y;
+      while (row > 0) {
+        const line = buffer.getLine(row);
+        if (!line || !line.isWrapped) break;
+        row--;
+      }
+      const cursorLine = buffer.baseY + buffer.cursorY;
+      let marker = null;
+      try { marker = t.registerMarker(row - cursorLine); } catch (_) {}
+      if (!marker) return null;
+      return { marker, offset: (pos.y - row) * t.cols + pos.x };
+    };
+    const start = make(sel.start);
+    const end = make(sel.end);
+    this._disposeSelectionAnchor();
+    if (!start || !end) {
+      if (start) start.marker.dispose();
+      if (end) end.marker.dispose();
+      return;
+    }
+    this._selAnchor = {
+      start, end, cols: t.cols,
+      sx: sel.start.x, sy: sel.start.y, ex: sel.end.x, ey: sel.end.y
+    };
+  }
+
+  /** @private */
+  _disposeSelectionAnchor() {
+    if (!this._selAnchor) return;
+    try { this._selAnchor.start.marker.dispose(); } catch (_) {}
+    try { this._selAnchor.end.marker.dispose(); } catch (_) {}
+    this._selAnchor = null;
+  }
+
+  /**
+   * After a width change, move the selection endpoints to where their
+   * text now is. Clears the selection if its lines were dropped (marker
+   * disposed: trimmed scrollback or a full screen resync).
+   * @private
+   */
+  _remapSelectionAfterReflow() {
+    const a = this._selAnchor;
+    const t = this.terminal;
+    if (!a || !t || a.cols === t.cols) return;
+    if (a.start.marker.isDisposed || a.end.marker.isDisposed ||
+        a.start.marker.line < 0 || a.end.marker.line < 0) {
+      this._disposeSelectionAnchor();
+      this.clearSelection();
+      return;
+    }
+    const cols = t.cols;
+    const last = t.buffer.active.length - 1;
+    const place = (p) => ({
+      x: Math.min(cols - 1, p.offset % cols),
+      y: Math.max(0, Math.min(last, p.marker.line + Math.floor(p.offset / cols)))
+    });
+    this.selection.start = place(a.start);
+    this.selection.end = place(a.end);
+    // Re-anchor at the new width (offsets stay valid, rows may differ).
+    a.cols = cols;
+    a.sx = this.selection.start.x; a.sy = this.selection.start.y;
+    a.ex = this.selection.end.x; a.ey = this.selection.end.y;
+  }
+
+  /**
+   * Same width, but the anchored lines moved (scrollback trimmed while
+   * output streams in): shift the endpoints with them. Clears the
+   * selection when its lines left the buffer.
+   * @private
+   */
+  _followSelectionAnchor() {
+    const a = this._selAnchor;
+    if (!a || !this.selection.active) return;
+    if (a.cols !== this.terminal.cols) {
+      this._remapSelectionAfterReflow();
+      this._updateSelection();
+      return;
+    }
+    if (a.start.marker.isDisposed || a.end.marker.isDisposed ||
+        a.start.marker.line < 0 || a.end.marker.line < 0) {
+      this.clearSelection();
+      return;
+    }
+    const startRow = a.start.marker.line + Math.floor(a.start.offset / a.cols);
+    if (startRow === a.sy) return; // nothing moved
+    const delta = startRow - a.sy;
+    this.selection.start = { x: this.selection.start.x, y: this.selection.start.y + delta };
+    this.selection.end = { x: this.selection.end.x, y: this.selection.end.y + delta };
+    a.sy += delta;
+    a.ey += delta;
+    this._updateSelection();
+  }
+
+  /**
+   * Scroll so the selection is on screen (a resize usually jumps the
+   * viewport to the bottom).
+   * @private
+   */
+  _revealSelection() {
+    const t = this.terminal;
+    const sel = this.selection;
+    if (!t || !sel.active || !sel.start || !sel.end) return;
+    const top = Math.min(sel.start.y, sel.end.y);
+    const bottom = Math.max(sel.start.y, sel.end.y);
+    const vy = t.buffer.active.viewportY;
+    if (top >= vy && bottom < vy + t.rows) return;
+    const target = Math.max(0, top - Math.floor(t.rows / 3));
+    try { t.scrollToLine(target); } catch (_) {}
+    requestAnimationFrame(() => {
+      if (this.selection.active) this._updateSelection();
+    });
+  }
+
   clearSelection() {
+    this._disposeSelectionAnchor();
     this.selection.active = false;
     this.selection.start = null;
     this.selection.end = null;
     this.selection.text = '';
+    this.hideContextMenu();
     
     // Stop scroll tracking since selection is cleared
     this._stopScrollTracking();
@@ -2118,9 +2444,14 @@ class MobileTerminalHandler {
     this.viewport.isKeyboardVisible = keyboardHeight > 100; // Threshold for keyboard detection
     this.viewport.keyboardHeight = keyboardHeight;
     
-    // Adjust terminal container if keyboard is visible
-    if (this.viewport.isKeyboardVisible !== wasKeyboardVisible) {
-      this._adjustForKeyboard();
+    // Adjust when the keyboard appears/disappears, and also while it stays
+    // up but the space changes (rotation, emoji panel, floating keyboard):
+    // the old code only reacted to the show/hide flip and kept a stale
+    // pixel height after a rotation.
+    const heightChanged = this.viewport.isKeyboardVisible &&
+      Math.abs((this._appliedKeyboardViewportHeight || 0) - viewportHeight) > 1;
+    if (this.viewport.isKeyboardVisible !== wasKeyboardVisible || heightChanged) {
+      this._adjustForKeyboard({ skipScroll: this.viewport.isKeyboardVisible === wasKeyboardVisible });
     }
   }
   
@@ -2128,20 +2459,29 @@ class MobileTerminalHandler {
    * Adjust terminal for virtual keyboard
    * @private
    */
-  _adjustForKeyboard() {
-    if (!this.terminalElement) return;
+  _adjustForKeyboard(opts) {
+    if (!this.terminalElement || this._destroyed) return;
     
     if (this.viewport.isKeyboardVisible) {
       // Keyboard is visible - adjust viewport
       const availableHeight = window.visualViewport.height;
+      this._appliedKeyboardViewportHeight = availableHeight;
       this.terminalElement.style.height = `${availableHeight}px`;
       
-      // Scroll terminal into view
-      this.terminalElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // Scroll terminal into view (only when the keyboard just appeared,
+      // and only for the tab on screen)
+      const isActive = !this.app || this.app.activeSessionId === this.sessionId;
+      if (isActive && !(opts && opts.skipScroll)) {
+        this.terminalElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
     } else {
       // Keyboard is hidden - restore original height
+      this._appliedKeyboardViewportHeight = 0;
       this.terminalElement.style.height = '';
     }
+    // Hidden tabs only keep their inline height in step; the refit happens
+    // when they are shown (switchTab fits the terminal).
+    if (this.app && this.app.activeSessionId !== this.sessionId) return;
     
     // Refit terminal. Prefer the app's guarded refit (it refuses to fit a
     // hidden/unlaid-out container, which a bare fit() would resize to a
@@ -2166,27 +2506,44 @@ class MobileTerminalHandler {
    * @private
    */
   _handleKeyDown(e) {
-    // Handle keyboard shortcuts
-    if (e.ctrlKey || e.metaKey) {
-      switch (e.key.toLowerCase()) {
-        case 'c':
-          if (this.selection.active) {
-            e.preventDefault();
-            this._copySelection();
-          }
-          break;
-        case 'v':
+    // Every session's handler listens on document. Only the one whose
+    // input field has focus (or, with no editable focus, the active tab's
+    // handler while it holds a selection) may act; otherwise Ctrl+V pasted
+    // into EVERY open tab and Ctrl+V/Ctrl+A were swallowed in other inputs.
+    if (!(e.ctrlKey || e.metaKey) || typeof e.key !== 'string') return;
+    const target = e.target;
+    const ownField = !!this.hiddenTextarea && target === this.hiddenTextarea;
+    const editable = target && target !== document.body &&
+      (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName || ''));
+    const isActiveTab = this.app && this.app.activeSessionId === this.sessionId;
+    if (!ownField && (editable || !isActiveTab)) return;
+
+    switch (e.key.toLowerCase()) {
+      case 'c':
+        if (this.selection.active) {
           e.preventDefault();
-          this._pasteInProgress = true;
-          this._pasteFromClipboard().finally(() => {
-            setTimeout(() => { this._pasteInProgress = false; }, 100);
-          });
-          break;
-        case 'a':
+          this._copySelection();
+        }
+        break;
+      case 'v':
+        if (!ownField && !this.selection.active) return;
+        e.preventDefault();
+        this._pasteInProgress = true;
+        this._pasteFromClipboard().finally(() => {
+          setTimeout(() => { this._pasteInProgress = false; }, 100);
+        });
+        break;
+      case 'a':
+        if (this.selection.active) {
           e.preventDefault();
           this._selectAll();
-          break;
-      }
+        } else if (ownField && e.ctrlKey && !e.metaKey && !e.altKey) {
+          // Typing in the terminal: Ctrl+A is the shell's
+          // beginning-of-line, not "select the hidden field".
+          e.preventDefault();
+          this._sendToTerminal('\x01');
+        }
+        break;
     }
   }
 }

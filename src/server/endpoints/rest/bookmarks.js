@@ -72,8 +72,12 @@ function registerBookmarkEndpoints(app, io) {
 
   // API: Save bookmark order
   app.post('/api/bookmarks/order', (req, res) => {
+    const order = req.body && req.body.order;
+    if (!Array.isArray(order) || order.some(id => typeof id !== 'string' && typeof id !== 'number')) {
+      return res.status(400).json({ error: 'order must be an array of ids' });
+    }
     const config = loadConfig();
-    config.bookmarkOrder = req.body.order;
+    config.bookmarkOrder = order;
     if (saveConfig(config)) {
       res.json({ success: true });
     } else {

@@ -174,6 +174,17 @@ function isRunning() {
       // Check if process exists
       try {
         process.kill(pid, 0);
+        // After a reboot or crash the PID can belong to an unrelated
+        // process; --stop would then SIGTERM/SIGKILL it. On Linux, check
+        // that it really is a node process running sshift.
+        if (process.platform === 'linux') {
+          let cmdline = '';
+          try { cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8'); } catch (_) {}
+          if (cmdline && !/sshift/.test(cmdline)) {
+            try { fs.unlinkSync(pidFile); } catch (_) {}
+            return { running: false };
+          }
+        }
         return { running: true, pid };
       } catch (e) {
         // Process not running, clean up stale PID file
@@ -301,8 +312,18 @@ if (options.dev) {
   process.env.NODE_ENV = 'development';
 }
 
-// Write PID file before starting
-writePidFile();
+// Write PID file before starting — unless another live sshift owns it:
+// a second start (that will fail with "port in use") used to overwrite it,
+// then delete it on exit, leaving the real instance invisible to
+// --status/--stop.
+{
+  const existing = isRunning();
+  if (existing.running && existing.pid !== process.pid) {
+    console.warn(`[sshift] Another instance (PID ${existing.pid}) owns ${pidFile}; not overwriting it.`);
+  } else {
+    writePidFile();
+  }
+}
 
 // Clean up PID file on exit
 process.on('exit', cleanupPidFile);

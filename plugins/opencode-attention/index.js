@@ -468,6 +468,17 @@ class OpenCodeAttentionPlugin {
     this._checkTimers.set(sessionId, timer);
   }
 
+  // Plugin reload/disable: stop every timer of this instance.
+  destroy() {
+    for (const t of this._checkTimers.values()) clearInterval(t);
+    for (const map of [this._dataTimers, this._idleTimers]) {
+      for (const t of map.values()) clearTimeout(t);
+    }
+    this._checkTimers.clear();
+    this._dataTimers.clear();
+    this._idleTimers.clear();
+  }
+
   onSessionDisconnect(sessionId) {
     this._resetSession(sessionId);
 

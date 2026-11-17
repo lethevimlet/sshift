@@ -3,7 +3,7 @@
  */
 
 const { loadConfig, getStickySetting, getScrollback } = require('../../utils/config');
-const { addTab, getTab, addSocketToTab, removeSocketFromTab, removeTab, getTabOrder, setCloseTimer, clearCloseTimer, getCloseTimer } = require('../../utils/tab-manager');
+const { wasRecentlyClosed, addTab, getTab, addSocketToTab, removeSocketFromTab, removeTab, getTabOrder, setCloseTimer, clearCloseTimer, getCloseTimer } = require('../../utils/tab-manager');
 const { sshManager } = require('../../services');
 const pluginManager = require('../../plugins/plugin-manager');
 
@@ -64,7 +64,8 @@ function registerSSHHandlers(socket, io) {
         name: data.name || 'SSH',
         type: 'ssh',
         connectionData: data,
-        activeSockets: new Set([socket.id]),
+        // The socket may have gone away during the (up to 30 s) connect.
+        activeSockets: new Set(socket.connected ? [socket.id] : []),
         sticky: sticky
       });
       
@@ -75,7 +76,14 @@ function registerSSHHandlers(socket, io) {
         sessionId,
         name: data.name || 'SSH',
         type: 'ssh',
-        connectionData: data
+        // Never broadcast secrets (password, key, passphrase) to other
+        // browsers; they join the running session by id.
+        connectionData: {
+          host: data.host,
+          port: data.port,
+          username: data.username,
+          name: data.name
+        }
       });
 
       io.emit('sessions-updated');
@@ -96,7 +104,7 @@ function registerSSHHandlers(socket, io) {
       addSocketToTab(data.sessionId, socket.id);
       // Note: ssh-joined is emitted by joinSession() with noTerminalState flag
     } else {
-      socket.emit('ssh-error', { message: 'Session not found', sessionId: data.sessionId });
+      socket.emit('ssh-error', { message: 'Session not found', sessionId: data.sessionId, closed: wasRecentlyClosed(data.sessionId) });
     }
   });
 
@@ -145,7 +153,7 @@ function registerSSHHandlers(socket, io) {
         advisory: true
       });
     } else {
-      socket.emit('ssh-error', { message: 'Session not found', sessionId: data.sessionId });
+      socket.emit('ssh-error', { message: 'Session not found', sessionId: data.sessionId, closed: wasRecentlyClosed(data.sessionId) });
     }
   });
 

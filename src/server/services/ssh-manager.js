@@ -164,7 +164,21 @@ class SSHManager {
           }
 
           session.stream = stream;
+          // A client-chosen id can collide (two browsers recreating the
+          // same expired session after a restart). Retire the previous
+          // connection so it cannot keep feeding or tearing down this id.
+          const previous = this.sessions.get(sessionId);
+          if (previous && previous !== session) {
+            console.warn(`[SSH] Replacing existing session with the same id: ${sessionId}`);
+            previous.replaced = true;
+            if (previous.batchTimer) clearTimeout(previous.batchTimer);
+            if (previous.exitTimer) clearTimeout(previous.exitTimer);
+            try { previous.stream && previous.stream.destroy(); } catch (_) {}
+            try { previous.conn && previous.conn.end(); } catch (_) {}
+            try { previous.terminal && previous.terminal.dispose(); } catch (_) {}
+          }
           this.sessions.set(sessionId, session);
+          const isCurrent = () => this.sessions.get(sessionId) === session;
           
           // Join the session room to receive broadcasts
           socket.join(`session-${sessionId}`);
@@ -185,15 +199,16 @@ class SSHManager {
           // chunk boundaries (each .toString('utf8') would replace the
           // incomplete halves with U+FFFD).
           stream.on('data', (data) => {
-            this.bufferData(sessionId, data);
+            if (isCurrent()) this.bufferData(sessionId, data);
           });
 
           stream.stderr.on('data', (data) => {
-            this.bufferData(sessionId, data);
+            if (isCurrent()) this.bufferData(sessionId, data);
           });
 
           stream.on('close', () => {
             console.log(`[SSH] Stream closed: ${sessionId}`);
+            if (!isCurrent()) return;
             if (session.exitTimer) {
               clearTimeout(session.exitTimer);
               session.exitTimer = null;
@@ -210,6 +225,7 @@ class SSHManager {
 
           stream.on('exit', (code, signal) => {
             console.log(`[SSH] Stream exit: ${sessionId}, code: ${code}, signal: ${signal}`);
+            if (!isCurrent()) return;
             this.broadcastToSession(sessionId, 'ssh-exit', { sessionId, code, signal });
             // Remote process exited. The ssh2 channel normally fires
             // `close` shortly after, but if it doesn't (network drop,
@@ -237,27 +253,42 @@ class SSHManager {
         });
       });
 
-      conn.on('error', (err) => {
-        console.error(`[SSH] Connection error: ${err.message}`);
-        socket.emit('ssh-error', { sessionId, message: err.message });
-        this.sessions.delete(sessionId);
+      // ssh2 emits conn 'error' then 'close' BEFORE the channel's own
+      // 'close' on a network drop / keepalive timeout. Tear down through
+      // disconnect() (idempotent) so the headless terminal, line buffers
+      // and plugin state are released too, not just the map entry; and
+      // only when this connection still owns the id.
+      const teardown = () => {
+        if (this.sessions.get(sessionId) === session) {
+          this.broadcastToSession(sessionId, 'ssh-disconnected', { sessionId });
+          this.disconnect(sessionId);
+        } else if (session.replaced) {
+          return;
+        } else {
+          try { session.terminal && session.terminal.dispose(); } catch (_) {}
+          // Another live connection owns this id: leave its tab alone.
+          if (this.sessions.has(sessionId)) return;
+        }
         removeTab(sessionId);
         if (this.io) {
           this.io.emit('tab-closed', { sessionId });
           this.io.emit('sessions-updated');
         }
+      };
+
+      conn.on('error', (err) => {
+        console.error(`[SSH] Connection error: ${err.message}`);
+        if (!session.replaced) socket.emit('ssh-error', { sessionId, message: err.message });
+        teardown();
         reject(err);
       });
 
       conn.on('close', () => {
         console.log(`[SSH] Connection closed: ${sessionId}`);
-        this.broadcastToSession(sessionId, 'ssh-disconnected', { sessionId });
-        this.sessions.delete(sessionId);
-        removeTab(sessionId);
-        if (this.io) {
-          this.io.emit('tab-closed', { sessionId });
-          this.io.emit('sessions-updated');
-        }
+        teardown();
+        // A connection that closes before the shell opened never settles
+        // otherwise (no error event), leaving ssh-connect hanging.
+        reject(new Error('Connection closed'));
       });
 
       try {

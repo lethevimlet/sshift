@@ -30,44 +30,28 @@ function registerConfigEndpoints(app, io) {
   // API: Update config
   app.post('/api/config', (req, res) => {
     const config = loadConfig();
-    
-    // Update sticky setting if provided
-    if (req.body.hasOwnProperty('sticky')) {
-      config.sticky = req.body.sticky;
+    const body = (req.body && typeof req.body === 'object') ? req.body : {};
+    const has = (k) => Object.prototype.hasOwnProperty.call(body, k);
+    // Booleans must be booleans: the string "false" used to be stored and
+    // then read as enabled.
+    const bool = (v) => v === true || v === 'true';
+    const int = (v, min, max, fallback) => {
+      const n = parseInt(v, 10);
+      return Number.isFinite(n) && n >= min && n <= max ? n : fallback;
+    };
+
+    for (const key of ['sticky', 'takeControlDefault', 'mobileKeysBarEnabled', 'webglRenderer', 'imageAddonEnabled']) {
+      if (has(key)) config[key] = bool(body[key]);
     }
-    
-    // Update takeControlDefault setting if provided
-    if (req.body.hasOwnProperty('takeControlDefault')) {
-      config.takeControlDefault = req.body.takeControlDefault;
+    // 1 s .. 10 min between SSH keepalives; 1 .. 10000 unanswered ones.
+    if (has('sshKeepaliveInterval')) {
+      config.sshKeepaliveInterval = int(body.sshKeepaliveInterval, 1000, 600000, 10000);
     }
-    
-    // Update SSH keepalive settings if provided
-    if (req.body.hasOwnProperty('sshKeepaliveInterval')) {
-      config.sshKeepaliveInterval = parseInt(req.body.sshKeepaliveInterval) || 10000;
+    if (has('sshKeepaliveCountMax')) {
+      config.sshKeepaliveCountMax = int(body.sshKeepaliveCountMax, 1, 10000, 1000);
     }
-    
-    if (req.body.hasOwnProperty('sshKeepaliveCountMax')) {
-      config.sshKeepaliveCountMax = parseInt(req.body.sshKeepaliveCountMax) || 1000;
-    }
-    
-    // Update mobile keys bar setting if provided
-    if (req.body.hasOwnProperty('mobileKeysBarEnabled')) {
-      config.mobileKeysBarEnabled = req.body.mobileKeysBarEnabled;
-    }
-    
-    // Update WebGL renderer setting if provided
-    if (req.body.hasOwnProperty('webglRenderer')) {
-      config.webglRenderer = req.body.webglRenderer;
-    }
-    
-    // Update image addon setting if provided
-    if (req.body.hasOwnProperty('imageAddonEnabled')) {
-      config.imageAddonEnabled = req.body.imageAddonEnabled;
-    }
-    
-    if (req.body.hasOwnProperty('scrollback')) {
-      const val = parseInt(req.body.scrollback);
-      config.scrollback = (val >= 0 && val <= 100000) ? val : 10000;
+    if (has('scrollback')) {
+      config.scrollback = int(body.scrollback, 0, 100000, 10000);
     }
     
     // Save config

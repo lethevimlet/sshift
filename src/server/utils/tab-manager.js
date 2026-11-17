@@ -44,7 +44,26 @@ function getTabOrder() {
  * @param {Array} order - Array of sessionIds
  */
 function setTabOrder(order) {
-  tabOrder = order;
+  // Client-supplied: keep it an array of unique session-id strings, or a
+  // bad payload breaks every later connection (tabOrder.filter) until a
+  // restart. Server tabs the client did not list (e.g. one opened by the
+  // remote-control plugin a moment ago) are kept at the end, so a client
+  // with a stale view cannot hide a live tab from everyone.
+  if (!Array.isArray(order)) return;
+  const seen = new Set();
+  const next = [];
+  for (const id of order) {
+    if (typeof id !== 'string' || !id || seen.has(id)) continue;
+    seen.add(id);
+    next.push(id);
+  }
+  for (const id of tabOrder) {
+    if (!seen.has(id) && openTabs.has(id)) {
+      seen.add(id);
+      next.push(id);
+    }
+  }
+  tabOrder = next;
 }
 
 /**
@@ -79,6 +98,7 @@ function setCurrentLayout(layoutId) {
  * @param {Object} tabData - Tab data
  */
 function addTab(sessionId, tabData) {
+  recentlyClosed.delete(sessionId);
   openTabs.set(sessionId, tabData);
   if (!tabOrder.includes(sessionId)) {
     tabOrder.push(sessionId);
@@ -98,7 +118,26 @@ function getTab(sessionId) {
  * Remove a tab
  * @param {string} sessionId - Session ID
  */
+// Sessions that ended while this process was running (closed tab, remote
+// exit, dropped connection). A client that reconnects after a sleep and
+// asks to join one of these must drop the tab, not recreate the SSH
+// connection from its stored credentials (that is only right after a
+// server restart, when the id is simply unknown).
+const recentlyClosed = new Map(); // sessionId -> time
+const RECENTLY_CLOSED_MAX = 1000;
+
+function wasRecentlyClosed(sessionId) {
+  return recentlyClosed.has(sessionId);
+}
+
 function removeTab(sessionId) {
+  if (openTabs.has(sessionId)) {
+    recentlyClosed.delete(sessionId);
+    recentlyClosed.set(sessionId, Date.now());
+    while (recentlyClosed.size > RECENTLY_CLOSED_MAX) {
+      recentlyClosed.delete(recentlyClosed.keys().next().value);
+    }
+  }
   openTabs.delete(sessionId);
   tabOrder = tabOrder.filter(id => id !== sessionId);
   // Clean up active tab references
@@ -300,6 +339,7 @@ module.exports = {
   addTab,
   getTab,
   removeTab,
+  wasRecentlyClosed,
   addSocketToTab,
   removeSocketFromTab,
   hasActiveSockets,

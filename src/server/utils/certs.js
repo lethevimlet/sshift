@@ -230,6 +230,9 @@ function writePair(certPath, keyPath, pair) {
   // Certificates are public (they are served by /api/cert); keys are not.
   fs.writeFileSync(certPath, pair.cert, { mode: 0o644 });
   fs.writeFileSync(keyPath, pair.key, { mode: 0o600 });
+  // mode only applies when the file is created; an older key file may be
+  // group/world readable.
+  try { fs.chmodSync(keyPath, 0o600); } catch (_) {}
 }
 
 /**

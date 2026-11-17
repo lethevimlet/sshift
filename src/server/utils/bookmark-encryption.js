@@ -135,6 +135,10 @@ function setBookmarkEncryptionKey(key) {
   bookmarkEncryptionKey = key ? Buffer.from(key) : null;
 }
 
+function getBookmarkEncryptionKey() {
+  return bookmarkEncryptionKey;
+}
+
 function clearBookmarkEncryptionKey() {
   if (bookmarkEncryptionKey) bookmarkEncryptionKey.fill(0);
   bookmarkEncryptionKey = null;
@@ -151,5 +155,6 @@ module.exports = {
   getDecryptedBookmarks,
   storeBookmarks,
   setBookmarkEncryptionKey,
+  getBookmarkEncryptionKey,
   clearBookmarkEncryptionKey
 };

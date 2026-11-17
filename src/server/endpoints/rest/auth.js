@@ -8,27 +8,21 @@ const {
 const {
   clearBookmarkEncryptionKey,
   decryptBookmarksWithPassword,
+  getBookmarkEncryptionKey,
   prepareEncryptedBookmarks,
   setBookmarkEncryptionKey,
   unlockBookmarkEncryption
 } = require('../../utils/bookmark-encryption');
 
-const authTokens = new Map();
+const authTokens = require('../../utils/auth-tokens');
 const loginAttempts = new Map();
-const TOKEN_TTL = 24 * 60 * 60 * 1000;
 const LOGIN_WINDOW_MS = 60 * 1000;
 const MAX_LOGIN_ATTEMPTS = 5;
 
-function generateToken() {
-  const crypto = require('crypto');
-  return crypto.randomBytes(32).toString('hex');
-}
-
-function cleanExpiredTokens() {
-  const now = Date.now();
-  for (const [token, expiry] of authTokens) {
-    if (expiry < now) authTokens.delete(token);
-  }
+function currentBookmarkKey(config) {
+  const key = getBookmarkEncryptionKey();
+  if (!config.bookmarkEncryptionEnabled || !key) return null;
+  return { key, salt: config.bookmarkEncryptionSalt };
 }
 
 function getLoginAttemptKey(req) {
@@ -68,11 +62,13 @@ function notifyAuthState(io, passwordEnabled) {
 }
 
 function revokeAuthenticatedClients(io) {
-  authTokens.clear();
+  authTokens.revokeAll();
   if (io && typeof io.disconnectSockets === 'function') {
     setTimeout(() => io.disconnectSockets(true), 50);
   }
 }
+
+const isNonEmptyString = (v) => typeof v === 'string' && v.length > 0;
 
 function registerAuthEndpoints(app, io) {
   app.get('/api/auth/status', (req, res) => {
@@ -84,11 +80,11 @@ function registerAuthEndpoints(app, io) {
   });
 
   app.post('/api/auth/login', async (req, res) => {
-    const { password } = req.body;
+    const { password } = req.body || {};
     if (!isPasswordSet()) {
       return res.json({ success: true, authenticated: true });
     }
-    if (!password) {
+    if (!isNonEmptyString(password)) {
       return res.status(400).json({ error: 'Password required' });
     }
     if (isLoginRateLimited(req)) {
@@ -107,20 +103,19 @@ function registerAuthEndpoints(app, io) {
       console.error('[AUTH] Failed to unlock encrypted bookmarks:', err.message);
       return res.status(500).json({ error: 'Encrypted bookmarks could not be unlocked' });
     }
-    const token = generateToken();
-    authTokens.set(token, Date.now() + TOKEN_TTL);
-    cleanExpiredTokens();
+    const config = loadConfig();
+    const token = authTokens.issueToken(config.passwordHash, currentBookmarkKey(config));
     res.json({ success: true, token });
   });
 
   app.post('/api/auth/set-password', async (req, res) => {
-    const { currentPassword, newPassword } = req.body;
+    const { currentPassword, newPassword } = req.body || {};
     if (isPasswordSet()) {
-      if (!currentPassword || !await verifyPasswordAsync(currentPassword)) {
+      if (!isNonEmptyString(currentPassword) || !await verifyPasswordAsync(currentPassword)) {
         return res.status(401).json({ error: 'Current password is incorrect' });
       }
     }
-    if (!newPassword || newPassword.length < 1) {
+    if (!isNonEmptyString(newPassword)) {
       return res.status(400).json({ error: 'Password cannot be empty' });
     }
     const config = loadConfig();
@@ -163,11 +158,11 @@ function registerAuthEndpoints(app, io) {
   });
 
   app.post('/api/auth/remove-password', async (req, res) => {
-    const { currentPassword } = req.body;
+    const { currentPassword } = req.body || {};
     if (!isPasswordSet()) {
       return res.json({ success: true });
     }
-    if (!currentPassword || !await verifyPasswordAsync(currentPassword)) {
+    if (!isNonEmptyString(currentPassword) || !await verifyPasswordAsync(currentPassword)) {
       return res.status(401).json({ error: 'Current password is incorrect' });
     }
     const config = loadConfig();
@@ -193,11 +188,11 @@ function registerAuthEndpoints(app, io) {
   });
 
   app.post('/api/auth/bookmark-encryption', async (req, res) => {
-    const { currentPassword, enabled } = req.body;
+    const { currentPassword, enabled } = req.body || {};
     if (!isPasswordSet()) {
       return res.status(400).json({ error: 'Password protection must be enabled first' });
     }
-    if (!currentPassword || !await verifyPasswordAsync(currentPassword)) {
+    if (!isNonEmptyString(currentPassword) || !await verifyPasswordAsync(currentPassword)) {
       return res.status(401).json({ error: 'Current password is incorrect' });
     }
 
@@ -226,6 +221,11 @@ function registerAuthEndpoints(app, io) {
         }
         clearBookmarkEncryptionKey();
       }
+      // Keep remembered browsers able to unlock bookmarks after a restart.
+      authTokens.rewrapBookmarkKey(
+        enabled ? getBookmarkEncryptionKey() : null,
+        enabled ? loadConfig().bookmarkEncryptionSalt : null
+      );
       notifyEncryptionState(io, enabled === true);
       res.json({ success: true, bookmarkEncryptionEnabled: enabled === true });
     } catch (err) {
@@ -236,19 +236,32 @@ function registerAuthEndpoints(app, io) {
 
   app.post('/api/auth/logout', (req, res) => {
     const token = req.headers.authorization?.replace('Bearer ', '');
-    if (token) authTokens.delete(token);
+    if (token) {
+      authTokens.revokeToken(token);
+      // Sockets opened with this token keep their session otherwise.
+      if (io && io.sockets && io.sockets.sockets) {
+        for (const socket of io.sockets.sockets.values()) {
+          const t = socket.handshake && socket.handshake.auth && socket.handshake.auth.token;
+          if (t === token) socket.disconnect(true);
+        }
+      }
+    }
     res.json({ success: true });
   });
 }
 
 function isValidAuthToken(token) {
   if (!token) return false;
-  cleanExpiredTokens();
-  const expiry = authTokens.get(token);
-  if (!expiry) return false;
-  if (expiry < Date.now()) {
-    authTokens.delete(token);
-    return false;
+  const config = loadConfig();
+  if (!authTokens.verifyToken(token, config.passwordHash)) return false;
+  // After a restart the bookmark key is gone from memory; a remembered
+  // browser carries what is needed to restore it.
+  if (config.bookmarkEncryptionEnabled && !getBookmarkEncryptionKey()) {
+    const key = authTokens.getBookmarkKeyForToken(token, config.bookmarkEncryptionSalt);
+    if (key) {
+      setBookmarkEncryptionKey(key);
+      key.fill(0);
+    }
   }
   return true;
 }

@@ -130,9 +130,8 @@ function registerSystemEndpoints(app, io) {
   // API: Get version
   app.get('/api/version', (req, res) => {
     try {
-      const packagePath = path.join(__dirname, '../../../../package.json');
-      const packageData = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
-      res.json({ version: packageData.version });
+      // Same string the page was rendered with (dev builds add a suffix).
+      res.json({ version: require('../../utils/asset-version').getAssetVersion() });
     } catch (err) {
       console.error('Error reading version:', err);
       res.status(500).json({ error: 'Failed to read version' });
@@ -265,7 +264,14 @@ function registerSystemEndpoints(app, io) {
   });
 
   // API: Trigger update
+  // One update at a time: a second click (or a second browser) used to
+  // start a parallel `npm i -g` racing the first one.
+  let updateInProgress = false;
   app.post('/api/update', async (req, res) => {
+    if (updateInProgress) {
+      return res.status(409).json({ error: 'An update is already in progress' });
+    }
+    updateInProgress = true;
     try {
 
       const { spawn, execSync } = require('child_process');
@@ -302,6 +308,16 @@ function registerSystemEndpoints(app, io) {
           ghReq.setTimeout(10000, () => { ghReq.destroy(); reject(new Error('GitHub request timed out')); });
           ghReq.end();
         });
+        if (githubVersion && /^\d+\.\d+\.\d+$/.test(githubVersion) &&
+            compareVersions(currentPkg.version, githubVersion) >= 0) {
+          // GitHub main can lag npm, or this install can be ahead of it:
+          // "updating" would reinstall or downgrade.
+          return res.status(409).json({
+            error: 'Already up to date',
+            localVersion: currentPkg.version,
+            remoteVersion: githubVersion
+          });
+        }
         if (githubVersion && /^\d+\.\d+\.\d+$/.test(githubVersion)) {
           // Verify the version actually exists on the npm registry before pinning.
           // GitHub may show a version before npm propagation completes, which would
@@ -313,6 +329,7 @@ function registerSystemEndpoints(app, io) {
               method: 'GET',
               headers: { 'User-Agent': 'sshift-update-checker' }
             }, (npmRes) => {
+              npmRes.resume(); // free the socket (body not needed)
               resolve(npmRes.statusCode === 200);
             });
             npmReq.on('error', () => resolve(false));
@@ -687,6 +704,17 @@ fi
         spawnFailed = true;
         try { fs.unlinkSync(updateMarker); } catch (e) { /* ignore */ }
       });
+      // The update script runs for a while; exiting at once with an error
+      // means it never started (e.g. systemd-run refused by polkit for a
+      // non-root service user). Exiting the server then would leave it
+      // down: exit 0 does not trigger Restart=on-failure.
+      updateProcess.on('exit', (code, signal) => {
+        if (code !== 0 || signal) {
+          console.error('[UPDATE] Update process exited early (code', code, 'signal', signal + ')');
+          spawnFailed = true;
+          try { fs.unlinkSync(updateMarker); } catch (e) { /* ignore */ }
+        }
+      });
       
       updateProcess.unref();
       
@@ -699,14 +727,22 @@ fi
       setTimeout(() => {
         if (spawnFailed) {
           console.error('[UPDATE] Update process failed to start. Keeping server running.');
+          updateInProgress = false;
           return;
         }
         console.log('[UPDATE] Exiting for update...');
         process.exit(0);
       }, exitDelay);
     } catch (err) {
+      updateInProgress = false;
       console.error('Error triggering update:', err);
-      res.status(500).json({ error: 'Failed to trigger update' });
+      // The success reply may already be out (it is sent before the
+      // background script starts); never answer twice.
+      if (!res.headersSent) res.status(500).json({ error: 'Failed to trigger update' });
+    } finally {
+      // Early returns (503, 500 above) and a failed spawn (server keeps
+      // running) must allow another attempt.
+      if (!res.headersSent || res.statusCode >= 400) updateInProgress = false;
     }
   });
 }

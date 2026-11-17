@@ -96,7 +96,8 @@ function convertPPKViaPuttygen(ppkContent, passphrase) {
       });
     };
 
-    fs.writeFile(inputFile, ppkContent, (writeErr) => {
+    // The PPK may hold an unencrypted private key: never world-readable.
+    fs.writeFile(inputFile, ppkContent, { mode: 0o600 }, (writeErr) => {
       if (writeErr) {
         try { fs.unlinkSync(inputFile); } catch (e) { /* ignore */ }
         return reject(new Error('Failed to write temporary PPK file: ' + writeErr.message));
@@ -483,14 +484,38 @@ async function convertPPKToOpenSSH(ppkContent, passphrase) {
     throw new Error('Not a PPK key');
   }
 
-  // Try built-in converter first (works for v2 encrypted/unencrypted, no puttygen dependency)
+  if (!passphrase && /^Encryption:\s*(?!none)\S+/m.test(ppkContent)) {
+    throw new Error('This PPK key is encrypted: enter its passphrase');
+  }
+
+  // 1) ssh2's own PPK parser (PPK v2: ssh-rsa / ssh-dss, unencrypted or
+  //    aes256-cbc). The hand-written v2 converter below rejected every
+  //    real v2 key ("integrity check failed": wrong private-blob layout and
+  //    key derivation), verified against ssh2's PPK fixtures.
+  let ssh2Error = null;
+  try {
+    const { utils } = require('ssh2');
+    const parsed = utils.parseKey(ppkContent, passphrase || undefined);
+    const key = Array.isArray(parsed) ? parsed[0] : parsed;
+    if (key && !(key instanceof Error) && typeof key.getPrivatePEM === 'function') {
+      const pem = key.getPrivatePEM();
+      if (pem && pem.includes('BEGIN')) return pem;
+    }
+    if (key instanceof Error) ssh2Error = key;
+  } catch (e) {
+    ssh2Error = e;
+  }
+  // A wrong passphrase is final: don't hide it behind fallback errors.
+  if (ssh2Error && /passphrase|decrypt|bad mac|integrity/i.test(ssh2Error.message) && passphrase !== undefined && /Encryption: aes256-cbc/.test(ppkContent) && /PuTTY-User-Key-File-2: ssh-(rsa|dss)/.test(ppkContent)) {
+    throw new Error('Could not decrypt the PPK key: wrong passphrase?');
+  }
+
+  // 2) Built-in converter (other v2 key types); its errors are not final.
   try {
     const result = convertPPKV2ToOpenSSH(ppkContent, passphrase);
     if (result) return result;
   } catch (e) {
-    if (!e.message.includes('not supported by the built-in converter')) {
-      throw e;
-    }
+    // fall through to puttygen
   }
 
   // Fall back to puttygen (handles v3 and encryption types the built-in converter doesn't support)

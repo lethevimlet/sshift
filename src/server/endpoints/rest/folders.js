@@ -20,7 +20,7 @@ function registerFolderEndpoints(app, io) {
   app.post('/api/folders', (req, res) => {
     const config = loadConfig();
     const folder = {
-      id: Date.now().toString(),
+      id: require('crypto').randomUUID(),
       name: req.body.name,
       icon: req.body.icon || 'folder',
       expanded: true
@@ -90,7 +90,11 @@ function registerFolderEndpoints(app, io) {
   // API: Save folder order
   app.post('/api/folders/order', (req, res) => {
     const config = loadConfig();
-    config.folderOrder = req.body.order;
+    const order = req.body && req.body.order;
+    if (!Array.isArray(order) || order.some(id => typeof id !== 'string' && typeof id !== 'number')) {
+      return res.status(400).json({ error: 'order must be an array of ids' });
+    }
+    config.folderOrder = order;
     if (saveConfig(config)) {
       res.json({ success: true });
     } else {
@@ -107,7 +111,15 @@ function registerFolderEndpoints(app, io) {
   // API: Save folder expanded states
   app.post('/api/folders/expanded', (req, res) => {
     const config = loadConfig();
-    config.folderExpandedStates = req.body.states;
+    const states = req.body && req.body.states;
+    if (!states || typeof states !== 'object' || Array.isArray(states)) {
+      return res.status(400).json({ error: 'states must be an object' });
+    }
+    config.folderExpandedStates = Object.fromEntries(
+      Object.entries(states)
+        .filter(([k]) => k !== '__proto__' && k !== 'constructor' && k !== 'prototype')
+        .map(([k, v]) => [k, v === true])
+    );
     if (saveConfig(config)) {
       // Broadcast to all clients
       io.emit('folder-expanded-states', { states: req.body.states });

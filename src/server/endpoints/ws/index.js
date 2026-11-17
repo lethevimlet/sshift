@@ -20,6 +20,12 @@ function registerAllWSHandlers(socket, io) {
   registerTabHandlers(socket, io);
   registerLayoutHandlers(socket, io);
   registerBookmarkHandlers(socket, io);
+  // Liveness probe: after a laptop sleep or a network change the browser
+  // can hold a dead socket that still reports "connected" for over a
+  // minute. The client asks for an ack and reconnects when none arrives.
+  socket.on('sshift-ping', (ack) => {
+    if (typeof ack === 'function') ack({ t: Date.now() });
+  });
 }
 
 /**

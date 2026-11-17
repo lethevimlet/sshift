@@ -17,7 +17,7 @@ function saveBookmark(id, data, io) {
     delete bookmark.encryptedConnection;
     bookmarks[index] = bookmark;
   } else {
-    bookmark = { id: Date.now().toString(), name: data.name, type: data.type || 'ssh' };
+    bookmark = { id: require('crypto').randomUUID(), name: data.name, type: data.type || 'ssh' };
     if (bookmark.type === 'url') {
       bookmark.url = data.url;
     } else {

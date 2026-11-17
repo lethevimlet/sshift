@@ -125,17 +125,50 @@ function getConfigPath() {
  * Load configuration from file
  * @returns {Object} Configuration object
  */
+// Last config that parsed, and whether the file on disk is currently
+// unreadable. A config that exists but cannot be parsed (hand-edit typo,
+// read racing a non-atomic external write) used to come back as the
+// defaults: passwordHash null (authentication silently OFF) and empty
+// bookmarks, which the next routine save then wrote over the real file.
+let lastGoodConfig = null;
+let configUnreadable = false;
+
 function loadConfig() {
+  let configPath;
   try {
-    const configPath = getConfigPath();
-    if (fs.existsSync(configPath)) {
-      const data = fs.readFileSync(configPath, 'utf8');
-      return JSON.parse(data);
+    configPath = getConfigPath();
+    if (!fs.existsSync(configPath)) {
+      configUnreadable = false;
+      return { ...defaultConfig };
     }
   } catch (err) {
-    console.error('Error loading config:', err);
+    console.error('Error locating config:', err);
+    return { ...defaultConfig };
   }
-  return { ...defaultConfig };
+  let lastErr = null;
+  // Two attempts: a concurrent external writer may have been mid-write.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      configUnreadable = false;
+      lastGoodConfig = parsed;
+      return JSON.parse(JSON.stringify(parsed));
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  if (!configUnreadable) {
+    console.error('[CONFIG] Cannot parse', configPath, '- keeping the last good config and refusing to save until it is fixed:', lastErr && lastErr.message);
+  }
+  configUnreadable = true;
+  if (lastGoodConfig) return JSON.parse(JSON.stringify(lastGoodConfig));
+  // Never parsed since start: fail closed (a password is required and
+  // nothing matches it) instead of opening the server.
+  return { ...defaultConfig, passwordHash: 'unreadable$config$' };
+}
+
+function isConfigUnreadable() {
+  return configUnreadable;
 }
 
 /**
@@ -145,6 +178,14 @@ function loadConfig() {
  */
 function saveConfig(config) {
   let tempPath = null;
+  if (configUnreadable) {
+    // Re-check: the file may have been fixed since.
+    loadConfig();
+    if (configUnreadable) {
+      console.error('[CONFIG] Not saving: the config file on disk is unreadable (fix or remove it first)');
+      return false;
+    }
+  }
   try {
     const configPath = getConfigPath();
     tempPath = `${configPath}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
@@ -426,6 +467,7 @@ function verifyPassword(password) {
 }
 
 function verifyPasswordAsync(password) {
+  if (typeof password !== 'string') return Promise.resolve(false);
   const config = loadConfig();
   if (!config.passwordHash) return Promise.resolve(true);
   if (!config.passwordHash.startsWith('scrypt$')) {
@@ -602,6 +644,7 @@ module.exports = {
   getCertPath,
   getKeyPath,
   getDataDir,
+  isConfigUnreadable,
   getLegacyDataDir,
   hashPassword,
   isPasswordSet,

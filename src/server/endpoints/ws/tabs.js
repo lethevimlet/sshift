@@ -52,11 +52,11 @@ function registerTabHandlers(socket, io) {
     
     // Update tab order with panel assignments
     if (data.tabs && Array.isArray(data.tabs)) {
-      setTabOrder(data.tabs.map(t => typeof t === 'string' ? t : t.sessionId));
+      setTabOrder(data.tabs.map(t => (t && typeof t === 'object') ? t.sessionId : t));
       
       // Update panel assignments in openTabs
       data.tabs.forEach(tabData => {
-        if (typeof tabData === 'object' && tabData.sessionId && tabData.panelId) {
+        if (tabData && typeof tabData === 'object' && tabData.sessionId && tabData.panelId) {
           updateTabPanel(tabData.sessionId, tabData.panelId);
         }
       });
@@ -79,11 +79,11 @@ function registerTabHandlers(socket, io) {
     
     // Update tab order with panel assignments
     if (data.tabs && Array.isArray(data.tabs) && data.tabs.length > 0) {
-      setTabOrder(data.tabs.map(t => typeof t === 'string' ? t : t.sessionId));
+      setTabOrder(data.tabs.map(t => (t && typeof t === 'object') ? t.sessionId : t));
       
       // Update panel assignments and active tabs in openTabs
       data.tabs.forEach(tabData => {
-        if (typeof tabData === 'object' && tabData.sessionId && tabData.panelId) {
+        if (tabData && typeof tabData === 'object' && tabData.sessionId && tabData.panelId) {
           updateTabPanel(tabData.sessionId, tabData.panelId);
           // Track which tab is active per panel
           if (tabData.active) {
