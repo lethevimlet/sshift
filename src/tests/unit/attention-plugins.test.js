@@ -305,7 +305,7 @@ describe('opencode-attention plugin', () => {
     expect(ctx.flashes).toHaveLength(2);
   });
 
-  test('onSessionFocus clears the flash so later episodes can flash again', () => {
+  test('onSessionFocus clears the flash; the next flash needs a new prompt', () => {
     ctx.setScreen(OC_WORKING);
     plugin.onUserInput(SID, '\r');
     jest.advanceTimersByTime(2000);
@@ -318,11 +318,35 @@ describe('opencode-attention plugin', () => {
     expect(ctx.stops).toHaveLength(1);
     expect(plugin._flashing.get(SID)).toBeUndefined();
 
-    ctx.setScreen(OC_WORKING);
+    // A repaint (resize, tab switch) looks like work but nobody prompted:
+    // no flash.
     jest.advanceTimersByTime(4000);
+    ctx.setScreen(OC_WORKING);
+    streamBurst(plugin, 2000, 4);
+    ctx.setScreen(OC_IDLE);
+    jest.advanceTimersByTime(8000);
+    expect(ctx.flashes).toHaveLength(1);
+
+    // The next prompt re-arms it.
+    plugin.onUserInput(SID, 'next question\r');
+    jest.advanceTimersByTime(2000);
+    ctx.setScreen(OC_WORKING);
+    streamBurst(plugin, 2000, 4);
     ctx.setScreen(OC_IDLE);
     jest.advanceTimersByTime(8000);
     expect(ctx.flashes).toHaveLength(2);
+  });
+
+  test('looking at the tab while the agent works still flashes when it finishes', () => {
+    ctx.setScreen(OC_WORKING);
+    plugin.onUserInput(SID, '\r');
+    jest.advanceTimersByTime(2000);
+    streamBurst(plugin, 2000, 4);
+    plugin.onSessionFocus(SID); // glanced at it mid-run
+    streamBurst(plugin, 2000, 4);
+    ctx.setScreen(OC_IDLE);
+    jest.advanceTimersByTime(8000);
+    expect(ctx.flashes).toHaveLength(1);
   });
 
   test('custom attention patterns from config still work (footer, idle only)', () => {
@@ -359,6 +383,35 @@ describe('claude-attention plugin', () => {
   afterEach(() => {
     plugin.onSessionDisconnect(SID);
     jest.useRealTimers();
+  });
+
+  test('a seen flash stays off until the next prompt (focus reports do not count)', () => {
+    ctx.setScreen(CL_WORKING);
+    plugin.onUserInput(SID, 'fix the bug\r');
+    jest.advanceTimersByTime(2000);
+    streamBurst(plugin, 3000, 6);
+    ctx.setScreen(CL_IDLE);
+    jest.advanceTimersByTime(8000);
+    expect(ctx.flashes).toHaveLength(1);
+    plugin.onSessionFocus(SID);
+
+    // Terminal focus in/out and mouse-wheel reports are not a prompt.
+    plugin.onUserInput(SID, '\x1b[I');
+    plugin.onUserInput(SID, '\x1b[<64;10;5M');
+    jest.advanceTimersByTime(4000);
+    ctx.setScreen(CL_WORKING);
+    streamBurst(plugin, 3000, 6); // TUI repaint, looks like work
+    ctx.setScreen(CL_IDLE);
+    jest.advanceTimersByTime(8000);
+    expect(ctx.flashes).toHaveLength(1);
+
+    plugin.onUserInput(SID, 'y');
+    jest.advanceTimersByTime(2000);
+    ctx.setScreen(CL_WORKING);
+    streamBurst(plugin, 3000, 6);
+    ctx.setScreen(CL_IDLE);
+    jest.advanceTimersByTime(8000);
+    expect(ctx.flashes).toHaveLength(2);
   });
 
   test('flashes once when "esc to interrupt" disappears after a run', () => {

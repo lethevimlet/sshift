@@ -209,6 +209,12 @@ class ClaudeAttentionPlugin {
         agentBytes: 0,            // agent-driven bytes in the rolling window
         agentWindowStart: 0,
         cooldownUntil: 0,
+        // Flashing is allowed only after a prompt. Seeing a flash disarms
+        // it; the next real keystroke in the session re-arms it. Without
+        // this, a TUI repaint (resize, tab switch, status refresh) looked
+        // like a new working episode and the tab flashed again although
+        // nothing was asked.
+        armed: true,
       });
     }
     return this._sessionState.get(sessionId);
@@ -266,6 +272,11 @@ class ClaudeAttentionPlugin {
   _startFlash(sessionId, { force = false } = {}) {
     const s = this._getSessionState(sessionId);
     const now = Date.now();
+    // Already seen since the last prompt: nothing new to announce.
+    if (!s.armed) {
+      s.pendingAttention = false;
+      return;
+    }
     // Suppressed for now — pendingAttention keeps it queued for a retry
     // instead of dropping the event on the floor.
     if (now < s.cooldownUntil) return;
@@ -447,8 +458,22 @@ class ClaudeAttentionPlugin {
     this._scheduleEvaluate(sessionId);
   }
 
-  onUserInput(sessionId /*, data */) {
+  // True for input the user actually typed. Terminal-generated reports
+  // (focus in/out when the tab gains or loses focus, mouse wheel/click
+  // reports) are not a prompt and must not re-arm the flash.
+  _isTypedInput(data) {
+    if (typeof data !== 'string') return !!data;
+    const rest = data
+      .replace(/\x1b\[[IO]/g, '')
+      .replace(/\x1b\[<\d+;\d+;\d+[Mm]/g, '')
+      .replace(/\x1b\[M[\s\S]{3}/g, '');
+    return rest.length > 0;
+  }
+
+  onUserInput(sessionId, data) {
     const s = this._getSessionState(sessionId);
+    if (data !== undefined && !this._isTypedInput(data)) return;
+    s.armed = true;
     s.lastUserInputAt = Date.now();
     // The user is here — stop flashing and hold off for a while. The
     // current episode is dropped as well: if the agent really is working,
@@ -461,7 +486,12 @@ class ClaudeAttentionPlugin {
   }
 
   // A client reported the user is looking at this tab.
+  // Once the result has been seen, stay quiet until the next prompt. A tab
+  // viewed while the agent is still working stays armed so the finish of
+  // that run is still announced.
   onSessionFocus(sessionId) {
+    const s = this._getSessionState(sessionId);
+    if (!s.workEpisode) s.armed = false;
     this._stopFlash(sessionId, { cooldown: true });
   }
 

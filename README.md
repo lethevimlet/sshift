@@ -233,11 +233,13 @@ SSHIFT includes built-in plugins that detect when AI coding tools are waiting fo
 
 ### OpenCode Attention
 
-Detects when [OpenCode](https://opencode.ai) is waiting for input by tracking its spinner characters (⬝ ■ ▣) and prompt patterns. When the spinner stops or a prompt appears, the tab flashes.
+Detects when [OpenCode](https://opencode.ai) finishes working (its spinner and "esc interrupt" hint disappear) and flashes the tab.
 
 ### Claude Attention
 
-Detects when [Claude Code](https://claude.ai) is waiting for input by tracking its spinner characters (⠋⠙⠹ braille patterns, ·✢✳✶✻✽) and prompt patterns like "❯", "Do you want", "Allow", and "Esc to cancel".
+Detects when [Claude Code](https://claude.ai) finishes working or shows a permission dialog ("esc to interrupt" and the spinner disappear) and flashes the tab.
+
+A flash stops as soon as you look at the tab and does not come back until you send the next prompt in that session. Turn each one on or off in **Settings → Sessions** (or **Settings → Plugins**).
 
 ### Enabling Plugins
 

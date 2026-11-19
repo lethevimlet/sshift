@@ -8048,10 +8048,38 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
           this.togglePlugin(pluginName, enabled, e.target);
         });
       });
+      this._syncAttentionToggles(plugins);
     } catch (err) {
       console.error('[SSHIFT] Error loading plugins:', err);
       pluginsList.innerHTML = '<div class="plugins-loading">Failed to load plugins</div>';
     }
+  }
+
+  // Settings → Sessions has its own switches for the two tab-flash plugins
+  // (the same setting as their cards in Settings → Plugins). They reflect
+  // the plugin list and stay hidden for a plugin the server doesn't have.
+  _syncAttentionToggles(plugins) {
+    document.querySelectorAll('.attention-plugin-toggle').forEach(toggle => {
+      const plugin = Array.isArray(plugins)
+        ? plugins.find(p => p.name === toggle.dataset.plugin && !p.missing)
+        : null;
+      const item = toggle.closest('.setting-item');
+      if (item) item.style.display = plugin ? '' : 'none';
+      toggle.checked = !!(plugin && plugin.enabled);
+      if (!toggle._attentionBound) {
+        toggle._attentionBound = true;
+        toggle.addEventListener('change', (e) => {
+          this.togglePlugin(e.target.dataset.plugin, e.target.checked, e.target);
+        });
+      }
+    });
+  }
+
+  // Keep every switch for one plugin (Sessions + Plugins cards) in step.
+  _setPluginToggleState(name, enabled) {
+    document.querySelectorAll('.plugin-toggle, .attention-plugin-toggle').forEach(toggle => {
+      if (toggle.dataset.plugin === name) toggle.checked = enabled;
+    });
   }
 
   async togglePlugin(name, enabled, toggleEl) {
@@ -8065,15 +8093,16 @@ if (keepaliveCountMaxInput && this.sshKeepaliveCountMax) {
       });
 
       if (!response.ok) {
-        toggleEl.checked = !enabled;
+        this._setPluginToggleState(name, !enabled);
         this.showToast('Failed to update plugin', 'error');
         return;
       }
 
+      this._setPluginToggleState(name, enabled);
       this.showToast(`Plugin "${name}" ${enabled ? 'enabled' : 'disabled'}`, 'success');
     } catch (err) {
       console.error('[SSHIFT] Error toggling plugin:', err);
-      toggleEl.checked = !enabled;
+      this._setPluginToggleState(name, !enabled);
       this.showToast('Failed to update plugin', 'error');
     }
   }
@@ -13787,22 +13816,51 @@ async syncTabsFromServer(...args) {
       this._armDisconnectToast();
       return;
     }
+    const engine = socket.io && socket.io.engine;
+    // "Connected" on top of a transport that is already closing or closed
+    // is dead: nothing will ever arrive on it.
+    if (engine && engine.readyState !== 'open') {
+      this._forceReconnect(reason + ', transport ' + engine.readyState);
+      return;
+    }
     // Connected on paper: prove it. Throttled unless this is a real wake.
     const now = Date.now();
     if (this._probeInFlight) return;
     if (!force && this._lastProbeAt && now - this._lastProbeAt < 15000) return;
     this._lastProbeAt = now;
     this._probeInFlight = true;
-    const engine = socket.io && socket.io.engine;
     socket.timeout(this.PROBE_TIMEOUT_MS).emit('sshift-ping', (err) => {
       this._probeInFlight = false;
       if (!err) return;
       // Only tear down the transport the probe was sent on.
       if (socket.connected && socket.io && socket.io.engine === engine) {
-        console.warn('[SSHIFT] Connection probe timed out (' + reason + '), reconnecting');
-        try { engine.close(); } catch (_) {}
+        this._forceReconnect('probe timed out, ' + reason);
       }
     });
+  }
+
+  /**
+   * Drop the current connection and dial a new one, without relying on the
+   * dead transport to cooperate. engine.close() alone is NOT enough: with
+   * packets queued (the probe itself, keystrokes typed after waking) it
+   * waits for a "drain" that a dead socket never emits, leaving the engine
+   * stuck in "closing" — the socket then claims to be connected forever and
+   * every later probe is silently dropped (v1.9.9 bug: wake was detected but
+   * the page only recovered with F5). socket.disconnect() closes the
+   * manager regardless of the engine, and connect() opens a new engine.
+   */
+  _forceReconnect(reason) {
+    const socket = this.socket;
+    if (!socket) return;
+    console.warn('[SSHIFT] Forcing a new connection (' + reason + ')');
+    const engine = socket.io && socket.io.engine;
+    this._lastKickAt = Date.now();
+    this._probeInFlight = false;
+    try { socket.disconnect(); } catch (_) {}
+    // Make sure the old transport is really gone (no stray events/timers).
+    try { if (engine && engine.transport) engine.transport.close(); } catch (_) {}
+    socket.connect();
+    this._armDisconnectToast();
   }
 
   _cancelDisconnectToast() {
